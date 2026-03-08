@@ -174,7 +174,7 @@ This plugin has been verified to work with the following apps/systems:
 
 ## Contributing
 
-> This project is heavily inspired by <https://github.com/NikDevx/homebridge-philips-air> - Since the plugin didn't work for me, I wrote a new one from scratch. The **homebridge-philips-air** was a very great help for the implementation!
+> This project is based on <https://github.com/seydx/homebridge-philipsair-platform>, which was heavily inspired by <https://github.com/NikDevx/homebridge-philips-air>. Credit for the mappable config parameters goes to <https://github.com/we5/homebridge-philipsair-platform/tree/refactor/use-config-mappings>
 
 You can contribute to this homebridge plugin in following ways:
 
