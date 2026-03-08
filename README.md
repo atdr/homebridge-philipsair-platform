@@ -1,19 +1,12 @@
 <p align="center">
-    <img src="https://github.com/atdr/homebridge-philipsair-platform/blob/master/images/logo.png" height="200">
+    <img src="https://raw.githubusercontent.com/atdr/homebridge-philipsair-platform/master/images/logo.png" height="200">
 </p>
 
 # homebridge-philipsair-platform
 
-[![npm](https://img.shields.io/npm/v/homebridge-philipsair-platform.svg?style=flat-square)](https://www.npmjs.com/package/homebridge-philipsair-platform)
-[![npm](https://img.shields.io/npm/dt/homebridge-philipsair-platform.svg?style=flat-square)](https://www.npmjs.com/package/homebridge-philipsair-platform)
+[![npm](https://img.shields.io/npm/v/@atdr/homebridge-philipsair-platform.svg?style=flat-square)](https://www.npmjs.com/package/@atdr/homebridge-philipsair-platform)
+[![npm](https://img.shields.io/npm/dt/@atdr/homebridge-philipsair-platform.svg?style=flat-square)](https://www.npmjs.com/package/@atdr/homebridge-philipsair-platform)
 [![GitHub last commit](https://img.shields.io/github/last-commit/atdr/homebridge-philipsair-platform.svg?style=flat-square)](https://github.com/atdr/homebridge-philipsair-platform)
-[![verified-by-homebridge](https://badgen.net/badge/homebridge/verified/purple)](https://github.com/homebridge/homebridge/wiki/Verified-Plugins)
-[![Discord](https://img.shields.io/discord/432663330281226270?color=728ED5&logo=discord&label=discord)](https://discord.gg/kqNCe2D)
-[![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg?style=flat-square&maxAge=2592000)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=NP4T3KASWQLD8)
-
-**Creating and maintaining Homebridge plugins consume a lot of time and effort, if you would like to share your appreciation, feel free to "Star" or donate.**
-
-[Click here](https://github.com/atdr) to review more of my plugins.
 
 ## Info
 
@@ -151,7 +144,7 @@ For a full config.json, please look at [Example Config](https://github.com/atdr/
 
 1. Use model IDs from the tested devices list below for full compatibility. For AC0850 this field is required for correct speed/key mapping.
 
-# Tested devices
+## Tested devices
 
 The following devices have been tested with this plugin and confirm that they work without problems:
 
@@ -163,7 +156,7 @@ Not yet confirmed with new configuration approach:
 
 - AC3829
 
-# Supported clients
+## Supported clients
 
 This plugin has been verified to work with the following apps/systems:
 
@@ -173,11 +166,11 @@ This plugin has been verified to work with the following apps/systems:
 - Homebridge >= v1.3.0
 - Node >= 14
 
-# TODO
+## TODO
 
 - [ ] FakeGato Support
 
-# Contributing
+## Contributing
 
 > This project is heavily inspired by <https://github.com/NikDevx/homebridge-philips-air> - Since the plugin didn't work for me, I wrote a new one from scratch. The **homebridge-philips-air** was a very great help for the implementation!
 
@@ -191,22 +184,10 @@ You can contribute to this homebridge plugin in following ways:
 
 See [CONTRIBUTING](https://github.com/atdr/homebridge-philipsair-platform/blob/master/CONTRIBUTING.md)
 
-# Troubleshooting
+## Troubleshooting
 
 If you have any issues with the plugin then you can run this plugin in debug mode, which will provide some additional information. This might be useful for debugging issues. Just open your config ui and set debug to true!
 
-# Disclaimer
+## Disclaimer
 
 All product and company names are trademarks™ or registered® trademarks of their respective holders. Use of them does not imply any affiliation with or endorsement by them.
-
-# License
-
-### MIT License
-
-Copyright (c) 2020-2021 atdr
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
