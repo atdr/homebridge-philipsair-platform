@@ -49,9 +49,10 @@ sudo pip3 install -U git+https://github.com/Peter-J/aioairctrl
 
 ## Example Config
 
-```
+### AC3829 / AC3036
+
+```json
 {
-   ...
     "platforms": [
         {
             "platform": "PhilipsAirPlatform",
@@ -80,7 +81,42 @@ sudo pip3 install -U git+https://github.com/Peter-J/aioairctrl
         }
     ]
 }
+```
 
+### AC0850
+
+```json
+{
+    "platforms": [
+        {
+            "platform": "PhilipsAirPlatform",
+            "name": "PhilipsAirPlatform",
+            "debug": false,
+            "warn": true,
+            "error": true,
+            "extendedError": true,
+            "devices": [
+                {
+                    "active": true,
+                    "name": "Air Purifier",
+                    "manufacturer": "Philips",
+                    "model": "AC0850",
+                    "serialNumber": "000000",
+                    "host": "192.168.1.142",
+                    "humidifier": false,
+                    "light": false,
+                    "temperature": false,
+                    "humidity": false,
+                    "sleepSpeed": false,
+                    "allergicFunc": false,
+                    "preFilter": false,
+                    "carbonFilter": false,
+                    "hepaFilter": true
+                }
+            ]
+        }
+    ]
+}
 ```
 
 | Fields           | Description                                                  | Default                | Required |
