@@ -17,6 +17,9 @@ const Config = (deviceConfig) => {
     humidifier: deviceConfig.humidifier || false,
     allergicFunc: deviceConfig.allergicFunc || false,
     sleepSpeed: deviceConfig.sleepSpeed || false,
+    preFilter: deviceConfig.preFilter || false,
+    carbonFilter: deviceConfig.carbonFilter || false,
+    hepaFilter: deviceConfig.hepaFilter || false,
   };
 };
 

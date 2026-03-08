@@ -80,18 +80,39 @@ class Accessory {
     }
 
     //Service.FilterMaintenance [Pre-Filter]
-    if (!this.accessory.getService('Pre Filter')) {
-      this.accessory.addService(this.api.hap.Service.FilterMaintenance, 'Pre Filter', 'Pre Filter');
+    if (this.accessory.context.config.preFilter) {
+      if (!this.accessory.getService('Pre Filter')) {
+        this.accessory.addService(this.api.hap.Service.FilterMaintenance, 'Pre Filter', 'Pre Filter');
+      }
+    } else {
+      const service = this.accessory.getService('Pre Filter');
+      if (service) {
+        this.accessory.removeService(service);
+      }
     }
 
     //Service.FilterMaintenance [Active carbon filter]
-    if (!this.accessory.getService('Active carbon filter')) {
-      this.accessory.addService(this.api.hap.Service.FilterMaintenance, 'Active carbon filter', 'Active carbon filter');
+    if (this.accessory.context.config.carbonFilter) {
+      if (!this.accessory.getService('Active carbon filter')) {
+        this.accessory.addService(this.api.hap.Service.FilterMaintenance, 'Active carbon filter', 'Active carbon filter');
+      }
+    } else {
+      const service = this.accessory.getService('Active carbon filter');
+      if (service) {
+        this.accessory.removeService(service);
+      }
     }
 
     //Service.FilterMaintenance [HEPA filter]
-    if (!this.accessory.getService('HEPA filter')) {
-      this.accessory.addService(this.api.hap.Service.FilterMaintenance, 'HEPA filter', 'HEPA filter');
+    if (this.accessory.context.config.hepaFilter) {
+      if (!this.accessory.getService('HEPA filter')) {
+        this.accessory.addService(this.api.hap.Service.FilterMaintenance, 'HEPA filter', 'HEPA filter');
+      }
+    } else {
+      const service = this.accessory.getService('HEPA filter');
+      if (service) {
+        this.accessory.removeService(service);
+      }
     }
 
     //Service.HumidifierDehumidifier
