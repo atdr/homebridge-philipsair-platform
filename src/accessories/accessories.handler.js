@@ -29,7 +29,28 @@ class Handler {
     }
 
     if (this.accessory.context.config.model == 'AC1715') {
-      this.speeds = [{ mode: 'Sleep' }, { mode: "Auto General" }, { mode: "Gentle/Speed 1" }, { mode: "Speed 2" }, { mode: 'Turbo' }];
+      this.speeds = [
+        { mode: 'Sleep' },
+        { mode: 'Auto General' },
+        { mode: 'Gentle/Speed 1' },
+        { mode: 'Speed 2' },
+        { mode: 'Turbo' },
+      ];
+    }
+
+    if (this.accessory.context.config.model == 'AC0850') {
+      this.speeds = [
+        { D0310A: 2, D0310C: 17 },
+        { D0310A: 2, D0310C: 0 },
+        { D0310A: 3, D0310C: 18 },
+      ];
+      this.keyMaps = {
+        pwr: 'D03102',
+        iaql: 'D03120',
+        pm25: 'D03221',
+        fltsts1: 'D0540E',
+        flttotal1: 'D05408',
+      };
     }
 
     if (this.accessory.context.config.model == 'AC1715') {
@@ -57,7 +78,7 @@ class Handler {
           OFF: 0,
           ON: 1,
           0: 'OFF',
-          1: 'ON'
+          1: 'ON',
         },
       };
     }
@@ -103,8 +124,6 @@ class Handler {
     value = this.valueMaps[key] ? this.valueMaps[key][value] : value;
     key = this.keyMaps[key] || key;
     logger.debug(`${key}=${value}`, this.accessory.displayName);
-
-
 
     if (typeof value === 'string' && value.includes(' ')) {
       return `${key}="${value}"`;
