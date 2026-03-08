@@ -1,12 +1,12 @@
 /**
  * v1
  *
- * @url https://github.com/SeydX/homebridge-philipsair-platform
- * @author SeydX <seydx@outlook.de>
+ * @url https://github.com/atdr/homebridge-philipsair-platform
+ * @author atdr <andreas@atdr.uk>
  *
  **/
 
 module.exports = (homebridge) => {
   const PhilipsAirPlatform = require('./src/platform')(homebridge);
-  homebridge.registerPlatform('homebridge-philipsair-platform', 'PhilipsAirPlatform', PhilipsAirPlatform, true);
+  homebridge.registerPlatform('@atdr/homebridge-philipsair-platform', 'PhilipsAirPlatform', PhilipsAirPlatform, true);
 };
