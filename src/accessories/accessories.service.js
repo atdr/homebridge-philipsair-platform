@@ -81,8 +81,16 @@ class Accessory {
 
     //Service.FilterMaintenance [Pre-Filter]
     if (this.accessory.context.config.preFilter) {
-      if (!this.accessory.getService('Pre Filter')) {
-        this.accessory.addService(this.api.hap.Service.FilterMaintenance, 'Pre Filter', 'Pre Filter');
+      let preFilterService = this.accessory.getService('Pre Filter');
+      if (!preFilterService) {
+        preFilterService = this.accessory.addService(
+          this.api.hap.Service.FilterMaintenance,
+          'Pre Filter',
+          'Pre Filter'
+        );
+      }
+      if (!preFilterService.testCharacteristic(this.api.hap.Characteristic.FilterLifeLevel)) {
+        preFilterService.addCharacteristic(this.api.hap.Characteristic.FilterLifeLevel);
       }
     } else {
       const service = this.accessory.getService('Pre Filter');
@@ -93,8 +101,16 @@ class Accessory {
 
     //Service.FilterMaintenance [Active carbon filter]
     if (this.accessory.context.config.carbonFilter) {
-      if (!this.accessory.getService('Active carbon filter')) {
-        this.accessory.addService(this.api.hap.Service.FilterMaintenance, 'Active carbon filter', 'Active carbon filter');
+      let carbonFilterService = this.accessory.getService('Active carbon filter');
+      if (!carbonFilterService) {
+        carbonFilterService = this.accessory.addService(
+          this.api.hap.Service.FilterMaintenance,
+          'Active carbon filter',
+          'Active carbon filter'
+        );
+      }
+      if (!carbonFilterService.testCharacteristic(this.api.hap.Characteristic.FilterLifeLevel)) {
+        carbonFilterService.addCharacteristic(this.api.hap.Characteristic.FilterLifeLevel);
       }
     } else {
       const service = this.accessory.getService('Active carbon filter');
@@ -105,8 +121,16 @@ class Accessory {
 
     //Service.FilterMaintenance [HEPA filter]
     if (this.accessory.context.config.hepaFilter) {
-      if (!this.accessory.getService('HEPA filter')) {
-        this.accessory.addService(this.api.hap.Service.FilterMaintenance, 'HEPA filter', 'HEPA filter');
+      let hepaFilterService = this.accessory.getService('HEPA filter');
+      if (!hepaFilterService) {
+        hepaFilterService = this.accessory.addService(
+          this.api.hap.Service.FilterMaintenance,
+          'HEPA filter',
+          'HEPA filter'
+        );
+      }
+      if (!hepaFilterService.testCharacteristic(this.api.hap.Characteristic.FilterLifeLevel)) {
+        hepaFilterService.addCharacteristic(this.api.hap.Characteristic.FilterLifeLevel);
       }
     } else {
       const service = this.accessory.getService('HEPA filter');
