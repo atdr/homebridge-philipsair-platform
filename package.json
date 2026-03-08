@@ -1,7 +1,7 @@
 {
   "name": "@atdr/homebridge-philipsair-platform",
   "displayName": "Philips Air+ Platform",
-  "version": "3.1.0",
+  "version": "1.1.0",
   "description": "Homebridge plugin for Philips air purifiers and humidifiers. Supports AC3036, AC1715, AC0850 and more.",
   "author": "atdr (https://github.com/atdr/homebridge-philipsair-platform)",
   "scripts": {
