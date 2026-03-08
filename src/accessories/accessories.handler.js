@@ -43,7 +43,7 @@ class Handler {
       this.speeds = [
         { D0310A: 2, D0310C: 17 },
         { D0310A: 2, D0310C: 0 },
-        { D0310A: 3, D0310C: 18 },
+        { D0310A: 2, D0310C: 18 },
       ];
       this.keyMaps = {
         pwr: 'D03102',
