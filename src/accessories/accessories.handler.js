@@ -15,6 +15,7 @@ class Handler {
     this.obj = {};
     this.keyMaps = {};
     this.valueMaps = {};
+    this.extraSetFlags = [];
     this.speeds = [{ om: '1' }, { om: '2' }, { om: 't' }];
 
     // FIXME: Sleep speed is likely to be removed with new config approach
@@ -51,6 +52,7 @@ class Handler {
         fltsts1: 'D0540E',
         flttotal1: 'D05408',
       };
+      this.extraSetFlags = ['-I'];
     }
 
     if (this.accessory.context.config.model == 'AC1715') {
@@ -153,7 +155,7 @@ class Handler {
       const stateNumber = state ? 1 : 0;
 
       const args = [...this.args];
-      args.push('set', `${this.handleCommand('pwr', stateNumber)}`);
+      args.push('set', ...this.extraSetFlags, `${this.handleCommand('pwr', stateNumber)}`);
 
       this.purifierService.updateCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState, stateNumber * 2);
 
@@ -178,7 +180,7 @@ class Handler {
       }
 
       const args = [...this.args];
-      args.push('set', `${this.handleCommand('mode', values.mode)}`);
+      args.push('set', ...this.extraSetFlags, `${this.handleCommand('mode', values.mode)}`);
 
       logger.info(`Purifier Mode: ${state}`, this.accessory.displayName);
 
@@ -196,7 +198,7 @@ class Handler {
       };
 
       const args = [...this.args];
-      args.push('set', `${this.handleCommand('cl', values.cl)}`);
+      args.push('set', ...this.extraSetFlags, `${this.handleCommand('cl', values.cl)}`);
 
       logger.info(`Lock: ${state}`, this.accessory.displayName);
 
@@ -220,7 +222,7 @@ class Handler {
         Object.entries(this.speeds[speed - 1]).forEach(([cmd, value]) => {
           cmds.push(`${this.handleCommand(cmd, value)}`);
         });
-        args.push('set', cmds.join(' '));
+        args.push('set', ...this.extraSetFlags, ...cmds);
 
         logger.info(`Purifier Rotation Speed: cmds: ${cmds.join(' ')}`, this.accessory.displayName);
 
@@ -277,7 +279,7 @@ class Handler {
       }
 
       const args = [...this.args];
-      args.push('set', `${this.handleCommand('func', values.func)}`);
+      args.push('set', ...this.extraSetFlags, `${this.handleCommand('func', values.func)}`);
 
       logger.info(`Humidifier Active: ${state}`, this.accessory.displayName);
 
@@ -338,8 +340,8 @@ class Handler {
       const args1 = [...this.args];
       const args2 = [...this.args];
 
-      args1.push('set', `${this.handleCommand('func', values.func)}`);
-      args2.push('set', `${this.handleCommand('rhset', values.rhset)}`, '-I');
+      args1.push('set', ...this.extraSetFlags, `${this.handleCommand('func', values.func)}`);
+      args2.push('set', ...this.extraSetFlags, `${this.handleCommand('rhset', values.rhset)}`, '-I');
 
       logger.info(`Humidifier State: ${state}`, this.accessory.displayName);
 
@@ -373,8 +375,8 @@ class Handler {
       const args1 = [...this.args];
       const args2 = [...this.args];
 
-      args1.push('set', `${this.handleCommand('aqil', values.aqil)}`, '-I');
-      args2.push('set', `${this.handleCommand('uil', values.uil)}`);
+      args1.push('set', ...this.extraSetFlags, `${this.handleCommand('aqil', values.aqil)}`, '-I');
+      args2.push('set', ...this.extraSetFlags, `${this.handleCommand('uil', values.uil)}`);
 
       logger.info(`Light state: ${state}`, this.accessory.displayName);
 
@@ -405,8 +407,8 @@ class Handler {
       const args1 = [...this.args];
       const args2 = [...this.args];
 
-      args1.push('set', `${this.handleCommand('aqil', values.aqil)}`, '-I');
-      args2.push('set', `${this.handleCommand('uil', values.uil)}`);
+      args1.push('set', ...this.extraSetFlags, `${this.handleCommand('aqil', values.aqil)}`, '-I');
+      args2.push('set', ...this.extraSetFlags, `${this.handleCommand('uil', values.uil)}`);
 
       logger.info(`Brightness: ${value}`, this.accessory.displayName);
 
