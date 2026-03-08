@@ -527,7 +527,7 @@ class Handler {
         }
       }
 
-      if (this.preFilterService) {
+      if (this.preFilterService && this.obj.fltsts0 !== undefined) {
         const fltsts0change = this.obj.fltsts0 == 0;
         const fltsts0maxlife = this.obj.flttotal0 ? this.obj.flttotal0 : 360;
         const fltsts0life = (this.obj.fltsts0 / fltsts0maxlife) * 100;
@@ -537,7 +537,7 @@ class Handler {
           .updateCharacteristic(this.api.hap.Characteristic.FilterLifeLevel, fltsts0life);
       }
 
-      if (this.carbonFilterService) {
+      if (this.carbonFilterService && this.obj.fltsts2 !== undefined) {
         const fltsts2change = this.obj.fltsts2 == 0;
         const fltsts2maxlife = this.obj.flttotal2 ? this.obj.flttotal2 : 4800;
         const fltsts2life = (this.obj.fltsts2 / fltsts2maxlife) * 100;
@@ -547,7 +547,7 @@ class Handler {
           .updateCharacteristic(this.api.hap.Characteristic.FilterLifeLevel, fltsts2life);
       }
 
-      if (this.hepaFilterService) {
+      if (this.hepaFilterService && this.obj.fltsts1 !== undefined) {
         const fltsts1change = this.obj.fltsts1 == 0;
         const fltsts1maxlife = this.obj.flttotal1 ? this.obj.flttotal1 : 4800;
         const fltsts1life = (this.obj.fltsts1 / fltsts1maxlife) * 100;
