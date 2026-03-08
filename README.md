@@ -22,22 +22,24 @@ This plugin supports following functions:
 
 ## Installation
 
-After [Homebridge](https://github.com/nfarina/homebridge) has been installed:
+After [Homebridge](https://github.com/homebridge/homebridge) has been installed:
 
-```
-sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
-```
+1. Install Python 3 and pip (required for device communication):
 
-The plugin uses a library based on `python3`. To use the plugin, Python/Pip must be installed!
-
-```
+```bash
 sudo apt install python3-pip git
 ```
 
-You also need the `aioairctrl` module from [Peter-J](https://github.com/Peter-J/aioairctrl)
+1. Install the [`aioairctrl`](https://pypi.org/project/aioairctrl/) Python module:
 
+```bash
+sudo pip install aioairctrl
 ```
-sudo pip3 install -U git+https://github.com/Peter-J/aioairctrl
+
+1. Install this plugin:
+
+```bash
+sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
 ```
 
 ## Example Config

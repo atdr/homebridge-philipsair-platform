@@ -9,7 +9,6 @@
     "watch": "npm run build && npm link && nodemon",
     "build": "rimraf ./dist",
     "test": "",
-    "postinstall": "pip3 install aioairctrl",
     "prepublishOnly": "npm i --package-lock-only && npm audit fix && npm run lint"
   },
   "main": "index.js",
