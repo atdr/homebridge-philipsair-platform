@@ -23,9 +23,12 @@ The runtime flow is:
 - `src/utils/` — `logger.js` (singleton logger) and `utils.js` (`generateConfig`).
 
 **Key gotcha:** device communication is not pure JavaScript. `accessories.handler.js`
-shells out via Node's `child_process` (`exec`/`spawn`) to `lib/pyaircontrol.py`, a
-Python 3 client for the encrypted Philips CoAP protocol. Python 3 must be available on
-the host, and changes to device I/O may span both the JS handler and the Python script.
+shells out via Node's `child_process` (`exec`/`spawn`) to `lib/pyaircontrol.py`. That
+script is a thin wrapper around [`aioairctrl`](https://pypi.org/project/aioairctrl/),
+the pip package that implements the encrypted Philips CoAP protocol. Python 3 and
+`aioairctrl` (via `pip install aioairctrl`) must be available on the host, and changes
+to device I/O may span the JS handler, the Python wrapper, and the third-party
+`aioairctrl` package (whose behaviour this repo does not control).
 
 User-facing config surface: `config.schema.json` (Homebridge UI schema) and
 `example-config.json`.
@@ -60,8 +63,7 @@ it can be reviewed and reverted independently.
 (`@commitlint/config-conventional`) both in CI and locally via a husky `commit-msg` hook;
 PR titles will be checked with the same rules; and releases (version bumps + changelog)
 will be automated with release-please, driving a minor bump from `feat` and a patch from
-`fix`. This mirrors `temp/.github/workflows/{ci,pr-title,release-please}.yml`, which are
-the blueprint for that work.
+`fix`.
 
 ## Quality checks
 
@@ -71,10 +73,16 @@ Run **today** before opening a PR:
 npm run lint    # eslint --fix . (also applies Prettier via plugin:prettier/recommended)
 ```
 
+Note that `npm run lint` **rewrites files** (it runs eslint with `--fix`), so expect it
+to leave changes in the working tree; include them in your commit. There are currently
+**no tests**: `npm test` is an empty script that exits successfully without testing
+anything, so do not treat it as verification. `npm run build` only deletes `dist/` and
+builds nothing.
+
 **Planned (later phase):** a five-gate set will run in CI and should be run locally once
 the scripts exist — `npm run typecheck`, `npm run lint`, `npm run format:check`,
-`npm run check` (syntax check), and `npm run test`. See `temp/.github/workflows/ci.yml`
-for the target. These scripts do not exist yet; do not attempt to run them until they do.
+`npm run check` (syntax check), and `npm run test`. These scripts do not exist yet; do
+not attempt to run them until they do.
 
 ## Logging
 
@@ -106,6 +114,7 @@ and setup steps may only reference files that exist in the repo.
 configuration. When adding, changing, or removing a config option, update both, and keep
 the README example configs consistent with them.
 
-**`CHANGELOG.md`** — currently maintained by hand (and add an entry for any user-facing
-change). **Planned (later phase):** this file will be superseded by release-please, which
-generates it from commit history.
+**`CHANGELOG.md`** — maintained by hand for now; add an entry for any user-facing
+change. **Planned (later phase):** release-please will take over, prepending generated
+entries above the existing hand-written ones (one reason commit messages must follow the
+conventional format). Do not restructure the existing entries in the meantime.
