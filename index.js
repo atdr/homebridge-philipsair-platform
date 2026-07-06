@@ -6,6 +6,8 @@
  *
  **/
 
+'use strict';
+
 module.exports = (homebridge) => {
   const PhilipsAirPlatform = require('./src/platform')(homebridge);
   homebridge.registerPlatform('@atdr/homebridge-philipsair-platform', 'PhilipsAirPlatform', PhilipsAirPlatform, true);
