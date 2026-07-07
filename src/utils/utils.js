@@ -12,12 +12,9 @@ exports.generateConfig = (config) => {
   };
 };
 
-exports.validIP = (ip) => {
-  if (
-    /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(
-      ip
-    )
-  ) {
-    return ip;
+//IP address or hostname; resolution is left to the aioairctrl CLI
+exports.validHost = (host) => {
+  if (typeof host === 'string' && host.trim()) {
+    return host.trim();
   }
 };

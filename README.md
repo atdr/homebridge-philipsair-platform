@@ -131,7 +131,7 @@ sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
 | **devices**    | Array of Philips air purifiers.                             |                        | Yes      |
 | - active       | Set `true` to expose the device. Inactive ones are skipped. | `false`                | No       |
 | - name         | Unique name of your device.                                 |                        | Yes      |
-| - **host**     | Host/IP address of your device.                             |                        | Yes      |
+| - **host**     | IP address or hostname of your device.                      |                        | Yes      |
 | - port         | Port of your device.                                        | `5683`                 | No       |
 | - manufacturer | Set the manufacturer name for display in the Home app.      | `"Philips"`            | No       |
 | - model        | Set the model for display in the Home app.                  | `"Air Purifier"`       | No *1    |

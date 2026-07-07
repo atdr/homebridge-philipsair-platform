@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
 
-const { generateConfig, validIP } = require('../src/utils/utils');
+const { generateConfig, validHost } = require('../src/utils/utils');
 
 describe('generateConfig', () => {
   it('applies defaults for an empty config', () => {
@@ -37,17 +37,21 @@ describe('generateConfig', () => {
   });
 });
 
-describe('validIP', () => {
-  it('returns valid IPv4 addresses unchanged', () => {
-    assert.equal(validIP('192.168.1.142'), '192.168.1.142');
-    assert.equal(validIP('10.0.0.1'), '10.0.0.1');
-    assert.equal(validIP('255.255.255.255'), '255.255.255.255');
+describe('validHost', () => {
+  it('accepts IP addresses and hostnames', () => {
+    assert.equal(validHost('192.168.1.142'), '192.168.1.142');
+    assert.equal(validHost('purifier.local'), 'purifier.local');
+    assert.equal(validHost('my-purifier'), 'my-purifier');
   });
 
-  it('returns undefined for invalid addresses', () => {
-    assert.equal(validIP('256.1.1.1'), undefined);
-    assert.equal(validIP('purifier.local'), undefined);
-    assert.equal(validIP(''), undefined);
-    assert.equal(validIP('192.168.1'), undefined);
+  it('trims surrounding whitespace', () => {
+    assert.equal(validHost(' purifier.local '), 'purifier.local');
+  });
+
+  it('returns undefined for empty or non-string values', () => {
+    assert.equal(validHost(''), undefined);
+    assert.equal(validHost('   '), undefined);
+    assert.equal(validHost(undefined), undefined);
+    assert.equal(validHost(42), undefined);
   });
 });

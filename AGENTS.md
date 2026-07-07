@@ -22,7 +22,7 @@ The runtime flow is:
   - `accessories.models.js` — per-model speed/key/value maps (pure data).
   - `index.js` — barrel export.
 - `src/utils/` — `logger.js` (singleton logger) and `utils.js` (`generateConfig`,
-  `validIP`).
+  `validHost`).
 
 **Key gotcha:** device communication is not pure JavaScript. `accessories.handler.js`
 runs the [`aioairctrl`](https://pypi.org/project/aioairctrl/) CLI (the pip package that

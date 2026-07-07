@@ -90,9 +90,8 @@
               "title": "Host Address",
               "type": "string",
               "required": true,
-              "format": "ipv4",
               "placeholder": "10.0.1.16",
-              "description": "IP address of your device.",
+              "description": "IP address or hostname of your device, e.g. 10.0.1.16 or purifier.local.",
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               }

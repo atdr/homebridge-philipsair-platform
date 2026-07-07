@@ -29,8 +29,13 @@ describe('accessories.config', () => {
     });
   });
 
-  it('drops invalid host addresses', () => {
-    const device = Config({ name: 'Purifier', host: 'not-an-ip' });
+  it('accepts hostnames as host', () => {
+    const device = Config({ name: 'Purifier', host: 'purifier.local' });
+    assert.equal(device.host, 'purifier.local');
+  });
+
+  it('drops empty hosts', () => {
+    const device = Config({ name: 'Purifier', host: ' ' });
     assert.equal(device.host, undefined);
   });
 
