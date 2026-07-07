@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="https://raw.githubusercontent.com/atdr/homebridge-philipsair-platform/master/images/logo.png" height="200">
+    <img src="https://raw.githubusercontent.com/atdr/homebridge-philipsair-platform/main/images/logo.png" alt="Plugin logo" height="200">
 </p>
 
 # homebridge-philipsair-platform
@@ -24,17 +24,23 @@ This plugin supports following functions:
 
 After [Homebridge](https://github.com/homebridge/homebridge) has been installed:
 
-1. Install Python 3 and pip (required for device communication):
+1. Install Python 3 and pip (required for device communication). On Debian/Ubuntu:
 
 ```bash
-sudo apt install python3-pip git
+sudo apt install python3 python3-pip
 ```
 
-1. Install the [`aioairctrl`](https://pypi.org/project/aioairctrl/) Python module:
+1. Install the [`aioairctrl`](https://pypi.org/project/aioairctrl/) Python module into the system Python. On Debian 12+, Ubuntu 23.04+, and Raspberry Pi OS Bookworm or later:
 
 ```bash
-sudo pip install aioairctrl
+sudo python3 -m pip install --break-system-packages aioairctrl
 ```
+
+On older systems, where pip does not enforce PEP 668 yet, a plain `sudo pip3 install aioairctrl` works too.
+
+> **Warning:** installing `aioairctrl` with **pipx or inside a virtual environment will not work**. The plugin runs the system `python3` and imports the `aioairctrl` module directly, so isolated installs are invisible to it, even though the `aioairctrl` command works in your shell. See [#1](https://github.com/atdr/homebridge-philipsair-platform/issues/1) for the planned fix.
+>
+> The latest `aioairctrl` requires Python 3.12 or newer; on older Python versions pip will fall back to an older `aioairctrl` release.
 
 1. Install this plugin:
 
@@ -121,9 +127,9 @@ sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
 | debug            | Enables additional output (debug) in the log.                | `false`                | No       |
 | warn             | Enables additional output (warn) in the log.                 | `true`                 | No       |
 | error            | Enables additional output (error) in the log.                | `true`                 | No       |
-| extendedError    | Enables additional output (detailed debug) in the log.       | `true`                 | No       |
+| extendedError    | Enables additional output (detailed error) in the log.       | `true`                 | No       |
 | **devices**      | Array of Philips air purifiers.                              |                        | Yes      |
-|- active          | Whether the device is active and should be used              |                        | Yes      |
+|- active          | Set `true` to expose the device. Inactive ones are skipped.  | `false`                | No       |
 |- name            | Unique name of your device.                                  |                        | Yes      |
 |- **host**        | Host/IP address of your device.                              |                        | Yes      |
 |- port            | Port of your device.                                         | `5683`                 | No       |
@@ -140,7 +146,7 @@ sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
 |- carbonFilter    | Expose active carbon filter status to HomeKit.               | `false`                | No       |
 |- hepaFilter      | Expose HEPA/NanoProtect filter status to HomeKit.            | `false`                | No       |
 
-For a full config.json, please look at [Example Config](https://github.com/atdr/homebridge-philipsair-platform/blob/master/example-config.json) for more details.
+For a full config.json, please look at [Example Config](https://github.com/atdr/homebridge-philipsair-platform/blob/main/example-config.json) for more details.
 
 ## Notes
 
@@ -165,11 +171,12 @@ This plugin has been verified to work with the following apps/systems:
 - iOS > 13
 - Apple Home
 - All 3rd party apps like Elgato Eve etc
-- Homebridge >= v1.3.0
-- Node >= 14
+- Homebridge v1.8 or later (including the v2.0 beta)
+- Node v20.18, v22.10, or v24 (matching the `engines` field in package.json)
 
 ## TODO
 
+- [ ] Invoke the `aioairctrl` CLI directly instead of importing the module via `python3`, so pipx/venv installs work ([#1](https://github.com/atdr/homebridge-philipsair-platform/issues/1))
 - [ ] FakeGato Support
 
 ## Contributing
@@ -184,11 +191,19 @@ You can contribute to this homebridge plugin in following ways:
 - Contribute changes to extend the capabilities
 - Pull requests are accepted.
 
-See [CONTRIBUTING](https://github.com/atdr/homebridge-philipsair-platform/blob/master/CONTRIBUTING.md)
+See [CONTRIBUTING](https://github.com/atdr/homebridge-philipsair-platform/blob/main/CONTRIBUTING.md)
 
 ## Troubleshooting
 
 If you have any issues with the plugin then you can run this plugin in debug mode, which will provide some additional information. This might be useful for debugging issues. Just open your config ui and set debug to true!
+
+### ModuleNotFoundError: No module named 'aioairctrl'
+
+The `aioairctrl` module is not importable by the system `python3`. This typically happens when it was installed with pipx or inside a virtual environment, which the plugin cannot see ([#1](https://github.com/atdr/homebridge-philipsair-platform/issues/1)). Reinstall it into the system interpreter:
+
+```bash
+sudo python3 -m pip install --break-system-packages aioairctrl
+```
 
 ## Disclaimer
 

@@ -1,4 +1,4 @@
-'use-strict';
+'use strict';
 
 const logger = require('../utils/logger');
 const { UUIDgenerate } = require('../utils/utils');
