@@ -12,6 +12,7 @@ describe('generateConfig', () => {
   it('applies defaults for an empty config', () => {
     assert.deepEqual(generateConfig({}), {
       name: 'PhilipsAirPlatform',
+      aioairctrlPath: '',
       debug: false,
       warn: true,
       error: true,

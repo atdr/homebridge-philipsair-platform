@@ -11,6 +11,7 @@
     {
       "platform": "PhilipsAirPlatform",
       "name": "PhilipsAirPlatform",
+      "aioairctrlPath": "",
       "debug": false,
       "warn": true,
       "error": true,

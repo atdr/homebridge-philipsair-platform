@@ -94,6 +94,7 @@ PhilipsAirPlatform.prototype = {
 
     accessory.context.config = device;
     accessory.context.config.debug = this.config.debug;
+    accessory.context.config.aioairctrlPath = this.config.aioairctrlPath;
 
     const handler = new AccessoriesHandler(this.api, accessory);
 

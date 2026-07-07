@@ -24,23 +24,21 @@ This plugin supports following functions:
 
 After [Homebridge](https://github.com/homebridge/homebridge) has been installed:
 
-1. Install Python 3 and pip (required for device communication). On Debian/Ubuntu:
+1. Install Python 3 and pipx (required for device communication). On Debian/Ubuntu:
 
 ```bash
-sudo apt install python3 python3-pip
+sudo apt install python3 pipx
 ```
 
-1. Install the [`aioairctrl`](https://pypi.org/project/aioairctrl/) Python module into the system Python. On Debian 12+, Ubuntu 23.04+, and Raspberry Pi OS Bookworm or later:
+1. Install the [`aioairctrl`](https://pypi.org/project/aioairctrl/) CLI **as the user that runs Homebridge** (the plugin invokes the `aioairctrl` executable):
 
 ```bash
-sudo python3 -m pip install --break-system-packages aioairctrl
+pipx install aioairctrl
 ```
 
-On older systems, where pip does not enforce PEP 668 yet, a plain `sudo pip3 install aioairctrl` works too.
+Any other install method works too (`pip install --user`, a virtualenv, `sudo python3 -m pip install --break-system-packages aioairctrl`, ...) as long as the `aioairctrl` command is available. If the executable is not on the PATH of the user running Homebridge — common with pipx, which installs to `~/.local/bin` — set the `aioairctrlPath` platform option to its full path, e.g. `/home/pi/.local/bin/aioairctrl`.
 
-> **Warning:** installing `aioairctrl` with **pipx or inside a virtual environment will not work**. The plugin runs the system `python3` and imports the `aioairctrl` module directly, so isolated installs are invisible to it, even though the `aioairctrl` command works in your shell. See [#1](https://github.com/atdr/homebridge-philipsair-platform/issues/1) for the planned fix.
->
-> The latest `aioairctrl` requires Python 3.12 or newer; on older Python versions pip will fall back to an older `aioairctrl` release.
+> The latest `aioairctrl` requires Python 3.12 or newer; on older Python versions pip/pipx will fall back to an older `aioairctrl` release.
 
 1. Install this plugin:
 
@@ -124,6 +122,7 @@ sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
 | -------------- | ----------------------------------------------------------- | ---------------------- | -------- |
 | **platform**   | Must always be `PhilipsAirPlatform`.                        | `"PhilipsAirPlatform"` | Yes      |
 | name           | For logging purposes.                                       | `"PhilipsAirPlatform"` | No       |
+| aioairctrlPath | Full path to the `aioairctrl` executable, if not on PATH.   | `"aioairctrl"`         | No       |
 | debug          | Enables additional output (debug) in the log.               | `false`                | No       |
 | warn           | Enables additional output (warn) in the log.                | `true`                 | No       |
 | error          | Enables additional output (error) in the log.               | `true`                 | No       |
@@ -176,7 +175,6 @@ This plugin has been verified to work with the following apps/systems:
 
 ## TODO
 
-- [ ] Invoke the `aioairctrl` CLI directly instead of importing the module via `python3`, so pipx/venv installs work ([#1](https://github.com/atdr/homebridge-philipsair-platform/issues/1))
 - [ ] FakeGato Support
 
 ## Contributing
@@ -197,13 +195,9 @@ See [CONTRIBUTING](https://github.com/atdr/homebridge-philipsair-platform/blob/m
 
 If you have any issues with the plugin then you can run this plugin in debug mode, which will provide some additional information. This might be useful for debugging issues. Just open your config ui and set debug to true!
 
-### ModuleNotFoundError: No module named 'aioairctrl'
+### aioairctrl not found
 
-The `aioairctrl` module is not importable by the system `python3`. This typically happens when it was installed with pipx or inside a virtual environment, which the plugin cannot see ([#1](https://github.com/atdr/homebridge-philipsair-platform/issues/1)). Reinstall it into the system interpreter:
-
-```bash
-sudo python3 -m pip install --break-system-packages aioairctrl
-```
+The plugin could not run the `aioairctrl` executable. Check that it is installed for the user that runs Homebridge (`sudo -u homebridge aioairctrl --help`, adjusting the username to your setup). If the command only works for another user or lives outside the PATH — pipx installs to `~/.local/bin` — set the `aioairctrlPath` platform option to the full path reported by `which aioairctrl`.
 
 ## Disclaimer
 

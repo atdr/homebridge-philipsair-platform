@@ -5,6 +5,7 @@ const crypto = require('crypto');
 exports.generateConfig = (config) => {
   return {
     name: config.name || 'PhilipsAirPlatform',
+    aioairctrlPath: config.aioairctrlPath || '',
     debug: config.debug || false,
     warn: config.warn !== false,
     error: config.error !== false,

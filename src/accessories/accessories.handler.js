@@ -1,7 +1,6 @@
 'use strict';
 
-const path = require('path');
-const { exec, spawn } = require('child_process');
+const { execFile, spawn } = require('child_process');
 
 const logger = require('../utils/logger');
 
@@ -85,24 +84,29 @@ class Handler {
       };
     }
 
+    this.binary = this.accessory.context.config.aioairctrlPath || 'aioairctrl';
     this.args = [
-      'python3',
-      `${path.resolve(__dirname, '../../')}/lib/pyaircontrol.py`,
       '-H',
       this.accessory.context.config.host,
       '-P',
-      this.accessory.context.config.port,
+      String(this.accessory.context.config.port),
       this.accessory.context.config.debug ? '-D' : '',
     ].filter((cmd) => cmd);
   }
 
+  missingBinaryError() {
+    return new Error(
+      `${this.binary} not found. Install it with 'pipx install aioairctrl' and make sure the Homebridge user can run it, or set 'aioairctrlPath' in the platform config to its full path (see README).`
+    );
+  }
+
   sendCMD(args) {
-    logger.debug(`CMD: ${args.join(' ')}`, this.accessory.displayName);
+    logger.debug(`CMD: ${this.binary} ${args.join(' ')}`, this.accessory.displayName);
 
     return new Promise((resolve, reject) => {
-      exec(args.join(' '), (err, stdout, stderr) => {
+      execFile(this.binary, args, (err, stdout, stderr) => {
         if (err) {
-          return reject(err);
+          return reject(err.code === 'ENOENT' ? this.missingBinaryError() : err);
         }
 
         logger.debug(stderr, this.accessory.displayName);
@@ -127,11 +131,7 @@ class Handler {
     key = this.keyMaps[key] || key;
     logger.debug(`${key}=${value}`, this.accessory.displayName);
 
-    if (typeof value === 'string' && value.includes(' ')) {
-      return `${key}="${value}"`;
-    } else {
-      return `${key}=${value}`;
-    }
+    return `${key}=${value}`;
   }
 
   speedsMinStep() {
@@ -436,10 +436,7 @@ class Handler {
     this.hepaFilterService = this.accessory.getService('HEPA filter');
     this.wickFilterService = this.accessory.getService('Wick filter');
 
-    const args = [...this.args];
-    args.push('status-observe', '-J');
-
-    this.airControl = spawn(args.shift(), args);
+    this.airControl = spawn(this.binary, [...this.args, 'status-observe', '-J']);
 
     this.airControl.stdout.on('data', async (data) => {
       try {

@@ -54,13 +54,19 @@ describe('speeds per model', () => {
 });
 
 describe('command construction', () => {
-  it('builds the base command from host, port and debug', () => {
+  it('runs aioairctrl from the PATH by default', () => {
+    const handler = makeHandler({});
+    assert.equal(handler.binary, 'aioairctrl');
+  });
+
+  it('honours a configured aioairctrl path', () => {
+    const handler = makeHandler({ aioairctrlPath: '/home/pi/.local/bin/aioairctrl' });
+    assert.equal(handler.binary, '/home/pi/.local/bin/aioairctrl');
+  });
+
+  it('builds the base arguments from host, port and debug', () => {
     const handler = makeHandler({ debug: true });
-    assert.ok(handler.args.includes('-H'));
-    assert.ok(handler.args.includes('192.168.1.142'));
-    assert.ok(handler.args.includes('-P'));
-    assert.ok(handler.args.includes(5683));
-    assert.ok(handler.args.includes('-D'));
+    assert.deepEqual(handler.args, ['-H', '192.168.1.142', '-P', '5683', '-D']);
   });
 
   it('omits the debug flag when disabled', () => {
@@ -71,7 +77,7 @@ describe('command construction', () => {
   it('maps keys and values through the model maps', () => {
     const handler = makeHandler({ model: 'AC1715' });
     assert.equal(handler.handleCommand('pwr', 1), 'D03-02=ON');
-    assert.equal(handler.handleCommand('mode', 'Auto General'), 'D03-12="Auto General"');
+    assert.equal(handler.handleCommand('mode', 'Auto General'), 'D03-12=Auto General');
   });
 
   it('passes unmapped keys through unchanged', () => {
