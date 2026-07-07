@@ -9,36 +9,29 @@ const { AccessoriesService, AccessoriesSetup, AccessoriesHandler } = require('./
 
 const PLATFORM_NAME = 'PhilipsAirPlatform';
 
-var Accessory;
+class PhilipsAirPlatform {
+  constructor(log, config, api) {
+    if (!api || !config) {
+      return;
+    }
 
-module.exports = (homebridge) => {
-  Accessory = homebridge.platformAccessory;
-  return PhilipsAirPlatform;
-};
+    logger.configure(log, config);
 
-function PhilipsAirPlatform(log, config, api) {
-  if (!api || !config) {
-    return;
+    this.api = api;
+    this.accessories = [];
+    this.config = generateConfig(config);
+    this.devices = new Map();
+
+    this.api.on('didFinishLaunching', () => this.didFinishLaunching());
   }
 
-  logger.configure(log, config);
-
-  this.api = api;
-  this.accessories = [];
-  this.config = generateConfig(config);
-  this.devices = new Map();
-
-  this.api.on('didFinishLaunching', this.didFinishLaunching.bind(this));
-}
-
-PhilipsAirPlatform.prototype = {
-  didFinishLaunching: async function () {
+  async didFinishLaunching() {
     //initialize devices
-    AccessoriesSetup(this.devices, this.config.devices);
+    AccessoriesSetup(this.devices, this.config.devices, this.api.hap.uuid.generate);
 
     //configure accessories
     this.configure();
-  },
+  }
 
   configure() {
     //configure accessories
@@ -48,7 +41,7 @@ PhilipsAirPlatform.prototype = {
       if (!cachedAccessory) {
         logger.info('Configuring new accessory...', device.name);
 
-        const accessory = new Accessory(device.name, uuid);
+        const accessory = new this.api.platformAccessory(device.name, uuid);
         this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
         this.accessories.push(accessory);
       } else {
@@ -79,9 +72,9 @@ PhilipsAirPlatform.prototype = {
         this.setupAccessory(accessory, device);
       }
     });
-  },
+  }
 
-  setupAccessory: async function (accessory, device) {
+  setupAccessory(accessory, device) {
     accessory.on('identify', () => logger.info('Identify requested.', accessory.displayName));
 
     accessory
@@ -102,16 +95,18 @@ PhilipsAirPlatform.prototype = {
     });
 
     new AccessoriesService(this.api, accessory, handler);
-  },
+  }
 
-  configureAccessory: function (accessory) {
+  configureAccessory(accessory) {
     this.accessories.push(accessory);
-  },
+  }
 
-  removeAccessory: function (accessory) {
+  removeAccessory(accessory) {
     logger.info('Removing accessory...', accessory.displayName);
     this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
 
     this.accessories = this.accessories.filter((cachedAccessory) => cachedAccessory.UUID !== accessory.UUID);
-  },
-};
+  }
+}
+
+module.exports = PhilipsAirPlatform;

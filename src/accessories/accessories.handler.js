@@ -3,6 +3,7 @@
 const { execFile, spawn } = require('child_process');
 
 const logger = require('../utils/logger');
+const modelConfig = require('./accessories.models');
 
 class Handler {
   constructor(api, accessory) {
@@ -15,77 +16,12 @@ class Handler {
     this.restartTimeout = null;
     this.stdoutBuffer = '';
     this.obj = {};
-    this.keyMaps = {};
-    this.valueMaps = {};
-    this.extraSetFlags = [];
-    this.speeds = [{ om: '1' }, { om: '2' }, { om: 't' }];
 
-    // FIXME: Sleep speed is likely to be removed with new config approach
-    if (this.accessory.context.config.sleepSpeed) {
-      this.speeds = [{ om: 's' }, { om: '1' }, { om: '2' }, { om: 't' }];
-    }
-
-    // FIXME: Here we test for some models (set with configuration, not yet pulled from received type or modelid)
-    // This should be extracted into a separate configuration function which handles different models.
-    if (this.accessory.context.config.model == 'AC3036') {
-      this.speeds = [{ mode: 'S' }, { mode: 'AG' }, { mode: 'M', om: 1 }, { mode: 'M', om: 2 }, { mode: 'T' }];
-    }
-
-    if (this.accessory.context.config.model == 'AC1715') {
-      this.speeds = [
-        { mode: 'Sleep' },
-        { mode: 'Auto General' },
-        { mode: 'Gentle/Speed 1' },
-        { mode: 'Speed 2' },
-        { mode: 'Turbo' },
-      ];
-    }
-
-    if (this.accessory.context.config.model == 'AC0850') {
-      this.speeds = [
-        { D0310A: 2, D0310C: 17 },
-        { D0310A: 2, D0310C: 0 },
-        { D0310A: 2, D0310C: 18 },
-      ];
-      this.keyMaps = {
-        pwr: 'D03102',
-        iaql: 'D03120',
-        pm25: 'D03221',
-        fltsts1: 'D0540E',
-        flttotal1: 'D05408',
-      };
-      this.extraSetFlags = ['-I'];
-    }
-
-    if (this.accessory.context.config.model == 'AC1715') {
-      this.keyMaps = {
-        pwr: 'D03-02',
-        om: 'D03-13',
-        speed: 'D03-13',
-        mode: 'D03-12',
-        cl: 'D03-03',
-        aqil: 'D03-04',
-        uil: 'D03-05',
-        iaql: 'D03-32',
-        pm25: 'D03-33',
-        fltt1: 'D05-02',
-        fltt2: 'D05-03',
-        flttotal0: 'D05-07',
-        flttotal1: 'D05-08',
-        flttotal2: 'D05-09',
-        fltsts0: 'D05-13',
-        fltsts1: 'D05-14',
-        fltsts2: 'D05-15',
-      };
-      this.valueMaps = {
-        pwr: {
-          OFF: 0,
-          ON: 1,
-          0: 'OFF',
-          1: 'ON',
-        },
-      };
-    }
+    const { speeds, keyMaps, valueMaps, extraSetFlags } = modelConfig(this.accessory.context.config);
+    this.speeds = speeds;
+    this.keyMaps = keyMaps;
+    this.valueMaps = valueMaps;
+    this.extraSetFlags = extraSetFlags;
 
     this.binary = this.accessory.context.config.aioairctrlPath || 'aioairctrl';
     this.args = [
@@ -144,7 +80,7 @@ class Handler {
   rotationSpeed() {
     let speedConfigIndex = this.speeds.findIndex((speedConfig) => {
       return Object.entries(speedConfig).every(([cmd, value]) => {
-        return this.obj[cmd].toString() == value.toString();
+        return (this.obj[cmd] ?? '').toString() == value.toString();
       });
     });
     let speedIndex = speedConfigIndex + 1;
@@ -362,7 +298,7 @@ class Handler {
 
   //Light
   async setLightOn(state) {
-    if (this.settingBrightess) {
+    if (this.settingBrightness) {
       return;
     }
 
@@ -398,7 +334,7 @@ class Handler {
       return;
     }
 
-    this.settingBrightess = true;
+    this.settingBrightness = true;
 
     try {
       const values = {
@@ -422,7 +358,7 @@ class Handler {
       logger.error(err, this.accessory.displayName);
     }
 
-    this.settingBrightess = false;
+    this.settingBrightness = false;
   }
 
   //Longpoll Process

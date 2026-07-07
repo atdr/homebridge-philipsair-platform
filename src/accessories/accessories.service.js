@@ -43,20 +43,29 @@ class Accessory {
       this.purifierService.addCharacteristic(this.api.hap.Characteristic.RotationSpeed);
     }
 
+    //onGet handlers report the last polled device state
     this.purifierService
       .getCharacteristic(this.api.hap.Characteristic.Active)
+      .onGet(() => (parseInt(this.handler.obj.pwr) ? 1 : 0))
       .onSet(async (state) => await this.handler.setPurifierActive(state));
 
     this.purifierService
+      .getCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState)
+      .onGet(() => (parseInt(this.handler.obj.pwr) ? 2 : 0));
+
+    this.purifierService
       .getCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState)
+      .onGet(() => (this.handler.obj.mode === 'M' ? 0 : 1))
       .onSet(async (state) => await this.handler.setPurifierTargetState(state));
 
     this.purifierService
       .getCharacteristic(this.api.hap.Characteristic.LockPhysicalControls)
+      .onGet(() => (this.handler.obj.cl ? 1 : 0))
       .onSet(async (state) => await this.handler.setPurifierLockPhysicalControls(state));
 
     this.purifierService
       .getCharacteristic(this.api.hap.Characteristic.RotationSpeed)
+      .onGet(() => this.handler.rotationSpeed())
       .onSet(async (value) => await this.handler.setPurifierRotationSpeed(value))
       .setProps({
         minValue: 0,
@@ -214,6 +223,10 @@ class Accessory {
           'Temperature Sensor'
         );
       }
+
+      this.temperatureService
+        .getCharacteristic(this.api.hap.Characteristic.CurrentTemperature)
+        .onGet(() => this.handler.obj.temp || 0);
     } else {
       const service = this.accessory.getService(this.api.hap.Service.TemperatureSensor);
       if (service) {
@@ -232,6 +245,10 @@ class Accessory {
           'Humidity Sensor'
         );
       }
+
+      this.humidityService
+        .getCharacteristic(this.api.hap.Characteristic.CurrentRelativeHumidity)
+        .onGet(() => this.handler.obj.rh || 0);
     } else {
       const service = this.accessory.getService(this.api.hap.Service.HumiditySensor);
       if (service) {
@@ -253,10 +270,12 @@ class Accessory {
 
       this.lightService
         .getCharacteristic(this.api.hap.Characteristic.On)
+        .onGet(() => this.handler.obj.pwr == '1' && this.handler.obj.aqil > 0)
         .onSet(async (state) => await this.handler.setLightOn(state));
 
       this.lightService
         .getCharacteristic(this.api.hap.Characteristic.Brightness)
+        .onGet(() => this.handler.obj.aqil || 0)
         .onSet(async (value) => await this.handler.setLightBrightness(value))
         .setProps({
           minValue: 0,

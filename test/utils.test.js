@@ -3,10 +3,7 @@
 const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
 
-// hap-nodejs is available through the homebridge devDependency
-const { uuid } = require('hap-nodejs');
-
-const { generateConfig, UUIDgenerate, validIP } = require('../src/utils/utils');
+const { generateConfig, validIP } = require('../src/utils/utils');
 
 describe('generateConfig', () => {
   it('applies defaults for an empty config', () => {
@@ -37,19 +34,6 @@ describe('generateConfig', () => {
     assert.equal(config.error, false);
     assert.equal(config.extendedError, false);
     assert.deepEqual(config.devices, [{ name: 'Purifier' }]);
-  });
-});
-
-describe('UUIDgenerate', () => {
-  it('matches hap-nodejs uuid.generate so accessories never re-pair', () => {
-    for (const name of ['Livingroom Philips', 'Air Purifier', 'Bedroom', 'AC0850', 'ä unicode ✓']) {
-      assert.equal(UUIDgenerate(name), uuid.generate(name));
-    }
-  });
-
-  it('is deterministic', () => {
-    assert.equal(UUIDgenerate('same input'), UUIDgenerate('same input'));
-    assert.notEqual(UUIDgenerate('input a'), UUIDgenerate('input b'));
   });
 });
 

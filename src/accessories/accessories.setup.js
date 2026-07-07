@@ -1,10 +1,9 @@
 'use strict';
 
 const logger = require('../utils/logger');
-const { UUIDgenerate } = require('../utils/utils');
 const Config = require('./accessories.config');
 
-const Setup = async (deviceMap, devices) => {
+const Setup = async (deviceMap, devices, generateUUID) => {
   for (const deviceConfig of devices) {
     let error = false;
     const device = Config(deviceConfig);
@@ -20,7 +19,7 @@ const Setup = async (deviceMap, devices) => {
     }
 
     if (!error) {
-      const uuid = UUIDgenerate(device.name);
+      const uuid = generateUUID(device.name);
 
       if (deviceMap.has(uuid)) {
         logger.warn('Multiple devices are configured with this name. Duplicate devices will be skipped.', device.name);
