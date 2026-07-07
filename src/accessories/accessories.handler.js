@@ -519,7 +519,7 @@ class Handler {
             .updateCharacteristic(this.api.hap.Characteristic.RelativeHumidityHumidifierThreshold, 0);
         }
 
-        if (this.wickFilterService) {
+        if (this.wickFilterService && this.obj.wicksts !== undefined) {
           const fltwickchange = this.obj.wicksts == 0;
           const fltwicklife = Math.round((this.obj.wicksts / 4800) * 100);
 
