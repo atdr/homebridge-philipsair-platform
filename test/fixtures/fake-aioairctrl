@@ -1,0 +1,31 @@
+#!/usr/bin/env node
+'use strict';
+
+//Minimal aioairctrl stand-in for lifecycle tests: answers status-observe
+//with one JSON status line deliberately split across two stdout writes
+//(to exercise the plugin's chunk buffering), then stays alive until killed.
+
+const args = process.argv.slice(2);
+
+if (!args.includes('status-observe')) {
+  process.exit(2);
+}
+
+const status = JSON.stringify({
+  pwr: '1',
+  mode: 'P',
+  cl: false,
+  om: '2',
+  iaql: 3,
+  pm25: 4,
+});
+
+const half = Math.floor(status.length / 2);
+process.stdout.write(status.slice(0, half));
+
+setTimeout(() => {
+  process.stdout.write(status.slice(half) + '\n');
+}, 50);
+
+//keep the process alive until the handler kills it
+setInterval(() => {}, 1000);
