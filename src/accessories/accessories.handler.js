@@ -15,6 +15,7 @@ class Handler {
     this.processTimeout = null;
     this.restartTimeout = null;
     this.stdoutBuffer = '';
+    this.spawnErrorLogged = false;
     this.obj = {};
 
     const { speeds, keyMaps, valueMaps, extraSetFlags } = modelConfig(this.accessory.context.config);
@@ -398,8 +399,17 @@ class Handler {
     });
 
     this.airControl.on('error', (/** @type {NodeJS.ErrnoException} */ err) => {
-      logger.warn('Failed to run polling process', this.accessory.displayName);
-      logger.error(err.code === 'ENOENT' ? this.missingBinaryError() : err, this.accessory.displayName);
+      const error = err.code === 'ENOENT' ? this.missingBinaryError() : err;
+
+      //only log the first failure in a retry loop to avoid spamming every 30s
+      if (this.spawnErrorLogged) {
+        logger.debug(error, this.accessory.displayName);
+      } else {
+        this.spawnErrorLogged = true;
+        logger.warn('Failed to run polling process', this.accessory.displayName);
+        logger.error(error, this.accessory.displayName);
+      }
+
       this.scheduleRestart(30 * 1000);
     });
 
@@ -435,6 +445,8 @@ class Handler {
   }
 
   async processUpdate(line) {
+    this.spawnErrorLogged = false;
+
     try {
       this.handleResponse(JSON.parse(line));
     } catch (err) {
