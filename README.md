@@ -30,15 +30,15 @@ After [Homebridge](https://github.com/homebridge/homebridge) has been installed:
 sudo apt install python3 python3-pip
 ```
 
-1. Install the [`aioairctrl`](https://pypi.org/project/aioairctrl/) Python module:
+1. Install the [`aioairctrl`](https://pypi.org/project/aioairctrl/) Python module into the system Python. On Debian 12+, Ubuntu 23.04+, and Raspberry Pi OS Bookworm or later:
 
 ```bash
-sudo pip3 install aioairctrl
+sudo python3 -m pip install --break-system-packages aioairctrl
 ```
 
-> **Note:** the module must be installed for the system `python3`, because the plugin invokes `python3` directly. A virtual environment will not be picked up.
->
-> On newer systems (Debian 12+, Ubuntu 23.04+) pip refuses to install packages system-wide ("externally managed environment"). There, use `sudo pip3 install aioairctrl --break-system-packages` instead.
+On older systems, where pip does not enforce PEP 668 yet, a plain `sudo pip3 install aioairctrl` works too.
+
+> **Warning:** installing `aioairctrl` with **pipx or inside a virtual environment will not work**. The plugin runs the system `python3` and imports the `aioairctrl` module directly, so isolated installs are invisible to it, even though the `aioairctrl` command works in your shell. See [#1](https://github.com/atdr/homebridge-philipsair-platform/issues/1) for the planned fix.
 >
 > The latest `aioairctrl` requires Python 3.12 or newer; on older Python versions pip will fall back to an older `aioairctrl` release.
 
@@ -176,6 +176,7 @@ This plugin has been verified to work with the following apps/systems:
 
 ## TODO
 
+- [ ] Invoke the `aioairctrl` CLI directly instead of importing the module via `python3`, so pipx/venv installs work ([#1](https://github.com/atdr/homebridge-philipsair-platform/issues/1))
 - [ ] FakeGato Support
 
 ## Contributing
@@ -195,6 +196,14 @@ See [CONTRIBUTING](https://github.com/atdr/homebridge-philipsair-platform/blob/m
 ## Troubleshooting
 
 If you have any issues with the plugin then you can run this plugin in debug mode, which will provide some additional information. This might be useful for debugging issues. Just open your config ui and set debug to true!
+
+### ModuleNotFoundError: No module named 'aioairctrl'
+
+The `aioairctrl` module is not importable by the system `python3`. This typically happens when it was installed with pipx or inside a virtual environment, which the plugin cannot see ([#1](https://github.com/atdr/homebridge-philipsair-platform/issues/1)). Reinstall it into the system interpreter:
+
+```bash
+sudo python3 -m pip install --break-system-packages aioairctrl
+```
 
 ## Disclaimer
 

@@ -30,6 +30,13 @@ the pip package that implements the encrypted Philips CoAP protocol. Python 3 an
 to device I/O may span the JS handler, the Python wrapper, and the third-party
 `aioairctrl` package (whose behaviour this repo does not control).
 
+`aioairctrl` must be importable by the **system** `python3`; installs isolated by pipx
+or a virtualenv are not picked up, and on PEP 668 systems (Debian 12+) the supported
+install is `sudo python3 -m pip install --break-system-packages aioairctrl`. **Planned
+(later phase):** invoke the `aioairctrl` executable directly via `spawn`/`execFile`
+(path configurable) and delete the wrapper, so pipx installs work — see
+[#1](https://github.com/atdr/homebridge-philipsair-platform/issues/1).
+
 User-facing config surface: `config.schema.json` (Homebridge UI schema) and
 `example-config.json`.
 
