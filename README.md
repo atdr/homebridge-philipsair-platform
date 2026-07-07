@@ -41,11 +41,15 @@ Any other install method works too (`pip install --user`, a virtualenv, `sudo py
 
 > The latest `aioairctrl` requires Python 3.12 or newer; on older Python versions pip/pipx will fall back to an older `aioairctrl` release.
 
-1. Install this plugin:
+1. Install this plugin, either by searching for `philipsair` on the **Plugins** page of the [Homebridge UI](https://github.com/homebridge/homebridge-config-ui-x), or from the command line:
 
 ```bash
-sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
+sudo npm install -g @atdr/homebridge-philipsair-platform@latest
 ```
+
+### Upgrading from v1.1.0 or earlier
+
+Older releases registered accessories under a different internal plugin identifier, so the first restart after upgrading may remove and re-add your device in HomeKit once. The accessory keeps its name, but you may need to reassign its room and any scenes/automations that reference it.
 
 ## Example Config
 
@@ -57,6 +61,7 @@ sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
     {
       "platform": "PhilipsAirPlatform",
       "name": "PhilipsAirPlatform",
+      "aioairctrlPath": "",
       "debug": false,
       "warn": true,
       "error": true,
@@ -91,6 +96,7 @@ sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
     {
       "platform": "PhilipsAirPlatform",
       "name": "PhilipsAirPlatform",
+      "aioairctrlPath": "",
       "debug": false,
       "warn": true,
       "error": true,
