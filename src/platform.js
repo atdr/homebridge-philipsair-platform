@@ -1,13 +1,12 @@
 'use strict';
 
 const logger = require('./utils/logger');
-const { version } = require('../package.json');
+const { name: PLUGIN_NAME, version } = require('../package.json');
 const { generateConfig } = require('./utils/utils');
 
 //Accessories
 const { AccessoriesService, AccessoriesSetup, AccessoriesHandler } = require('./accessories');
 
-const PLUGIN_NAME = 'homebridge-philipsair-platform';
 const PLATFORM_NAME = 'PhilipsAirPlatform';
 
 var Accessory;
@@ -110,11 +109,9 @@ PhilipsAirPlatform.prototype = {
   },
 
   removeAccessory: function (accessory) {
-    logger.info('Removing accessory...', `${accessory.displayName} (${accessory.context.config.subtype})`);
+    logger.info('Removing accessory...', accessory.displayName);
     this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
 
-    this.accessories = this.accessories.filter(
-      (cachedAccessory) => cachedAccessory.displayName !== accessory.displayName
-    );
+    this.accessories = this.accessories.filter((cachedAccessory) => cachedAccessory.UUID !== accessory.UUID);
   },
 };
