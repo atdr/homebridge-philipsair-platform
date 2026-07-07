@@ -99,7 +99,7 @@ PhilipsAirPlatform.prototype = {
     const handler = new AccessoriesHandler(this.api, accessory);
 
     this.api.on('shutdown', () => {
-      handler.kill();
+      handler.kill(true);
     });
 
     new AccessoriesService(this.api, accessory, handler);
