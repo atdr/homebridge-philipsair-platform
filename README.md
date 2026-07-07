@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="https://raw.githubusercontent.com/atdr/homebridge-philipsair-platform/master/images/logo.png" height="200">
+    <img src="https://raw.githubusercontent.com/atdr/homebridge-philipsair-platform/main/images/logo.png" alt="Plugin logo" height="200">
 </p>
 
 # homebridge-philipsair-platform
@@ -24,17 +24,23 @@ This plugin supports following functions:
 
 After [Homebridge](https://github.com/homebridge/homebridge) has been installed:
 
-1. Install Python 3 and pip (required for device communication):
+1. Install Python 3 and pip (required for device communication). On Debian/Ubuntu:
 
 ```bash
-sudo apt install python3-pip git
+sudo apt install python3 python3-pip
 ```
 
 1. Install the [`aioairctrl`](https://pypi.org/project/aioairctrl/) Python module:
 
 ```bash
-sudo pip install aioairctrl
+sudo pip3 install aioairctrl
 ```
+
+> **Note:** the module must be installed for the system `python3`, because the plugin invokes `python3` directly. A virtual environment will not be picked up.
+>
+> On newer systems (Debian 12+, Ubuntu 23.04+) pip refuses to install packages system-wide ("externally managed environment"). There, use `sudo pip3 install aioairctrl --break-system-packages` instead.
+>
+> The latest `aioairctrl` requires Python 3.12 or newer; on older Python versions pip will fall back to an older `aioairctrl` release.
 
 1. Install this plugin:
 
@@ -121,9 +127,9 @@ sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
 | debug            | Enables additional output (debug) in the log.                | `false`                | No       |
 | warn             | Enables additional output (warn) in the log.                 | `true`                 | No       |
 | error            | Enables additional output (error) in the log.                | `true`                 | No       |
-| extendedError    | Enables additional output (detailed debug) in the log.       | `true`                 | No       |
+| extendedError    | Enables additional output (detailed error) in the log.       | `true`                 | No       |
 | **devices**      | Array of Philips air purifiers.                              |                        | Yes      |
-|- active          | Whether the device is active and should be used              |                        | Yes      |
+|- active          | Set `true` to expose the device. Inactive ones are skipped.  | `false`                | No       |
 |- name            | Unique name of your device.                                  |                        | Yes      |
 |- **host**        | Host/IP address of your device.                              |                        | Yes      |
 |- port            | Port of your device.                                         | `5683`                 | No       |
@@ -140,7 +146,7 @@ sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
 |- carbonFilter    | Expose active carbon filter status to HomeKit.               | `false`                | No       |
 |- hepaFilter      | Expose HEPA/NanoProtect filter status to HomeKit.            | `false`                | No       |
 
-For a full config.json, please look at [Example Config](https://github.com/atdr/homebridge-philipsair-platform/blob/master/example-config.json) for more details.
+For a full config.json, please look at [Example Config](https://github.com/atdr/homebridge-philipsair-platform/blob/main/example-config.json) for more details.
 
 ## Notes
 
@@ -165,8 +171,8 @@ This plugin has been verified to work with the following apps/systems:
 - iOS > 13
 - Apple Home
 - All 3rd party apps like Elgato Eve etc
-- Homebridge >= v1.3.0
-- Node >= 14
+- Homebridge v1.8 or later (including the v2.0 beta)
+- Node v20.18, v22.10, or v24 (matching the `engines` field in package.json)
 
 ## TODO
 
@@ -184,7 +190,7 @@ You can contribute to this homebridge plugin in following ways:
 - Contribute changes to extend the capabilities
 - Pull requests are accepted.
 
-See [CONTRIBUTING](https://github.com/atdr/homebridge-philipsair-platform/blob/master/CONTRIBUTING.md)
+See [CONTRIBUTING](https://github.com/atdr/homebridge-philipsair-platform/blob/main/CONTRIBUTING.md)
 
 ## Troubleshooting
 
