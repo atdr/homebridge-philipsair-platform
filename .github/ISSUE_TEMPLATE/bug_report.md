@@ -4,7 +4,6 @@ about: Create a report to help us improve
 title: ''
 labels: bug
 assignees: ''
-
 ---
 
 **Describe the bug**
@@ -23,6 +22,7 @@ If available, attach the log where the bug is vissible
 If applicable, add screenshots to help explain your problem.
 
 **Environment**
+
 - Node.js Version: vX.X
 - Homebridge Version: vX.X
 - Camera UI Version: vX.X

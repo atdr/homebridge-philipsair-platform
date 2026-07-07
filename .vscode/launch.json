@@ -5,9 +5,7 @@
       "name": "Launch Extron Debugging",
       "program": "/Users/vkandel/.nvm/versions/node/v20.10.0/bin/homebridge",
       "request": "launch",
-      "skipFiles": [
-        "<node_internals>/**"
-      ],
+      "skipFiles": ["<node_internals>/**"],
       "type": "pwa-node"
     }
   ]

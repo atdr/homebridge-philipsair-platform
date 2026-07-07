@@ -588,14 +588,17 @@ class Handler {
       }
     });
 
-    this.processTimeout = setTimeout(() => {
-      if (this.airControl) {
-        this.airControl.kill();
-        this.airControl = null;
-      }
+    this.processTimeout = setTimeout(
+      () => {
+        if (this.airControl) {
+          this.airControl.kill();
+          this.airControl = null;
+        }
 
-      this.longPoll();
-    }, 1 * 60 * 1000);
+        this.longPoll();
+      },
+      1 * 60 * 1000
+    );
   }
 
   kill(shutdown) {

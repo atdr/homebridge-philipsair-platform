@@ -28,10 +28,9 @@ class Logger {
 
     if (message instanceof Error) {
       if (this.extendedErrorMode) {
-        formatted = message;
-      } else {
-        formatted += message.message;
+        return message;
       }
+      formatted += message.message;
     } else if (typeof message === 'object') {
       formatted += JSON.stringify(message);
     } else {

@@ -158,12 +158,7 @@
       "expandable": true,
       "expanded": false,
       "type": "section",
-      "items": [
-        "debug",
-        "warn",
-        "error",
-        "extendedError"
-      ]
+      "items": ["debug", "warn", "error", "extendedError"]
     },
     {
       "title": "Devices",
@@ -191,11 +186,7 @@
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               },
-              "items": [
-                "devices[].manufacturer",
-                "devices[].model",
-                "devices[].serialNumber"
-              ]
+              "items": ["devices[].manufacturer", "devices[].model", "devices[].serialNumber"]
             },
             {
               "key": "devices[]",
@@ -206,12 +197,7 @@
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               },
-              "items": [
-                "devices[].humidifier",
-                "devices[].light",
-                "devices[].temperature",
-                "devices[].humidity"
-              ]
+              "items": ["devices[].humidifier", "devices[].light", "devices[].temperature", "devices[].humidity"]
             },
             {
               "key": "devices[]",

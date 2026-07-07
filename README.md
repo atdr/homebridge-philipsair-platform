@@ -54,33 +54,33 @@ sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
 
 ```json
 {
-    "platforms": [
+  "platforms": [
+    {
+      "platform": "PhilipsAirPlatform",
+      "name": "PhilipsAirPlatform",
+      "debug": false,
+      "warn": true,
+      "error": true,
+      "extendedError": true,
+      "devices": [
         {
-            "platform": "PhilipsAirPlatform",
-            "name": "PhilipsAirPlatform",
-            "debug": false,
-            "warn": true,
-            "error": true,
-            "extendedError": true,
-            "devices": [
-                {
-                    "active": true,
-                    "name": "Livingroom Philips",
-                    "manufacturer": "Philips",
-                    "model": "AC3829",
-                    "serialNumber": "000000",
-                    "host": "192.168.178.111",
-                    "port": 3333,
-                    "light": true,
-                    "temperature": true,
-                    "humidity": true,
-                    "humidifier": true,
-                    "allergicFunc": true,
-                    "sleepSpeed": false
-                }
-            ]
+          "active": true,
+          "name": "Livingroom Philips",
+          "manufacturer": "Philips",
+          "model": "AC3829",
+          "serialNumber": "000000",
+          "host": "192.168.178.111",
+          "port": 3333,
+          "light": true,
+          "temperature": true,
+          "humidity": true,
+          "humidifier": true,
+          "allergicFunc": true,
+          "sleepSpeed": false
         }
-    ]
+      ]
+    }
+  ]
 }
 ```
 
@@ -88,63 +88,63 @@ sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
 
 ```json
 {
-    "platforms": [
+  "platforms": [
+    {
+      "platform": "PhilipsAirPlatform",
+      "name": "PhilipsAirPlatform",
+      "debug": false,
+      "warn": true,
+      "error": true,
+      "extendedError": true,
+      "devices": [
         {
-            "platform": "PhilipsAirPlatform",
-            "name": "PhilipsAirPlatform",
-            "debug": false,
-            "warn": true,
-            "error": true,
-            "extendedError": true,
-            "devices": [
-                {
-                    "active": true,
-                    "name": "Air Purifier",
-                    "manufacturer": "Philips",
-                    "model": "AC0850",
-                    "serialNumber": "000000",
-                    "host": "192.168.1.142",
-                    "humidifier": false,
-                    "light": false,
-                    "temperature": false,
-                    "humidity": false,
-                    "sleepSpeed": false,
-                    "allergicFunc": false,
-                    "preFilter": false,
-                    "carbonFilter": false,
-                    "hepaFilter": true
-                }
-            ]
+          "active": true,
+          "name": "Air Purifier",
+          "manufacturer": "Philips",
+          "model": "AC0850",
+          "serialNumber": "000000",
+          "host": "192.168.1.142",
+          "humidifier": false,
+          "light": false,
+          "temperature": false,
+          "humidity": false,
+          "sleepSpeed": false,
+          "allergicFunc": false,
+          "preFilter": false,
+          "carbonFilter": false,
+          "hepaFilter": true
         }
-    ]
+      ]
+    }
+  ]
 }
 ```
 
-| Fields           | Description                                                  | Default                | Required |
-|------------------|--------------------------------------------------------------|------------------------|----------|
-| **platform**     | Must always be `PhilipsAirPlatform`.                         | `"PhilipsAirPlatform"` | Yes      |
-| name             | For logging purposes.                                        | `"PhilipsAirPlatform"` | No       |
-| debug            | Enables additional output (debug) in the log.                | `false`                | No       |
-| warn             | Enables additional output (warn) in the log.                 | `true`                 | No       |
-| error            | Enables additional output (error) in the log.                | `true`                 | No       |
-| extendedError    | Enables additional output (detailed error) in the log.       | `true`                 | No       |
-| **devices**      | Array of Philips air purifiers.                              |                        | Yes      |
-|- active          | Set `true` to expose the device. Inactive ones are skipped.  | `false`                | No       |
-|- name            | Unique name of your device.                                  |                        | Yes      |
-|- **host**        | Host/IP address of your device.                              |                        | Yes      |
-|- port            | Port of your device.                                         | `5683`                 | No       |
-|- manufacturer    | Set the manufacturer name for display in the Home app.       | `"Philips"`            | No       |
-|- model           | Set the model for display in the Home app.                   | `"Air Purifier"`       | No *1    |
-|- serialNumber    | Set the serial number for display in the Home app.           | `"000000"`             | No       |
-|- humidifier      | Expose a separate humidifier accessory to HomeKit.           | `false`                | No       |
-|- light           | Expose device lights as lightbulbs to HomeKit.               | `false`                | No       |
-|- temperature     | Expose device temperature as temperature sensor to HomeKit.  | `false`                | No       |
-|- humidity        | Expose device humidity as humidity sensor to HomeKit.        | `false`                | No       |
-|- allergicFunc    | Does this device support 'allergic' function?                | `false`                | No       |
-|- sleepSpeed      | Does this device support 'sleep' speed?                      | `false`                | No       |
-|- preFilter       | Expose pre-filter status to HomeKit.                         | `false`                | No       |
-|- carbonFilter    | Expose active carbon filter status to HomeKit.               | `false`                | No       |
-|- hepaFilter      | Expose HEPA/NanoProtect filter status to HomeKit.            | `false`                | No       |
+| Fields         | Description                                                 | Default                | Required |
+| -------------- | ----------------------------------------------------------- | ---------------------- | -------- |
+| **platform**   | Must always be `PhilipsAirPlatform`.                        | `"PhilipsAirPlatform"` | Yes      |
+| name           | For logging purposes.                                       | `"PhilipsAirPlatform"` | No       |
+| debug          | Enables additional output (debug) in the log.               | `false`                | No       |
+| warn           | Enables additional output (warn) in the log.                | `true`                 | No       |
+| error          | Enables additional output (error) in the log.               | `true`                 | No       |
+| extendedError  | Enables additional output (detailed error) in the log.      | `true`                 | No       |
+| **devices**    | Array of Philips air purifiers.                             |                        | Yes      |
+| - active       | Set `true` to expose the device. Inactive ones are skipped. | `false`                | No       |
+| - name         | Unique name of your device.                                 |                        | Yes      |
+| - **host**     | Host/IP address of your device.                             |                        | Yes      |
+| - port         | Port of your device.                                        | `5683`                 | No       |
+| - manufacturer | Set the manufacturer name for display in the Home app.      | `"Philips"`            | No       |
+| - model        | Set the model for display in the Home app.                  | `"Air Purifier"`       | No *1    |
+| - serialNumber | Set the serial number for display in the Home app.          | `"000000"`             | No       |
+| - humidifier   | Expose a separate humidifier accessory to HomeKit.          | `false`                | No       |
+| - light        | Expose device lights as lightbulbs to HomeKit.              | `false`                | No       |
+| - temperature  | Expose device temperature as temperature sensor to HomeKit. | `false`                | No       |
+| - humidity     | Expose device humidity as humidity sensor to HomeKit.       | `false`                | No       |
+| - allergicFunc | Does this device support 'allergic' function?               | `false`                | No       |
+| - sleepSpeed   | Does this device support 'sleep' speed?                     | `false`                | No       |
+| - preFilter    | Expose pre-filter status to HomeKit.                        | `false`                | No       |
+| - carbonFilter | Expose active carbon filter status to HomeKit.              | `false`                | No       |
+| - hepaFilter   | Expose HEPA/NanoProtect filter status to HomeKit.           | `false`                | No       |
 
 For a full config.json, please look at [Example Config](https://github.com/atdr/homebridge-philipsair-platform/blob/main/example-config.json) for more details.
 
