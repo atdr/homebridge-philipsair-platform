@@ -7,6 +7,7 @@
 [![npm](https://img.shields.io/npm/v/@atdr/homebridge-philipsair-platform.svg?style=flat-square)](https://www.npmjs.com/package/@atdr/homebridge-philipsair-platform)
 [![npm](https://img.shields.io/npm/dt/@atdr/homebridge-philipsair-platform.svg?style=flat-square)](https://www.npmjs.com/package/@atdr/homebridge-philipsair-platform)
 [![GitHub last commit](https://img.shields.io/github/last-commit/atdr/homebridge-philipsair-platform.svg?style=flat-square)](https://github.com/atdr/homebridge-philipsair-platform)
+[![CI](https://img.shields.io/github/actions/workflow/status/atdr/homebridge-philipsair-platform/ci.yml?style=flat-square&label=CI)](https://github.com/atdr/homebridge-philipsair-platform/actions/workflows/ci.yml)
 
 ## Info
 
@@ -24,29 +25,31 @@ This plugin supports following functions:
 
 After [Homebridge](https://github.com/homebridge/homebridge) has been installed:
 
-1. Install Python 3 and pip (required for device communication). On Debian/Ubuntu:
+1. Install Python 3 and pipx (required for device communication). On Debian/Ubuntu:
 
 ```bash
-sudo apt install python3 python3-pip
+sudo apt install python3 pipx
 ```
 
-1. Install the [`aioairctrl`](https://pypi.org/project/aioairctrl/) Python module into the system Python. On Debian 12+, Ubuntu 23.04+, and Raspberry Pi OS Bookworm or later:
+1. Install the [`aioairctrl`](https://pypi.org/project/aioairctrl/) CLI **as the user that runs Homebridge** (the plugin invokes the `aioairctrl` executable):
 
 ```bash
-sudo python3 -m pip install --break-system-packages aioairctrl
+pipx install aioairctrl
 ```
 
-On older systems, where pip does not enforce PEP 668 yet, a plain `sudo pip3 install aioairctrl` works too.
+Any other install method works too (`pip install --user`, a virtualenv, `sudo python3 -m pip install --break-system-packages aioairctrl`, ...) as long as the `aioairctrl` command is available. If the executable is not on the PATH of the user running Homebridge — common with pipx, which installs to `~/.local/bin` — set the `aioairctrlPath` platform option to its full path, e.g. `/home/pi/.local/bin/aioairctrl`.
 
-> **Warning:** installing `aioairctrl` with **pipx or inside a virtual environment will not work**. The plugin runs the system `python3` and imports the `aioairctrl` module directly, so isolated installs are invisible to it, even though the `aioairctrl` command works in your shell. See [#1](https://github.com/atdr/homebridge-philipsair-platform/issues/1) for the planned fix.
->
-> The latest `aioairctrl` requires Python 3.12 or newer; on older Python versions pip will fall back to an older `aioairctrl` release.
+> The latest `aioairctrl` requires Python 3.12 or newer; on older Python versions pip/pipx will fall back to an older `aioairctrl` release.
 
-1. Install this plugin:
+1. Install this plugin, either by searching for `philipsair` on the **Plugins** page of the [Homebridge UI](https://github.com/homebridge/homebridge-config-ui-x), or from the command line:
 
 ```bash
-sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
+sudo npm install -g @atdr/homebridge-philipsair-platform@latest
 ```
+
+### Upgrading from v1.1.0 or earlier
+
+Older releases registered accessories under a different internal plugin identifier, so the first restart after upgrading may remove and re-add your device in HomeKit once. The accessory keeps its name, but you may need to reassign its room and any scenes/automations that reference it.
 
 ## Example Config
 
@@ -54,33 +57,34 @@ sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
 
 ```json
 {
-    "platforms": [
+  "platforms": [
+    {
+      "platform": "PhilipsAirPlatform",
+      "name": "PhilipsAirPlatform",
+      "aioairctrlPath": "",
+      "debug": false,
+      "warn": true,
+      "error": true,
+      "extendedError": true,
+      "devices": [
         {
-            "platform": "PhilipsAirPlatform",
-            "name": "PhilipsAirPlatform",
-            "debug": false,
-            "warn": true,
-            "error": true,
-            "extendedError": true,
-            "devices": [
-                {
-                    "active": true,
-                    "name": "Livingroom Philips",
-                    "manufacturer": "Philips",
-                    "model": "AC3829",
-                    "serialNumber": "000000",
-                    "host": "192.168.178.111",
-                    "port": 3333,
-                    "light": true,
-                    "temperature": true,
-                    "humidity": true,
-                    "humidifier": true,
-                    "allergicFunc": true,
-                    "sleepSpeed": false
-                }
-            ]
+          "active": true,
+          "name": "Livingroom Philips",
+          "manufacturer": "Philips",
+          "model": "AC3829",
+          "serialNumber": "000000",
+          "host": "192.168.178.111",
+          "port": 3333,
+          "light": true,
+          "temperature": true,
+          "humidity": true,
+          "humidifier": true,
+          "allergicFunc": true,
+          "sleepSpeed": false
         }
-    ]
+      ]
+    }
+  ]
 }
 ```
 
@@ -88,63 +92,65 @@ sudo npm install -g --unsafe-perm @atdr/homebridge-philipsair-platform@latest
 
 ```json
 {
-    "platforms": [
+  "platforms": [
+    {
+      "platform": "PhilipsAirPlatform",
+      "name": "PhilipsAirPlatform",
+      "aioairctrlPath": "",
+      "debug": false,
+      "warn": true,
+      "error": true,
+      "extendedError": true,
+      "devices": [
         {
-            "platform": "PhilipsAirPlatform",
-            "name": "PhilipsAirPlatform",
-            "debug": false,
-            "warn": true,
-            "error": true,
-            "extendedError": true,
-            "devices": [
-                {
-                    "active": true,
-                    "name": "Air Purifier",
-                    "manufacturer": "Philips",
-                    "model": "AC0850",
-                    "serialNumber": "000000",
-                    "host": "192.168.1.142",
-                    "humidifier": false,
-                    "light": false,
-                    "temperature": false,
-                    "humidity": false,
-                    "sleepSpeed": false,
-                    "allergicFunc": false,
-                    "preFilter": false,
-                    "carbonFilter": false,
-                    "hepaFilter": true
-                }
-            ]
+          "active": true,
+          "name": "Air Purifier",
+          "manufacturer": "Philips",
+          "model": "AC0850",
+          "serialNumber": "000000",
+          "host": "192.168.1.142",
+          "humidifier": false,
+          "light": false,
+          "temperature": false,
+          "humidity": false,
+          "sleepSpeed": false,
+          "allergicFunc": false,
+          "preFilter": false,
+          "carbonFilter": false,
+          "hepaFilter": true
         }
-    ]
+      ]
+    }
+  ]
 }
 ```
 
-| Fields           | Description                                                  | Default                | Required |
-|------------------|--------------------------------------------------------------|------------------------|----------|
-| **platform**     | Must always be `PhilipsAirPlatform`.                         | `"PhilipsAirPlatform"` | Yes      |
-| name             | For logging purposes.                                        | `"PhilipsAirPlatform"` | No       |
-| debug            | Enables additional output (debug) in the log.                | `false`                | No       |
-| warn             | Enables additional output (warn) in the log.                 | `true`                 | No       |
-| error            | Enables additional output (error) in the log.                | `true`                 | No       |
-| extendedError    | Enables additional output (detailed error) in the log.       | `true`                 | No       |
-| **devices**      | Array of Philips air purifiers.                              |                        | Yes      |
-|- active          | Set `true` to expose the device. Inactive ones are skipped.  | `false`                | No       |
-|- name            | Unique name of your device.                                  |                        | Yes      |
-|- **host**        | Host/IP address of your device.                              |                        | Yes      |
-|- port            | Port of your device.                                         | `5683`                 | No       |
-|- manufacturer    | Set the manufacturer name for display in the Home app.       | `"Philips"`            | No       |
-|- model           | Set the model for display in the Home app.                   | `"Air Purifier"`       | No *1    |
-|- serialNumber    | Set the serial number for display in the Home app.           | `"000000"`             | No       |
-|- humidifier      | Expose a separate humidifier accessory to HomeKit.           | `false`                | No       |
-|- light           | Expose device lights as lightbulbs to HomeKit.               | `false`                | No       |
-|- temperature     | Expose device temperature as temperature sensor to HomeKit.  | `false`                | No       |
-|- humidity        | Expose device humidity as humidity sensor to HomeKit.        | `false`                | No       |
-|- allergicFunc    | Does this device support 'allergic' function?                | `false`                | No       |
-|- sleepSpeed      | Does this device support 'sleep' speed?                      | `false`                | No       |
-|- preFilter       | Expose pre-filter status to HomeKit.                         | `false`                | No       |
-|- carbonFilter    | Expose active carbon filter status to HomeKit.               | `false`                | No       |
-|- hepaFilter      | Expose HEPA/NanoProtect filter status to HomeKit.            | `false`                | No       |
+| Fields         | Description                                                 | Default                | Required |
+| -------------- | ----------------------------------------------------------- | ---------------------- | -------- |
+| **platform**   | Must always be `PhilipsAirPlatform`.                        | `"PhilipsAirPlatform"` | Yes      |
+| name           | For logging purposes.                                       | `"PhilipsAirPlatform"` | No       |
+| aioairctrlPath | Full path to the `aioairctrl` executable, if not on PATH.   | `"aioairctrl"`         | No       |
+| debug          | Enables additional output (debug) in the log.               | `false`                | No       |
+| warn           | Enables additional output (warn) in the log.                | `true`                 | No       |
+| error          | Enables additional output (error) in the log.               | `true`                 | No       |
+| extendedError  | Enables additional output (detailed error) in the log.      | `true`                 | No       |
+| **devices**    | Array of Philips air purifiers.                             |                        | Yes      |
+| - active       | Set `true` to expose the device. Inactive ones are skipped. | `false`                | No       |
+| - name         | Unique name of your device.                                 |                        | Yes      |
+| - **host**     | IP address or hostname of your device.                      |                        | Yes      |
+| - port         | Port of your device.                                        | `5683`                 | No       |
+| - manufacturer | Set the manufacturer name for display in the Home app.      | `"Philips"`            | No       |
+| - model        | Set the model for display in the Home app.                  | `"Air Purifier"`       | No *1    |
+| - serialNumber | Set the serial number for display in the Home app.          | `"000000"`             | No       |
+| - humidifier   | Expose a separate humidifier accessory to HomeKit.          | `false`                | No       |
+| - light        | Expose device lights as lightbulbs to HomeKit.              | `false`                | No       |
+| - temperature  | Expose device temperature as temperature sensor to HomeKit. | `false`                | No       |
+| - humidity     | Expose device humidity as humidity sensor to HomeKit.       | `false`                | No       |
+| - allergicFunc | Does this device support 'allergic' function?               | `false`                | No       |
+| - sleepSpeed   | Does this device support 'sleep' speed?                     | `false`                | No       |
+| - preFilter    | Expose pre-filter status to HomeKit.                        | `false`                | No       |
+| - carbonFilter | Expose active carbon filter status to HomeKit.              | `false`                | No       |
+| - hepaFilter   | Expose HEPA/NanoProtect filter status to HomeKit.           | `false`                | No       |
 
 For a full config.json, please look at [Example Config](https://github.com/atdr/homebridge-philipsair-platform/blob/main/example-config.json) for more details.
 
@@ -176,7 +182,6 @@ This plugin has been verified to work with the following apps/systems:
 
 ## TODO
 
-- [ ] Invoke the `aioairctrl` CLI directly instead of importing the module via `python3`, so pipx/venv installs work ([#1](https://github.com/atdr/homebridge-philipsair-platform/issues/1))
 - [ ] FakeGato Support
 
 ## Contributing
@@ -197,13 +202,9 @@ See [CONTRIBUTING](https://github.com/atdr/homebridge-philipsair-platform/blob/m
 
 If you have any issues with the plugin then you can run this plugin in debug mode, which will provide some additional information. This might be useful for debugging issues. Just open your config ui and set debug to true!
 
-### ModuleNotFoundError: No module named 'aioairctrl'
+### aioairctrl not found
 
-The `aioairctrl` module is not importable by the system `python3`. This typically happens when it was installed with pipx or inside a virtual environment, which the plugin cannot see ([#1](https://github.com/atdr/homebridge-philipsair-platform/issues/1)). Reinstall it into the system interpreter:
-
-```bash
-sudo python3 -m pip install --break-system-packages aioairctrl
-```
+The plugin could not run the `aioairctrl` executable. Check that it is installed for the user that runs Homebridge (`sudo -u homebridge aioairctrl --help`, adjusting the username to your setup). If the command only works for another user or lives outside the PATH — pipx installs to `~/.local/bin` — set the `aioairctrlPath` platform option to the full path reported by `which aioairctrl`.
 
 ## Disclaimer
 

@@ -1,9 +1,9 @@
 'use strict';
 
-const path = require('path');
-const { exec, spawn } = require('child_process');
+const { execFile, spawn } = require('child_process');
 
 const logger = require('../utils/logger');
+const modelConfig = require('./accessories.models');
 
 class Handler {
   constructor(api, accessory) {
@@ -12,97 +12,41 @@ class Handler {
 
     this.shutdown = false;
     this.airControl = null;
+    this.processTimeout = null;
+    this.restartTimeout = null;
+    this.stdoutBuffer = '';
+    this.spawnErrorLogged = false;
     this.obj = {};
-    this.keyMaps = {};
-    this.valueMaps = {};
-    this.extraSetFlags = [];
-    this.speeds = [{ om: '1' }, { om: '2' }, { om: 't' }];
 
-    // FIXME: Sleep speed is likely to be removed with new config approach
-    if (this.accessory.context.config.sleepSpeed) {
-      this.speeds = [{ om: 's' }, { om: '1' }, { om: '2' }, { om: 't' }];
-    }
+    const { speeds, keyMaps, valueMaps, extraSetFlags } = modelConfig(this.accessory.context.config);
+    this.speeds = speeds;
+    this.keyMaps = keyMaps;
+    this.valueMaps = valueMaps;
+    this.extraSetFlags = extraSetFlags;
 
-    // FIXME: Here we test for some models (set with configuration, not yet pulled from received type or modelid)
-    // This should be extracted into a separate configuration function which handles different models.
-    if (this.accessory.context.config.model == 'AC3036') {
-      this.speeds = [{ mode: 'S' }, { mode: 'AG' }, { mode: 'M', om: 1 }, { mode: 'M', om: 2 }, { mode: 'T' }];
-    }
-
-    if (this.accessory.context.config.model == 'AC1715') {
-      this.speeds = [
-        { mode: 'Sleep' },
-        { mode: 'Auto General' },
-        { mode: 'Gentle/Speed 1' },
-        { mode: 'Speed 2' },
-        { mode: 'Turbo' },
-      ];
-    }
-
-    if (this.accessory.context.config.model == 'AC0850') {
-      this.speeds = [
-        { D0310A: 2, D0310C: 17 },
-        { D0310A: 2, D0310C: 0 },
-        { D0310A: 2, D0310C: 18 },
-      ];
-      this.keyMaps = {
-        pwr: 'D03102',
-        iaql: 'D03120',
-        pm25: 'D03221',
-        fltsts1: 'D0540E',
-        flttotal1: 'D05408',
-      };
-      this.extraSetFlags = ['-I'];
-    }
-
-    if (this.accessory.context.config.model == 'AC1715') {
-      this.keyMaps = {
-        pwr: 'D03-02',
-        om: 'D03-13',
-        speed: 'D03-13',
-        mode: 'D03-12',
-        cl: 'D03-03',
-        aqil: 'D03-04',
-        uil: 'D03-05',
-        iaql: 'D03-32',
-        pm25: 'D03-33',
-        fltt1: 'D05-02',
-        fltt2: 'D05-03',
-        flttotal0: 'D05-07',
-        flttotal1: 'D05-08',
-        flttotal2: 'D05-09',
-        fltsts0: 'D05-13',
-        fltsts1: 'D05-14',
-        fltsts2: 'D05-15',
-      };
-      this.valueMaps = {
-        pwr: {
-          OFF: 0,
-          ON: 1,
-          0: 'OFF',
-          1: 'ON',
-        },
-      };
-    }
-
+    this.binary = this.accessory.context.config.aioairctrlPath || 'aioairctrl';
     this.args = [
-      'python3',
-      `${path.resolve(__dirname, '../../')}/lib/pyaircontrol.py`,
       '-H',
       this.accessory.context.config.host,
       '-P',
-      this.accessory.context.config.port,
+      String(this.accessory.context.config.port),
       this.accessory.context.config.debug ? '-D' : '',
     ].filter((cmd) => cmd);
   }
 
+  missingBinaryError() {
+    return new Error(
+      `${this.binary} not found. Install it with 'pipx install aioairctrl' and make sure the Homebridge user can run it, or set 'aioairctrlPath' in the platform config to its full path (see README).`
+    );
+  }
+
   sendCMD(args) {
-    logger.debug(`CMD: ${args.join(' ')}`, this.accessory.displayName);
+    logger.debug(`CMD: ${this.binary} ${args.join(' ')}`, this.accessory.displayName);
 
     return new Promise((resolve, reject) => {
-      exec(args.join(' '), (err, stdout, stderr) => {
+      execFile(this.binary, args, (err, stdout, stderr) => {
         if (err) {
-          return reject(err);
+          return reject(err.code === 'ENOENT' ? this.missingBinaryError() : err);
         }
 
         logger.debug(stderr, this.accessory.displayName);
@@ -127,11 +71,7 @@ class Handler {
     key = this.keyMaps[key] || key;
     logger.debug(`${key}=${value}`, this.accessory.displayName);
 
-    if (typeof value === 'string' && value.includes(' ')) {
-      return `${key}="${value}"`;
-    } else {
-      return `${key}=${value}`;
-    }
+    return `${key}=${value}`;
   }
 
   speedsMinStep() {
@@ -141,7 +81,7 @@ class Handler {
   rotationSpeed() {
     let speedConfigIndex = this.speeds.findIndex((speedConfig) => {
       return Object.entries(speedConfig).every(([cmd, value]) => {
-        return this.obj[cmd].toString() == value.toString();
+        return (this.obj[cmd] ?? '').toString() == value.toString();
       });
     });
     let speedIndex = speedConfigIndex + 1;
@@ -359,7 +299,7 @@ class Handler {
 
   //Light
   async setLightOn(state) {
-    if (this.settingBrightess) {
+    if (this.settingBrightness) {
       return;
     }
 
@@ -395,7 +335,7 @@ class Handler {
       return;
     }
 
-    this.settingBrightess = true;
+    this.settingBrightness = true;
 
     try {
       const values = {
@@ -419,7 +359,7 @@ class Handler {
       logger.error(err, this.accessory.displayName);
     }
 
-    this.settingBrightess = false;
+    this.settingBrightness = false;
   }
 
   //Longpoll Process
@@ -436,138 +376,21 @@ class Handler {
     this.hepaFilterService = this.accessory.getService('HEPA filter');
     this.wickFilterService = this.accessory.getService('Wick filter');
 
-    const args = [...this.args];
-    args.push('status-observe', '-J');
+    clearTimeout(this.processTimeout);
+    this.stdoutBuffer = '';
 
-    this.airControl = spawn(args.shift(), args);
+    this.airControl = spawn(this.binary, [...this.args, 'status-observe', '-J']);
 
-    this.airControl.stdout.on('data', async (data) => {
-      try {
-        this.handleResponse(JSON.parse(data.toString()));
-      } catch (err) {
-        logger.warn('Failed to parse device response', this.accessory.displayName);
-        logger.error(err, this.accessory.displayName);
-        return;
-      }
+    this.airControl.stdout.on('data', (data) => {
+      this.stdoutBuffer += data.toString();
 
-      try {
-        //Air Purifier
-        this.purifierService
-          .updateCharacteristic(this.api.hap.Characteristic.Active, parseInt(this.obj.pwr) ? 1 : 0)
-          .updateCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState, parseInt(this.obj.pwr) * 2)
-          .updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, this.obj.mode === 'M' ? 0 : 1)
-          .updateCharacteristic(this.api.hap.Characteristic.LockPhysicalControls, this.obj.cl ? 1 : 0)
-          .updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, this.rotationSpeed());
+      const lines = this.stdoutBuffer.split('\n');
+      this.stdoutBuffer = lines.pop();
 
-        if (this.airQualityService) {
-          this.airQualityService
-            .updateCharacteristic(this.api.hap.Characteristic.AirQuality, Math.ceil(this.obj.iaql / 3))
-            .updateCharacteristic(this.api.hap.Characteristic.PM2_5Density, this.obj.pm25);
+      for (const line of lines) {
+        if (line.trim()) {
+          this.processUpdate(line);
         }
-
-        if (this.temperatureService) {
-          this.temperatureService.updateCharacteristic(this.api.hap.Characteristic.CurrentTemperature, this.obj.temp);
-        }
-
-        if (this.humidityService) {
-          this.humidityService.updateCharacteristic(this.api.hap.Characteristic.CurrentRelativeHumidity, this.obj.rh);
-        }
-
-        if (this.lightService) {
-          if (this.obj.pwr == '1') {
-            this.lightService
-              .updateCharacteristic(this.api.hap.Characteristic.On, this.obj.aqil > 0)
-              .updateCharacteristic(this.api.hap.Characteristic.Brightness, this.obj.aqil);
-          } else {
-            this.lightService.updateCharacteristic(this.api.hap.Characteristic.On, false);
-          }
-        }
-
-        if (this.humidifierService) {
-          let water_level = 100;
-          let speed_humidity = 0;
-
-          if (this.obj.func == 'PH' && this.obj.wl == 0) {
-            water_level = 0;
-          }
-
-          if (this.obj.pwr == '1') {
-            if (this.obj.func == 'PH' && water_level == 100) {
-              if (this.obj.rhset == 40) {
-                speed_humidity = 25;
-              } else if (this.obj.rhset == 50) {
-                speed_humidity = 50;
-              } else if (this.obj.rhset == 60) {
-                speed_humidity = 75;
-              } else if (this.obj.rhset == 70) {
-                speed_humidity = 100;
-              }
-            }
-          }
-
-          this.humidifierService
-            .updateCharacteristic(
-              this.api.hap.Characteristic.Active,
-              parseInt(this.obj.pwr) ? (this.obj.func === 'PH' ? 1 : 0) : 0
-            )
-            .updateCharacteristic(this.api.hap.Characteristic.CurrentRelativeHumidity, this.obj.rh)
-            .updateCharacteristic(this.api.hap.Characteristic.WaterLevel, water_level)
-            .updateCharacteristic(this.api.hap.Characteristic.TargetHumidifierDehumidifierState, 1)
-            .updateCharacteristic(this.api.hap.Characteristic.RelativeHumidityHumidifierThreshold, speed_humidity);
-
-          if (water_level == 0) {
-            if (this.obj.func != 'P') {
-              await this.setPurifierTargetState(true);
-            }
-
-            this.humidifierService
-              .updateCharacteristic(this.api.hap.Characteristic.Active, 0)
-              .updateCharacteristic(this.api.hap.Characteristic.CurrentHumidifierDehumidifierState, 0)
-              .updateCharacteristic(this.api.hap.Characteristic.RelativeHumidityHumidifierThreshold, 0);
-          }
-
-          if (this.wickFilterService) {
-            const fltwickchange = this.obj.wicksts == 0;
-            const fltwicklife = Math.round((this.obj.wicksts / 4800) * 100);
-
-            this.wickFilterService
-              .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltwickchange)
-              .updateCharacteristic(this.api.hap.Characteristic.FilterLifeLevel, fltwicklife);
-          }
-        }
-
-        if (this.preFilterService && this.obj.fltsts0 !== undefined) {
-          const fltsts0change = this.obj.fltsts0 == 0;
-          const fltsts0maxlife = this.obj.flttotal0 ? this.obj.flttotal0 : 360;
-          const fltsts0life = (this.obj.fltsts0 / fltsts0maxlife) * 100;
-
-          this.preFilterService
-            .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts0change)
-            .updateCharacteristic(this.api.hap.Characteristic.FilterLifeLevel, fltsts0life);
-        }
-
-        if (this.carbonFilterService && this.obj.fltsts2 !== undefined) {
-          const fltsts2change = this.obj.fltsts2 == 0;
-          const fltsts2maxlife = this.obj.flttotal2 ? this.obj.flttotal2 : 4800;
-          const fltsts2life = (this.obj.fltsts2 / fltsts2maxlife) * 100;
-
-          this.carbonFilterService
-            .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts2change)
-            .updateCharacteristic(this.api.hap.Characteristic.FilterLifeLevel, fltsts2life);
-        }
-
-        if (this.hepaFilterService && this.obj.fltsts1 !== undefined) {
-          const fltsts1change = this.obj.fltsts1 == 0;
-          const fltsts1maxlife = this.obj.flttotal1 ? this.obj.flttotal1 : 4800;
-          const fltsts1life = (this.obj.fltsts1 / fltsts1maxlife) * 100;
-
-          this.hepaFilterService
-            .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts1change)
-            .updateCharacteristic(this.api.hap.Characteristic.FilterLifeLevel, fltsts1life);
-        }
-      } catch (err) {
-        logger.warn('Error updating characteristics from device response', this.accessory.displayName);
-        logger.error(err, this.accessory.displayName);
       }
     });
 
@@ -575,31 +398,190 @@ class Handler {
       logger.debug(data.toString(), this.accessory.displayName);
     });
 
-    this.airControl.stderr.on('exit', () => {
+    this.airControl.on('error', (/** @type {NodeJS.ErrnoException} */ err) => {
+      const error = err.code === 'ENOENT' ? this.missingBinaryError() : err;
+
+      //only log the first failure in a retry loop to avoid spamming every 30s
+      if (this.spawnErrorLogged) {
+        logger.debug(error, this.accessory.displayName);
+      } else {
+        this.spawnErrorLogged = true;
+        logger.warn('Failed to run polling process', this.accessory.displayName);
+        logger.error(error, this.accessory.displayName);
+      }
+
+      this.scheduleRestart(30 * 1000);
+    });
+
+    this.airControl.on('close', (code) => {
       logger.debug(
-        `airControl process killed (${this.shutdown ? 'expected' : 'not expected'})`,
+        `airControl process exited with code ${code} (${this.shutdown ? 'expected' : 'not expected'})`,
         this.accessory.displayName
       );
 
-      clearTimeout(this.processTimeout);
-
       if (!this.shutdown) {
         logger.debug('Restarting polling process', this.accessory.displayName);
+        this.scheduleRestart(5 * 1000);
       }
     });
 
+    //the observe connection is refreshed once a minute to recover from silent stalls
     this.processTimeout = setTimeout(() => {
       if (this.airControl) {
         this.airControl.kill();
-        this.airControl = null;
+      }
+    }, 60 * 1000);
+  }
+
+  scheduleRestart(delay) {
+    if (this.shutdown || this.restartTimeout) {
+      return;
+    }
+
+    this.restartTimeout = setTimeout(() => {
+      this.restartTimeout = null;
+      this.longPoll();
+    }, delay);
+  }
+
+  async processUpdate(line) {
+    this.spawnErrorLogged = false;
+
+    try {
+      this.handleResponse(JSON.parse(line));
+    } catch (err) {
+      logger.warn('Failed to parse device response', this.accessory.displayName);
+      logger.error(err, this.accessory.displayName);
+      return;
+    }
+
+    try {
+      //Air Purifier
+      this.purifierService
+        .updateCharacteristic(this.api.hap.Characteristic.Active, parseInt(this.obj.pwr) ? 1 : 0)
+        .updateCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState, parseInt(this.obj.pwr) * 2)
+        .updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, this.obj.mode === 'M' ? 0 : 1)
+        .updateCharacteristic(this.api.hap.Characteristic.LockPhysicalControls, this.obj.cl ? 1 : 0)
+        .updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, this.rotationSpeed());
+
+      if (this.airQualityService) {
+        this.airQualityService
+          .updateCharacteristic(this.api.hap.Characteristic.AirQuality, Math.ceil(this.obj.iaql / 3))
+          .updateCharacteristic(this.api.hap.Characteristic.PM2_5Density, this.obj.pm25);
       }
 
-      this.longPoll();
-    }, 1 * 60 * 1000);
+      if (this.temperatureService) {
+        this.temperatureService.updateCharacteristic(this.api.hap.Characteristic.CurrentTemperature, this.obj.temp);
+      }
+
+      if (this.humidityService) {
+        this.humidityService.updateCharacteristic(this.api.hap.Characteristic.CurrentRelativeHumidity, this.obj.rh);
+      }
+
+      if (this.lightService) {
+        if (this.obj.pwr == '1') {
+          this.lightService
+            .updateCharacteristic(this.api.hap.Characteristic.On, this.obj.aqil > 0)
+            .updateCharacteristic(this.api.hap.Characteristic.Brightness, this.obj.aqil);
+        } else {
+          this.lightService.updateCharacteristic(this.api.hap.Characteristic.On, false);
+        }
+      }
+
+      if (this.humidifierService) {
+        let water_level = 100;
+        let speed_humidity = 0;
+
+        if (this.obj.func == 'PH' && this.obj.wl == 0) {
+          water_level = 0;
+        }
+
+        if (this.obj.pwr == '1') {
+          if (this.obj.func == 'PH' && water_level == 100) {
+            if (this.obj.rhset == 40) {
+              speed_humidity = 25;
+            } else if (this.obj.rhset == 50) {
+              speed_humidity = 50;
+            } else if (this.obj.rhset == 60) {
+              speed_humidity = 75;
+            } else if (this.obj.rhset == 70) {
+              speed_humidity = 100;
+            }
+          }
+        }
+
+        this.humidifierService
+          .updateCharacteristic(
+            this.api.hap.Characteristic.Active,
+            parseInt(this.obj.pwr) ? (this.obj.func === 'PH' ? 1 : 0) : 0
+          )
+          .updateCharacteristic(this.api.hap.Characteristic.CurrentRelativeHumidity, this.obj.rh)
+          .updateCharacteristic(this.api.hap.Characteristic.WaterLevel, water_level)
+          .updateCharacteristic(this.api.hap.Characteristic.TargetHumidifierDehumidifierState, 1)
+          .updateCharacteristic(this.api.hap.Characteristic.RelativeHumidityHumidifierThreshold, speed_humidity);
+
+        if (water_level == 0) {
+          if (this.obj.func != 'P') {
+            await this.setPurifierTargetState(true);
+          }
+
+          this.humidifierService
+            .updateCharacteristic(this.api.hap.Characteristic.Active, 0)
+            .updateCharacteristic(this.api.hap.Characteristic.CurrentHumidifierDehumidifierState, 0)
+            .updateCharacteristic(this.api.hap.Characteristic.RelativeHumidityHumidifierThreshold, 0);
+        }
+
+        if (this.wickFilterService && this.obj.wicksts !== undefined) {
+          const fltwickchange = this.obj.wicksts == 0;
+          const fltwicklife = Math.round((this.obj.wicksts / 4800) * 100);
+
+          this.wickFilterService
+            .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltwickchange)
+            .updateCharacteristic(this.api.hap.Characteristic.FilterLifeLevel, fltwicklife);
+        }
+      }
+
+      if (this.preFilterService && this.obj.fltsts0 !== undefined) {
+        const fltsts0change = this.obj.fltsts0 == 0;
+        const fltsts0maxlife = this.obj.flttotal0 ? this.obj.flttotal0 : 360;
+        const fltsts0life = (this.obj.fltsts0 / fltsts0maxlife) * 100;
+
+        this.preFilterService
+          .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts0change)
+          .updateCharacteristic(this.api.hap.Characteristic.FilterLifeLevel, fltsts0life);
+      }
+
+      if (this.carbonFilterService && this.obj.fltsts2 !== undefined) {
+        const fltsts2change = this.obj.fltsts2 == 0;
+        const fltsts2maxlife = this.obj.flttotal2 ? this.obj.flttotal2 : 4800;
+        const fltsts2life = (this.obj.fltsts2 / fltsts2maxlife) * 100;
+
+        this.carbonFilterService
+          .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts2change)
+          .updateCharacteristic(this.api.hap.Characteristic.FilterLifeLevel, fltsts2life);
+      }
+
+      if (this.hepaFilterService && this.obj.fltsts1 !== undefined) {
+        const fltsts1change = this.obj.fltsts1 == 0;
+        const fltsts1maxlife = this.obj.flttotal1 ? this.obj.flttotal1 : 4800;
+        const fltsts1life = (this.obj.fltsts1 / fltsts1maxlife) * 100;
+
+        this.hepaFilterService
+          .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts1change)
+          .updateCharacteristic(this.api.hap.Characteristic.FilterLifeLevel, fltsts1life);
+      }
+    } catch (err) {
+      logger.warn('Error updating characteristics from device response', this.accessory.displayName);
+      logger.error(err, this.accessory.displayName);
+    }
   }
 
   kill(shutdown) {
     this.shutdown = shutdown || false;
+
+    clearTimeout(this.processTimeout);
+    clearTimeout(this.restartTimeout);
+    this.restartTimeout = null;
 
     if (this.airControl) {
       logger.debug('Killing airControl process', this.accessory.displayName);

@@ -13,6 +13,12 @@
         "default": "PhilipsAirPlatform",
         "description": "Name for the log."
       },
+      "aioairctrlPath": {
+        "title": "aioairctrl Path",
+        "type": "string",
+        "placeholder": "aioairctrl",
+        "description": "Full path to the aioairctrl executable, e.g. /home/pi/.local/bin/aioairctrl. Leave empty if it is on the PATH of the user running Homebridge."
+      },
       "debug": {
         "title": "Debug Log",
         "type": "boolean",
@@ -84,9 +90,8 @@
               "title": "Host Address",
               "type": "string",
               "required": true,
-              "format": "ipv4",
               "placeholder": "10.0.1.16",
-              "description": "IP address of your device.",
+              "description": "IP address or hostname of your device, e.g. 10.0.1.16 or purifier.local.",
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               }
@@ -152,18 +157,14 @@
   },
   "layout": [
     "name",
+    "aioairctrlPath",
     {
       "title": "Log",
       "orderable": false,
       "expandable": true,
       "expanded": false,
       "type": "section",
-      "items": [
-        "debug",
-        "warn",
-        "error",
-        "extendedError"
-      ]
+      "items": ["debug", "warn", "error", "extendedError"]
     },
     {
       "title": "Devices",
@@ -191,11 +192,7 @@
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               },
-              "items": [
-                "devices[].manufacturer",
-                "devices[].model",
-                "devices[].serialNumber"
-              ]
+              "items": ["devices[].manufacturer", "devices[].model", "devices[].serialNumber"]
             },
             {
               "key": "devices[]",
@@ -206,12 +203,7 @@
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               },
-              "items": [
-                "devices[].humidifier",
-                "devices[].light",
-                "devices[].temperature",
-                "devices[].humidity"
-              ]
+              "items": ["devices[].humidifier", "devices[].light", "devices[].temperature", "devices[].humidity"]
             },
             {
               "key": "devices[]",

@@ -1,8 +1,7 @@
 # Agent guidance
 
 This file provides guidance for AI agents working on this codebase. It reflects the
-project as it stands today; conventions that are not yet automated are flagged
-**Planned (later phase)**.
+project as it stands today.
 
 ## Project overview
 
@@ -11,31 +10,28 @@ A Homebridge **dynamic platform** plugin for Philips air purifiers and humidifie
 
 The runtime flow is:
 
-- `index.js` — registers the platform with Homebridge.
-- `src/platform.js` — `PhilipsAirPlatform`; reads config, sets up devices on
+- `index.js` — registers the platform with Homebridge (plugin identifier taken from
+  the package name).
+- `src/platform.js` — `PhilipsAirPlatform` class; reads config, sets up devices on
   `didFinishLaunching`.
 - `src/accessories/` — the accessory layer:
   - `accessories.setup.js` — device initialisation from config.
-  - `accessories.service.js` — HomeKit service/characteristic wiring.
+  - `accessories.service.js` — HomeKit service/characteristic wiring (onGet/onSet).
   - `accessories.handler.js` — device I/O (the bulk of the logic).
   - `accessories.config.js` — per-accessory config shaping.
+  - `accessories.models.js` — per-model speed/key/value maps (pure data).
   - `index.js` — barrel export.
-- `src/utils/` — `logger.js` (singleton logger) and `utils.js` (`generateConfig`).
+- `src/utils/` — `logger.js` (singleton logger) and `utils.js` (`generateConfig`,
+  `validHost`).
 
 **Key gotcha:** device communication is not pure JavaScript. `accessories.handler.js`
-shells out via Node's `child_process` (`exec`/`spawn`) to `lib/pyaircontrol.py`. That
-script is a thin wrapper around [`aioairctrl`](https://pypi.org/project/aioairctrl/),
-the pip package that implements the encrypted Philips CoAP protocol. Python 3 and
-`aioairctrl` (via `pip install aioairctrl`) must be available on the host, and changes
-to device I/O may span the JS handler, the Python wrapper, and the third-party
-`aioairctrl` package (whose behaviour this repo does not control).
-
-`aioairctrl` must be importable by the **system** `python3`; installs isolated by pipx
-or a virtualenv are not picked up, and on PEP 668 systems (Debian 12+) the supported
-install is `sudo python3 -m pip install --break-system-packages aioairctrl`. **Planned
-(later phase):** invoke the `aioairctrl` executable directly via `spawn`/`execFile`
-(path configurable) and delete the wrapper, so pipx installs work — see
-[#1](https://github.com/atdr/homebridge-philipsair-platform/issues/1).
+runs the [`aioairctrl`](https://pypi.org/project/aioairctrl/) CLI (the pip package that
+implements the encrypted Philips CoAP protocol) as a child process via
+`execFile`/`spawn` with argument arrays — never a shell string. The executable is
+resolved from the PATH, or from the `aioairctrlPath` platform option when it lives
+elsewhere (e.g. a pipx install in `~/.local/bin`). Any install method works as long as
+the Homebridge user can run the binary. Changes to device I/O may span the JS handler
+and the third-party `aioairctrl` package (whose behaviour this repo does not control).
 
 User-facing config surface: `config.schema.json` (Homebridge UI schema) and
 `example-config.json`.
@@ -47,9 +43,10 @@ Supported runtimes: Node `^20.18 || ^22.10 || ^24`, Homebridge `^1.8 || ^2.0.0-b
 All runtime code is **CommonJS** (`require` / `module.exports`). Do not introduce ESM
 (`import` / `export`). Files start with `'use strict';`.
 
-This is plain JavaScript — there is **no TypeScript** and no JSDoc typedef system. Match
-the existing style: 2-space indentation, single quotes, and a 120-column print width, as
-enforced by `.eslintrc.js` and `.prettierrc.json`.
+This is plain JavaScript — there is **no TypeScript** build, but `npm run typecheck`
+runs `tsc` over the JS with `checkJs`, so code must typecheck. Match the existing
+style: 2-space indentation, single quotes, and a 120-column print width, as enforced
+by `eslint.config.js` and `.prettierrc.json`.
 
 ## Git workflow
 
@@ -60,36 +57,32 @@ messages, e.g. `fix/handler-timeout`, `docs/refresh-readme`.
 
 **Commits** follow [Conventional Commits](https://www.conventionalcommits.org/):
 `<type>(<optional scope>): <imperative summary>`. Allowed types are `feat`, `fix`,
-`refactor`, `test`, `docs`, `chore`, and `ci`. Keep each commit to one logical change so
-it can be reviewed and reverted independently.
+`refactor`, `test`, `docs`, `chore`, and `ci`, enforced by commitlint
+(`commitlint.config.js`) in CI and locally via the husky `commit-msg` hook. Keep each
+commit to one logical change so it can be reviewed and reverted independently.
 
-**Pull requests** target `main` and use the same conventional format for their title
-(`type(scope): summary`).
+**Pull requests** target `main`. Their titles are checked in CI against the same
+commitlint rules (`type(scope): summary`).
 
-**Planned (later phase):** commit messages will be linted by commitlint
-(`@commitlint/config-conventional`) both in CI and locally via a husky `commit-msg` hook;
-PR titles will be checked with the same rules; and releases (version bumps + changelog)
-will be automated with release-please, driving a minor bump from `feat` and a patch from
-`fix`.
+**Releases** are automated with release-please: a `feat` commit drives a minor bump, a
+`fix` a patch. Do not bump the version or edit the changelog by hand.
 
 ## Quality checks
 
-Run **today** before opening a PR:
+Run all five gates before opening a PR — CI (`.github/workflows/ci.yml`) runs them on
+Node 20/22/24 and every gate must pass:
 
 ```bash
-npm run lint    # eslint --fix . (also applies Prettier via plugin:prettier/recommended)
+npm run typecheck     # tsc with checkJs over the plain JS
+npm run lint          # eslint (check only; use npm run lint:fix to autofix)
+npm run format:check  # prettier (check only; use npm run format to write)
+npm run check         # node --check syntax pass over all JS files
+npm run test          # node:test unit suite in test/
 ```
 
-Note that `npm run lint` **rewrites files** (it runs eslint with `--fix`), so expect it
-to leave changes in the working tree; include them in your commit. There are currently
-**no tests**: `npm test` is an empty script that exits successfully without testing
-anything, so do not treat it as verification. `npm run build` only deletes `dist/` and
-builds nothing.
-
-**Planned (later phase):** a five-gate set will run in CI and should be run locally once
-the scripts exist — `npm run typecheck`, `npm run lint`, `npm run format:check`,
-`npm run check` (syntax check), and `npm run test`. These scripts do not exist yet; do
-not attempt to run them until they do.
+Tests use the built-in `node:test` runner — no test framework dependencies. New logic
+should come with tests; pure data/logic (models, utils, handler mapping) is the
+easiest to cover.
 
 ## Logging
 
@@ -121,7 +114,6 @@ and setup steps may only reference files that exist in the repo.
 configuration. When adding, changing, or removing a config option, update both, and keep
 the README example configs consistent with them.
 
-**`CHANGELOG.md`** — maintained by hand for now; add an entry for any user-facing
-change. **Planned (later phase):** release-please will take over, prepending generated
-entries above the existing hand-written ones (one reason commit messages must follow the
-conventional format). Do not restructure the existing entries in the meantime.
+**`CHANGELOG.md`** — managed by release-please, which prepends generated entries above
+the hand-written v1.x history (one reason commit messages must follow the conventional
+format). Do not edit it by hand and do not restructure the existing entries.

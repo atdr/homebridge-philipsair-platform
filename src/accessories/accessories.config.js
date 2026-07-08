@@ -1,6 +1,6 @@
 'use strict';
 
-const { validIP } = require('../utils/utils');
+const { validHost } = require('../utils/utils');
 
 const Config = (deviceConfig) => {
   return {
@@ -9,7 +9,7 @@ const Config = (deviceConfig) => {
     manufacturer: deviceConfig.manufacturer || 'Philips',
     model: deviceConfig.model || 'Air Purifier',
     serialNumber: deviceConfig.serialNumber || '000000',
-    host: validIP(deviceConfig.host),
+    host: validHost(deviceConfig.host),
     port: deviceConfig.port || 5683,
     light: deviceConfig.light || false,
     temperature: deviceConfig.temperature || false,
