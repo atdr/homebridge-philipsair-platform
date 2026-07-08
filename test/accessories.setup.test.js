@@ -53,6 +53,26 @@ describe('accessories.setup', () => {
     assert.equal(deviceMap.size, 0);
   });
 
+  it('distinguishes missing hosts from configured-but-invalid hosts', async () => {
+    const warnings = [];
+    logger.configure({ info: noop, warn: (message) => warnings.push(message), error: noop }, {});
+
+    await Setup(
+      deviceMap,
+      [
+        { active: true, name: 'Invalid Host', host: '-D' },
+        { active: true, name: 'No Host' },
+      ],
+      uuid.generate
+    );
+
+    logger.configure({ info: noop, warn: noop, error: noop }, {});
+
+    assert.equal(deviceMap.size, 0);
+    assert.ok(warnings.some((message) => message.includes('The configured ip/host for this device is invalid')));
+    assert.ok(warnings.some((message) => message.includes('There is no ip/host configured for this device')));
+  });
+
   it('deduplicates devices with the same name', async () => {
     await Setup(
       deviceMap,

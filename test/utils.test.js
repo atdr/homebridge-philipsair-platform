@@ -3,7 +3,13 @@
 const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
 
-const { generateConfig, validHost } = require('../src/utils/utils');
+const logger = require('../src/utils/logger');
+const { generateConfig, validHost, validPort } = require('../src/utils/utils');
+
+//capture warnings so the silent-fallback behavior can be asserted
+const warnings = [];
+const noop = () => {};
+logger.configure({ info: noop, warn: (message) => warnings.push(message), error: noop }, {});
 
 describe('generateConfig', () => {
   it('applies defaults for an empty config', () => {
@@ -53,5 +59,40 @@ describe('validHost', () => {
     assert.equal(validHost('   '), undefined);
     assert.equal(validHost(undefined), undefined);
     assert.equal(validHost(42), undefined);
+  });
+
+  it('rejects values that would parse as CLI flags or extra arguments', () => {
+    assert.equal(validHost('-D'), undefined);
+    assert.equal(validHost('--help'), undefined);
+    assert.equal(validHost('purifier.local -D'), undefined);
+    assert.equal(validHost('purifier local'), undefined);
+  });
+});
+
+describe('validPort', () => {
+  it('accepts ports in the valid range', () => {
+    assert.equal(validPort(1), 1);
+    assert.equal(validPort(5683), 5683);
+    assert.equal(validPort(65535), 65535);
+  });
+
+  it('falls back to the default port for invalid values', () => {
+    assert.equal(validPort(undefined), 5683);
+    assert.equal(validPort(0), 5683);
+    assert.equal(validPort(-1), 5683);
+    assert.equal(validPort(65536), 5683);
+    assert.equal(validPort(80.5), 5683);
+    assert.equal(validPort('5683 -D'), 5683);
+  });
+
+  it('warns when a configured port is invalid, but not when it is unset', () => {
+    warnings.length = 0;
+
+    validPort(undefined);
+    assert.equal(warnings.length, 0);
+
+    validPort(65536);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /Invalid port '65536'/);
   });
 });

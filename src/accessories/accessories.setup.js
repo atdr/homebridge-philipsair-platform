@@ -14,7 +14,11 @@ const Setup = async (deviceMap, devices, generateUUID) => {
       logger.warn('One of the devices has no name configured. This device will be skipped.');
       error = true;
     } else if (!device.host) {
-      logger.warn('There is no ip/host configured for this device. This device will be skipped.', device.name);
+      if (deviceConfig.host) {
+        logger.warn('The configured ip/host for this device is invalid. This device will be skipped.', device.name);
+      } else {
+        logger.warn('There is no ip/host configured for this device. This device will be skipped.', device.name);
+      }
       error = true;
     }
 

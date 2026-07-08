@@ -5,6 +5,10 @@ const { execFile, spawn } = require('child_process');
 const logger = require('../utils/logger');
 const modelConfig = require('./accessories.models');
 
+//status lines are small JSON objects; anything beyond this is a misbehaving
+//device or CLI streaming data without newlines
+const MAX_STDOUT_BUFFER = 1024 * 1024;
+
 class Handler {
   constructor(api, accessory) {
     this.api = api;
@@ -381,18 +385,7 @@ class Handler {
 
     this.airControl = spawn(this.binary, [...this.args, 'status-observe', '-J']);
 
-    this.airControl.stdout.on('data', (data) => {
-      this.stdoutBuffer += data.toString();
-
-      const lines = this.stdoutBuffer.split('\n');
-      this.stdoutBuffer = lines.pop();
-
-      for (const line of lines) {
-        if (line.trim()) {
-          this.processUpdate(line);
-        }
-      }
-    });
+    this.airControl.stdout.on('data', (data) => this.handleStdoutChunk(data));
 
     this.airControl.stderr.on('data', (data) => {
       logger.debug(data.toString(), this.accessory.displayName);
@@ -433,6 +426,25 @@ class Handler {
     }, 60 * 1000);
   }
 
+  handleStdoutChunk(data) {
+    this.stdoutBuffer += data.toString();
+
+    if (this.stdoutBuffer.length > MAX_STDOUT_BUFFER) {
+      logger.warn('Device response exceeded buffer limit, discarding buffered data', this.accessory.displayName);
+      this.stdoutBuffer = '';
+      return;
+    }
+
+    const lines = this.stdoutBuffer.split('\n');
+    this.stdoutBuffer = lines.pop();
+
+    for (const line of lines) {
+      if (line.trim()) {
+        this.processUpdate(line);
+      }
+    }
+  }
+
   scheduleRestart(delay) {
     if (this.shutdown || this.restartTimeout) {
       return;
@@ -465,8 +477,11 @@ class Handler {
         .updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, this.rotationSpeed());
 
       if (this.airQualityService) {
+        //HomeKit AirQuality only accepts 0 (unknown) to 5 (poor)
+        const airQuality = Math.min(Math.max(Math.ceil(this.obj.iaql / 3) || 0, 0), 5);
+
         this.airQualityService
-          .updateCharacteristic(this.api.hap.Characteristic.AirQuality, Math.ceil(this.obj.iaql / 3))
+          .updateCharacteristic(this.api.hap.Characteristic.AirQuality, airQuality)
           .updateCharacteristic(this.api.hap.Characteristic.PM2_5Density, this.obj.pm25);
       }
 
