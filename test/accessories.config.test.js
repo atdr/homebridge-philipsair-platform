@@ -39,6 +39,11 @@ describe('accessories.config', () => {
     assert.equal(device.host, undefined);
   });
 
+  it('replaces invalid ports with the default', () => {
+    assert.equal(Config({ name: 'Purifier', host: '10.0.0.2', port: 'not a port' }).port, 5683);
+    assert.equal(Config({ name: 'Purifier', host: '10.0.0.2', port: 65536 }).port, 5683);
+  });
+
   it('keeps explicit values', () => {
     const device = Config({
       active: true,

@@ -56,6 +56,19 @@ describe('processUpdate', () => {
     assert.equal(handler.purifierService.updates.length, 0);
   });
 
+  it('clamps the air quality value to the valid HomeKit range', async () => {
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.airQualityService = makeService();
+
+    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2', iaql: 100, pm25: 4 }));
+    assert.deepEqual(updated(handler.airQualityService, 'AirQuality'), [['AirQuality', 5]]);
+
+    handler.airQualityService = makeService();
+    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2', pm25: 4 }));
+    assert.deepEqual(updated(handler.airQualityService, 'AirQuality'), [['AirQuality', 0]]);
+  });
+
   it('skips the wick filter when the device does not report wicksts', async () => {
     const handler = makeHandler({});
     handler.purifierService = makeService();
@@ -68,6 +81,31 @@ describe('processUpdate', () => {
 
     await handler.processUpdate(JSON.stringify({ ...status, wicksts: 2400 }));
     assert.deepEqual(updated(handler.wickFilterService, 'FilterLifeLevel'), [['FilterLifeLevel', 50]]);
+  });
+});
+
+describe('handleStdoutChunk', () => {
+  it('buffers partial lines and processes complete ones', async () => {
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+
+    const status = JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2' });
+    handler.handleStdoutChunk(status.slice(0, 10));
+    assert.equal(handler.purifierService.updates.length, 0);
+
+    handler.handleStdoutChunk(status.slice(10) + '\n');
+    await delay(10);
+    assert.ok(updated(handler.purifierService, 'Active').length > 0);
+  });
+
+  it('discards buffered data that exceeds the size limit', () => {
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+
+    handler.handleStdoutChunk('x'.repeat(1024 * 1024 + 1));
+
+    assert.equal(handler.stdoutBuffer, '');
+    assert.equal(handler.purifierService.updates.length, 0);
   });
 });
 
