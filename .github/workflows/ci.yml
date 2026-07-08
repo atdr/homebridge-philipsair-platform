@@ -6,9 +6,12 @@ on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
 
+#edited events also fire for closed/merged PRs, where the commit range no
+#longer resolves after a squash merge - only run PR jobs while the PR is open
 jobs:
   build:
     name: Node ${{ matrix.node-version }}
+    if: github.event_name == 'push' || github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -29,7 +32,7 @@ jobs:
 
   commitlint:
     name: Commit messages
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +47,7 @@ jobs:
 
   pr-title:
     name: PR title
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
