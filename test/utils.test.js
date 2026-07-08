@@ -3,7 +3,13 @@
 const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
 
+const logger = require('../src/utils/logger');
 const { generateConfig, validHost, validPort } = require('../src/utils/utils');
+
+//capture warnings so the silent-fallback behavior can be asserted
+const warnings = [];
+const noop = () => {};
+logger.configure({ info: noop, warn: (message) => warnings.push(message), error: noop }, {});
 
 describe('generateConfig', () => {
   it('applies defaults for an empty config', () => {
@@ -77,5 +83,16 @@ describe('validPort', () => {
     assert.equal(validPort(65536), 5683);
     assert.equal(validPort(80.5), 5683);
     assert.equal(validPort('5683 -D'), 5683);
+  });
+
+  it('warns when a configured port is invalid, but not when it is unset', () => {
+    warnings.length = 0;
+
+    validPort(undefined);
+    assert.equal(warnings.length, 0);
+
+    validPort(65536);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /Invalid port '65536'/);
   });
 });

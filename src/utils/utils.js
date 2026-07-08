@@ -1,5 +1,7 @@
 'use strict';
 
+const logger = require('./logger');
+
 exports.generateConfig = (config) => {
   return {
     name: config.name || 'PhilipsAirPlatform',
@@ -29,11 +31,16 @@ exports.validHost = (host) => {
 };
 
 exports.validPort = (port) => {
+  if (port === undefined) {
+    return 5683;
+  }
+
   const number = Number(port);
 
   if (Number.isInteger(number) && number >= 1 && number <= 65535) {
     return number;
   }
 
+  logger.warn(`Invalid port '${port}' configured, using default port 5683 instead.`);
   return 5683;
 };

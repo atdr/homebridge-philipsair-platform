@@ -99,6 +99,8 @@
             "port": {
               "title": "Port",
               "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
               "placeholder": 5683,
               "description": "Port of your device.",
               "condition": {
