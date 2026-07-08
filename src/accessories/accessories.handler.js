@@ -44,6 +44,10 @@ class Handler {
     );
   }
 
+  /**
+   * @param {string[]} args
+   * @returns {Promise<void>}
+   */
   sendCMD(args) {
     logger.debug(`CMD: ${this.binary} ${args.join(' ')}`, this.accessory.displayName);
 
