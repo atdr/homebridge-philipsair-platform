@@ -3,6 +3,7 @@
 const { execFile, spawn } = require('child_process');
 
 const logger = require('../utils/logger');
+const { hapNumber } = require('../utils/utils');
 const modelConfig = require('./accessories.models');
 
 //status lines are small JSON objects; anything beyond this is a misbehaving
@@ -475,7 +476,7 @@ class Handler {
       //Air Purifier
       this.purifierService
         .updateCharacteristic(this.api.hap.Characteristic.Active, parseInt(this.obj.pwr) ? 1 : 0)
-        .updateCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState, parseInt(this.obj.pwr) * 2)
+        .updateCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState, parseInt(this.obj.pwr) ? 2 : 0)
         .updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, this.obj.mode === 'M' ? 0 : 1)
         .updateCharacteristic(this.api.hap.Characteristic.LockPhysicalControls, this.obj.cl ? 1 : 0)
         .updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, this.rotationSpeed());
@@ -486,22 +487,28 @@ class Handler {
 
         this.airQualityService
           .updateCharacteristic(this.api.hap.Characteristic.AirQuality, airQuality)
-          .updateCharacteristic(this.api.hap.Characteristic.PM2_5Density, this.obj.pm25);
+          .updateCharacteristic(this.api.hap.Characteristic.PM2_5Density, hapNumber(this.obj.pm25, 0, 1000));
       }
 
       if (this.temperatureService) {
-        this.temperatureService.updateCharacteristic(this.api.hap.Characteristic.CurrentTemperature, this.obj.temp);
+        this.temperatureService.updateCharacteristic(
+          this.api.hap.Characteristic.CurrentTemperature,
+          hapNumber(this.obj.temp, -270, 100)
+        );
       }
 
       if (this.humidityService) {
-        this.humidityService.updateCharacteristic(this.api.hap.Characteristic.CurrentRelativeHumidity, this.obj.rh);
+        this.humidityService.updateCharacteristic(
+          this.api.hap.Characteristic.CurrentRelativeHumidity,
+          hapNumber(this.obj.rh, 0, 100)
+        );
       }
 
       if (this.lightService) {
         if (this.obj.pwr == '1') {
           this.lightService
             .updateCharacteristic(this.api.hap.Characteristic.On, this.obj.aqil > 0)
-            .updateCharacteristic(this.api.hap.Characteristic.Brightness, this.obj.aqil);
+            .updateCharacteristic(this.api.hap.Characteristic.Brightness, hapNumber(this.obj.aqil, 0, 100));
         } else {
           this.lightService.updateCharacteristic(this.api.hap.Characteristic.On, false);
         }
@@ -534,7 +541,7 @@ class Handler {
             this.api.hap.Characteristic.Active,
             parseInt(this.obj.pwr) ? (this.obj.func === 'PH' ? 1 : 0) : 0
           )
-          .updateCharacteristic(this.api.hap.Characteristic.CurrentRelativeHumidity, this.obj.rh)
+          .updateCharacteristic(this.api.hap.Characteristic.CurrentRelativeHumidity, hapNumber(this.obj.rh, 0, 100))
           .updateCharacteristic(this.api.hap.Characteristic.WaterLevel, water_level)
           .updateCharacteristic(this.api.hap.Characteristic.TargetHumidifierDehumidifierState, 1)
           .updateCharacteristic(this.api.hap.Characteristic.RelativeHumidityHumidifierThreshold, speed_humidity);
@@ -552,7 +559,7 @@ class Handler {
 
         if (this.wickFilterService && this.obj.wicksts !== undefined) {
           const fltwickchange = this.obj.wicksts == 0;
-          const fltwicklife = Math.round((this.obj.wicksts / 4800) * 100);
+          const fltwicklife = hapNumber(Math.round((this.obj.wicksts / 4800) * 100), 0, 100);
 
           this.wickFilterService
             .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltwickchange)
@@ -563,7 +570,7 @@ class Handler {
       if (this.preFilterService && this.obj.fltsts0 !== undefined) {
         const fltsts0change = this.obj.fltsts0 == 0;
         const fltsts0maxlife = this.obj.flttotal0 ? this.obj.flttotal0 : 360;
-        const fltsts0life = (this.obj.fltsts0 / fltsts0maxlife) * 100;
+        const fltsts0life = hapNumber((this.obj.fltsts0 / fltsts0maxlife) * 100, 0, 100);
 
         this.preFilterService
           .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts0change)
@@ -573,7 +580,7 @@ class Handler {
       if (this.carbonFilterService && this.obj.fltsts2 !== undefined) {
         const fltsts2change = this.obj.fltsts2 == 0;
         const fltsts2maxlife = this.obj.flttotal2 ? this.obj.flttotal2 : 4800;
-        const fltsts2life = (this.obj.fltsts2 / fltsts2maxlife) * 100;
+        const fltsts2life = hapNumber((this.obj.fltsts2 / fltsts2maxlife) * 100, 0, 100);
 
         this.carbonFilterService
           .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts2change)
@@ -583,7 +590,7 @@ class Handler {
       if (this.hepaFilterService && this.obj.fltsts1 !== undefined) {
         const fltsts1change = this.obj.fltsts1 == 0;
         const fltsts1maxlife = this.obj.flttotal1 ? this.obj.flttotal1 : 4800;
-        const fltsts1life = (this.obj.fltsts1 / fltsts1maxlife) * 100;
+        const fltsts1life = hapNumber((this.obj.fltsts1 / fltsts1maxlife) * 100, 0, 100);
 
         this.hepaFilterService
           .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts1change)

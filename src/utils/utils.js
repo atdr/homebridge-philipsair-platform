@@ -44,3 +44,10 @@ exports.validPort = (port) => {
   logger.warn(`Invalid port '${port}' configured, using default port 5683 instead.`);
   return 5683;
 };
+
+//coerce a raw device field into the finite, in-range number HAP expects;
+//homebridge 2's stricter validation warns on undefined/NaN/out-of-range values
+exports.hapNumber = (value, min, max) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.min(Math.max(number, min), max) : 0;
+};
