@@ -9,6 +9,13 @@ const modelConfig = require('./accessories.models');
 //device or CLI streaming data without newlines
 const MAX_STDOUT_BUFFER = 1024 * 1024;
 
+//coerce a raw device field into the finite, in-range number HAP expects;
+//homebridge 2's stricter validation warns on undefined/NaN/out-of-range values
+function hapNumber(value, min, max) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.min(Math.max(number, min), max) : 0;
+}
+
 class Handler {
   constructor(api, accessory) {
     this.api = api;
@@ -475,7 +482,7 @@ class Handler {
       //Air Purifier
       this.purifierService
         .updateCharacteristic(this.api.hap.Characteristic.Active, parseInt(this.obj.pwr) ? 1 : 0)
-        .updateCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState, parseInt(this.obj.pwr) * 2)
+        .updateCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState, parseInt(this.obj.pwr) ? 2 : 0)
         .updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, this.obj.mode === 'M' ? 0 : 1)
         .updateCharacteristic(this.api.hap.Characteristic.LockPhysicalControls, this.obj.cl ? 1 : 0)
         .updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, this.rotationSpeed());
@@ -486,22 +493,28 @@ class Handler {
 
         this.airQualityService
           .updateCharacteristic(this.api.hap.Characteristic.AirQuality, airQuality)
-          .updateCharacteristic(this.api.hap.Characteristic.PM2_5Density, this.obj.pm25);
+          .updateCharacteristic(this.api.hap.Characteristic.PM2_5Density, hapNumber(this.obj.pm25, 0, 1000));
       }
 
       if (this.temperatureService) {
-        this.temperatureService.updateCharacteristic(this.api.hap.Characteristic.CurrentTemperature, this.obj.temp);
+        this.temperatureService.updateCharacteristic(
+          this.api.hap.Characteristic.CurrentTemperature,
+          hapNumber(this.obj.temp, -270, 100)
+        );
       }
 
       if (this.humidityService) {
-        this.humidityService.updateCharacteristic(this.api.hap.Characteristic.CurrentRelativeHumidity, this.obj.rh);
+        this.humidityService.updateCharacteristic(
+          this.api.hap.Characteristic.CurrentRelativeHumidity,
+          hapNumber(this.obj.rh, 0, 100)
+        );
       }
 
       if (this.lightService) {
         if (this.obj.pwr == '1') {
           this.lightService
             .updateCharacteristic(this.api.hap.Characteristic.On, this.obj.aqil > 0)
-            .updateCharacteristic(this.api.hap.Characteristic.Brightness, this.obj.aqil);
+            .updateCharacteristic(this.api.hap.Characteristic.Brightness, hapNumber(this.obj.aqil, 0, 100));
         } else {
           this.lightService.updateCharacteristic(this.api.hap.Characteristic.On, false);
         }
@@ -534,7 +547,7 @@ class Handler {
             this.api.hap.Characteristic.Active,
             parseInt(this.obj.pwr) ? (this.obj.func === 'PH' ? 1 : 0) : 0
           )
-          .updateCharacteristic(this.api.hap.Characteristic.CurrentRelativeHumidity, this.obj.rh)
+          .updateCharacteristic(this.api.hap.Characteristic.CurrentRelativeHumidity, hapNumber(this.obj.rh, 0, 100))
           .updateCharacteristic(this.api.hap.Characteristic.WaterLevel, water_level)
           .updateCharacteristic(this.api.hap.Characteristic.TargetHumidifierDehumidifierState, 1)
           .updateCharacteristic(this.api.hap.Characteristic.RelativeHumidityHumidifierThreshold, speed_humidity);
