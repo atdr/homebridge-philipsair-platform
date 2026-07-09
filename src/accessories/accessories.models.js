@@ -66,7 +66,7 @@ const models = {
   },
 };
 
-module.exports = (deviceConfig) => {
+const modelConfig = (deviceConfig) => {
   const model = models[deviceConfig.model] || {};
 
   return {
@@ -76,3 +76,9 @@ module.exports = (deviceConfig) => {
     extraSetFlags: model.extraSetFlags || [],
   };
 };
+
+//Every model listed here must also appear in the config.schema.json model
+//typeahead suggestions (enforced by test/config.schema.test.js).
+modelConfig.mappedModels = Object.keys(models);
+
+module.exports = modelConfig;

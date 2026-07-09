@@ -66,21 +66,21 @@
               "description": "Set the device name for display in the Home app."
             },
             "manufacturer": {
-              "name": "Manufacturer",
+              "title": "Manufacturer",
               "type": "string",
               "placeholder": "Philips",
               "default": "Philips",
               "description": "Set the manufacturer name for display in the Home app."
             },
             "model": {
-              "name": "Model",
+              "title": "Model",
               "type": "string",
               "placeholder": "Air Purifier",
               "default": "Air Purifier",
-              "description": "Model for display in the Home app. Pick from the suggested IDs for tested devices; AC3036, AC1715 and AC0850 have dedicated speed/key mappings (AC0850 requires the exact ID). Any other value works with default settings."
+              "description": "Model for display in the Home app. For tested devices, pick the exact ID from the suggestions — some models need it for the correct speed/key mappings (see the tested devices list in the README). Any other value works with default settings."
             },
             "serialNumber": {
-              "name": "Serial Number",
+              "title": "Serial Number",
               "type": "string",
               "placeholder": "000000",
               "default": "000000",
