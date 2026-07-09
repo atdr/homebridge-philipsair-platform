@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const { describe, it, beforeEach } = require('node:test');
 
 // hap-nodejs is available through the homebridge devDependency
-const { uuid } = require('hap-nodejs');
+// (homebridge 2.x ships it as the scoped @homebridge/hap-nodejs package)
+const { uuid } = require('@homebridge/hap-nodejs');
 
 const logger = require('../src/utils/logger');
 const Setup = require('../src/accessories/accessories.setup');
