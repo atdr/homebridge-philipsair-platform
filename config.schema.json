@@ -77,7 +77,7 @@
               "type": "string",
               "placeholder": "Air Purifier",
               "default": "Air Purifier",
-              "description": "Set the model for display in the Home app."
+              "description": "Model for display in the Home app. Pick from the suggested IDs for tested devices; AC3036, AC1715 and AC0850 have dedicated speed/key mappings (AC0850 requires the exact ID). Any other value works with default settings."
             },
             "serialNumber": {
               "name": "Serial Number",
@@ -194,7 +194,16 @@
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               },
-              "items": ["devices[].manufacturer", "devices[].model", "devices[].serialNumber"]
+              "items": [
+                "devices[].manufacturer",
+                {
+                  "key": "devices[].model",
+                  "typeahead": {
+                    "source": ["AC0850", "AC1715", "AC3036", "AC3829"]
+                  }
+                },
+                "devices[].serialNumber"
+              ]
             },
             {
               "key": "devices[]",
