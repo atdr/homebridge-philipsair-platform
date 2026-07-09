@@ -3,18 +3,12 @@
 const { execFile, spawn } = require('child_process');
 
 const logger = require('../utils/logger');
+const { hapNumber } = require('../utils/utils');
 const modelConfig = require('./accessories.models');
 
 //status lines are small JSON objects; anything beyond this is a misbehaving
 //device or CLI streaming data without newlines
 const MAX_STDOUT_BUFFER = 1024 * 1024;
-
-//coerce a raw device field into the finite, in-range number HAP expects;
-//homebridge 2's stricter validation warns on undefined/NaN/out-of-range values
-function hapNumber(value, min, max) {
-  const number = Number(value);
-  return Number.isFinite(number) ? Math.min(Math.max(number, min), max) : 0;
-}
 
 class Handler {
   constructor(api, accessory) {

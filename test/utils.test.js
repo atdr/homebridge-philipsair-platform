@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
 
 const logger = require('../src/utils/logger');
-const { generateConfig, validHost, validPort } = require('../src/utils/utils');
+const { generateConfig, validHost, validPort, hapNumber } = require('../src/utils/utils');
 
 //capture warnings so the silent-fallback behavior can be asserted
 const warnings = [];
@@ -94,5 +94,36 @@ describe('validPort', () => {
     validPort(65536);
     assert.equal(warnings.length, 1);
     assert.match(warnings[0], /Invalid port '65536'/);
+  });
+});
+
+describe('hapNumber', () => {
+  it('passes finite in-range numbers through unchanged', () => {
+    assert.equal(hapNumber(22.5, -270, 100), 22.5);
+    assert.equal(hapNumber(0, 0, 100), 0);
+    assert.equal(hapNumber(100, 0, 100), 100);
+  });
+
+  it('coerces numeric strings', () => {
+    assert.equal(hapNumber('22', -270, 100), 22);
+    assert.equal(hapNumber('35', 0, 1000), 35);
+  });
+
+  it('clamps values outside the range to the nearest bound', () => {
+    assert.equal(hapNumber(1500, 0, 1000), 1000);
+    assert.equal(hapNumber(-5, 0, 100), 0);
+    assert.equal(hapNumber(150, 0, 100), 100);
+  });
+
+  it('allows negative values within a negative-capable range', () => {
+    assert.equal(hapNumber(-5, -270, 100), -5);
+  });
+
+  it('falls back to 0 for non-finite values', () => {
+    assert.equal(hapNumber(undefined, 0, 100), 0);
+    assert.equal(hapNumber(null, 0, 100), 0);
+    assert.equal(hapNumber(NaN, 0, 100), 0);
+    assert.equal(hapNumber('not a number', 0, 100), 0);
+    assert.equal(hapNumber(Infinity, 0, 100), 0);
   });
 });
