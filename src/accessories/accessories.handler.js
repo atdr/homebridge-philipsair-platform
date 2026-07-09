@@ -565,7 +565,7 @@ class Handler {
 
         if (this.wickFilterService && this.obj.wicksts !== undefined) {
           const fltwickchange = this.obj.wicksts == 0;
-          const fltwicklife = Math.round((this.obj.wicksts / 4800) * 100);
+          const fltwicklife = hapNumber(Math.round((this.obj.wicksts / 4800) * 100), 0, 100);
 
           this.wickFilterService
             .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltwickchange)
@@ -576,7 +576,7 @@ class Handler {
       if (this.preFilterService && this.obj.fltsts0 !== undefined) {
         const fltsts0change = this.obj.fltsts0 == 0;
         const fltsts0maxlife = this.obj.flttotal0 ? this.obj.flttotal0 : 360;
-        const fltsts0life = (this.obj.fltsts0 / fltsts0maxlife) * 100;
+        const fltsts0life = hapNumber((this.obj.fltsts0 / fltsts0maxlife) * 100, 0, 100);
 
         this.preFilterService
           .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts0change)
@@ -586,7 +586,7 @@ class Handler {
       if (this.carbonFilterService && this.obj.fltsts2 !== undefined) {
         const fltsts2change = this.obj.fltsts2 == 0;
         const fltsts2maxlife = this.obj.flttotal2 ? this.obj.flttotal2 : 4800;
-        const fltsts2life = (this.obj.fltsts2 / fltsts2maxlife) * 100;
+        const fltsts2life = hapNumber((this.obj.fltsts2 / fltsts2maxlife) * 100, 0, 100);
 
         this.carbonFilterService
           .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts2change)
@@ -596,7 +596,7 @@ class Handler {
       if (this.hepaFilterService && this.obj.fltsts1 !== undefined) {
         const fltsts1change = this.obj.fltsts1 == 0;
         const fltsts1maxlife = this.obj.flttotal1 ? this.obj.flttotal1 : 4800;
-        const fltsts1life = (this.obj.fltsts1 / fltsts1maxlife) * 100;
+        const fltsts1life = hapNumber((this.obj.fltsts1 / fltsts1maxlife) * 100, 0, 100);
 
         this.hepaFilterService
           .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts1change)
