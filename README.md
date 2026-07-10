@@ -74,13 +74,13 @@ Older releases registered accessories under a different internal plugin identifi
           "model": "AC3829",
           "serialNumber": "000000",
           "host": "192.168.178.111",
-          "port": 3333,
+          "port": 5683,
           "light": true,
           "temperature": true,
           "humidity": true,
           "humidifier": true,
           "allergicFunc": true,
-          "sleepSpeed": false
+          "sleepSpeed": true
         }
       ]
     }
@@ -177,7 +177,7 @@ This plugin has been verified to work with the following apps/systems:
 - iOS > 13
 - Apple Home
 - All 3rd party apps like Elgato Eve etc
-- Homebridge v1.8 or later (including the v2.0 beta)
+- Homebridge v1.8 or v2
 - Node v20.18, v22.10, or v24 (matching the `engines` field in package.json)
 
 ## TODO

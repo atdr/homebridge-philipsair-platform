@@ -22,7 +22,7 @@ The runtime flow is:
   - `accessories.models.js` — per-model speed/key/value maps (pure data).
   - `index.js` — barrel export.
 - `src/utils/` — `logger.js` (singleton logger) and `utils.js` (`generateConfig`,
-  `validHost`).
+  `validHost`, `validPort`, `hapNumber`).
 
 **Key gotcha:** device communication is not pure JavaScript. `accessories.handler.js`
 runs the [`aioairctrl`](https://pypi.org/project/aioairctrl/) CLI (the pip package that
@@ -36,7 +36,7 @@ and the third-party `aioairctrl` package (whose behaviour this repo does not con
 User-facing config surface: `config.schema.json` (Homebridge UI schema) and
 `example-config.json`.
 
-Supported runtimes: Node `^20.18 || ^22.10 || ^24`, Homebridge `^1.8 || ^2.0.0-beta`.
+Supported runtimes: Node `^20.18 || ^22.10 || ^24`, Homebridge `^1.8 || ^2.0.0`.
 
 ## Language and module format
 
@@ -69,7 +69,7 @@ commitlint rules (`type(scope): summary`).
 
 ## Quality checks
 
-Run all five gates before opening a PR — CI (`.github/workflows/ci.yml`) runs them on
+Run all six gates before opening a PR — CI (`.github/workflows/ci.yml`) runs them on
 Node 20/22/24 and every gate must pass:
 
 ```bash
@@ -77,6 +77,7 @@ npm run typecheck     # tsc with checkJs over the plain JS
 npm run lint          # eslint (check only; use npm run lint:fix to autofix)
 npm run format:check  # prettier (check only; use npm run format to write)
 npm run check         # node --check syntax pass over all JS files
+npm run lint:md       # markdownlint over all *.md (config in .markdownlint.json)
 npm run test          # node:test unit suite in test/
 ```
 
@@ -104,7 +105,14 @@ logger.error(err, accessoryName);
 
 A PR that adds, removes, or changes a module, config option, or supported device must
 update the affected docs in the **same PR**. Before opening a PR, grep the docs for names
-related to your change. Specific sync rules:
+related to your change.
+
+Where a doc/code invariant can be checked mechanically, prefer a `node:test` check over a
+prose rule so CI catches drift instead of relying on a reviewer grepping.
+`test/config.schema.test.js` (model typeahead ⊇ mapped models) and `test/docs.test.js`
+(README config table, `example-config.json`, and README tested-device list track
+`config.schema.json` / `accessories.models.js`) are the pattern to copy when you add a new
+config option, model, or device. Specific sync rules:
 
 **`README.md`** — the tested/supported device list, example configs, and supported
 clients must track what the code and `config.schema.json` actually support. Installation

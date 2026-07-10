@@ -16,13 +16,14 @@ CLI — see the README installation section.
 
 ## Quality gates
 
-CI runs these five checks on Node 20/22/24; all must pass before a PR can merge:
+CI runs these six checks on Node 20/22/24; all must pass before a PR can merge:
 
 ```bash
 npm run typecheck     # tsc with checkJs
 npm run lint          # eslint (npm run lint:fix to autofix)
 npm run format:check  # prettier (npm run format to write)
 npm run check         # node --check syntax pass
+npm run lint:md       # markdownlint (npm run lint:md:fix to autofix)
 npm run test          # node:test unit suite
 ```
 
