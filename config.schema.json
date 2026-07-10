@@ -66,21 +66,21 @@
               "description": "Set the device name for display in the Home app."
             },
             "manufacturer": {
-              "name": "Manufacturer",
+              "title": "Manufacturer",
               "type": "string",
               "placeholder": "Philips",
               "default": "Philips",
               "description": "Set the manufacturer name for display in the Home app."
             },
             "model": {
-              "name": "Model",
+              "title": "Model",
               "type": "string",
               "placeholder": "Air Purifier",
               "default": "Air Purifier",
-              "description": "Set the model for display in the Home app."
+              "description": "Model for display in the Home app. For tested devices, pick the exact ID from the suggestions — some models need it for the correct speed/key mappings (see the tested devices list in the README). Any other value works with default settings."
             },
             "serialNumber": {
-              "name": "Serial Number",
+              "title": "Serial Number",
               "type": "string",
               "placeholder": "000000",
               "default": "000000",
@@ -194,7 +194,16 @@
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               },
-              "items": ["devices[].manufacturer", "devices[].model", "devices[].serialNumber"]
+              "items": [
+                "devices[].manufacturer",
+                {
+                  "key": "devices[].model",
+                  "typeahead": {
+                    "source": ["AC0850", "AC1715", "AC3036", "AC3829"]
+                  }
+                },
+                "devices[].serialNumber"
+              ]
             },
             {
               "key": "devices[]",
