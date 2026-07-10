@@ -31,6 +31,7 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm run check
+      - run: npm run lint:md
       - run: npm test
 
   commitlint:
