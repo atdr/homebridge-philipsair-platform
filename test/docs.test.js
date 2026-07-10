@@ -36,10 +36,9 @@ const readmeFieldCells = new Set(
 );
 
 //Body of the '## Tested devices' section, up to the next heading.
-const testedDevicesSection = readme.slice(
-  readme.indexOf('## Tested devices'),
-  readme.indexOf('## ', readme.indexOf('## Tested devices') + 1)
-);
+const testedDevicesStart = readme.indexOf('## Tested devices');
+assert.notEqual(testedDevicesStart, -1, "README has no '## Tested devices' section");
+const testedDevicesSection = readme.slice(testedDevicesStart, readme.indexOf('## ', testedDevicesStart + 1));
 
 describe('docs', () => {
   it('documents every config.schema.json property in the README field table', () => {
@@ -54,6 +53,21 @@ describe('docs', () => {
       assert.ok(
         readmeFieldCells.has(prop),
         `device option '${prop}' is in config.schema.json but missing from the README field table`
+      );
+    }
+  });
+
+  it('has no README field-table row for an option that is not in config.schema.json', () => {
+    const knownOptions = new Set([...platformProps, ...deviceProps, ...structuralKeys]);
+
+    for (const cell of readmeFieldCells) {
+      //skip the 'Fields' header cell and the empty cell from the separator row
+      if (!cell || cell === 'Fields') {
+        continue;
+      }
+      assert.ok(
+        knownOptions.has(cell),
+        `README field table documents '${cell}', which is not defined in config.schema.json`
       );
     }
   });
