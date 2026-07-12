@@ -1,6 +1,6 @@
 ---
 name: aioairctrl-and-device-protocol
-description: Domain reference for how this plugin talks to Philips purifiers - the aioairctrl CLI invocation contract (-H/-P/-D, set, -I, status-observe -J), the device status keys (pwr, om, mode, iaql, rhset, fltsts*, D03-xx registers), the three model dialects, and how raw values map to HomeKit characteristics. Load when reading or changing accessories.handler.js or accessories.models.js, interpreting a device status dump, or decoding what a set command actually sends. Not for adding a new model end-to-end (use new-model-support-campaign) or triaging failures (use debugging-and-operations).
+description: Domain reference for how this plugin talks to Philips purifiers - the aioairctrl CLI invocation contract (-H/-P/-D, set, -I, status-observe -J), the device status keys (pwr, om, mode, iaql, rhset, fltsts*, D03-xx registers), the three model dialects, and the full HomeKit surface (which services/characteristics exist, their config conditions, and which key feeds each). Load when reading or changing accessories.handler.js, accessories.models.js, or accessories.service.js, interpreting a device status dump, mapping a value to a characteristic, or decoding what a set command actually sends. Not for adding a new model end-to-end (use new-model-support-campaign) or triaging failures (use debugging-and-operations).
 ---
 
 # aioairctrl and the device protocol
@@ -116,6 +116,37 @@ that must ALL match the current status (stringified equality) in
 minStep)` picks the entry and every pair in it is sent as a `set` command. A status that
 matches no entry yields RotationSpeed 0.
 
+## The HomeKit surface (services and characteristics)
+
+The other end of the translation: which HomeKit services the plugin exposes and which
+generic key feeds each characteristic. Services are wired in
+`src/accessories/accessories.service.js` (conditional ones are added when the device
+config enables the option and removed otherwise); values are pushed from
+`processUpdate` and the `set*` methods in `accessories.handler.js`.
+
+| Service                                      | Condition         | Key characteristics (source key → HAP)                                                                                                                                                                                          |
+| -------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AccessoryInformation`                       | always            | Manufacturer/Model/SerialNumber from config; FirmwareRevision = package version (`src/platform.js`)                                                                                                                             |
+| `AirPurifier`                                | always            | `Active` (`pwr`), `CurrentAirPurifierState` (`pwr`→0/2), `TargetAirPurifierState` (`mode==='M'`→0 else 1), `LockPhysicalControls` (`cl`), `RotationSpeed` (previous section)                                                    |
+| `AirQualitySensor`                           | always            | `AirQuality` (`iaql`, clamped `ceil(iaql/3)`), `PM2_5Density` (`pm25`)                                                                                                                                                          |
+| `FilterMaintenance` ("Pre Filter")           | `preFilter`       | `FilterChangeIndication` (`fltsts0 == 0`), `FilterLifeLevel` (`fltsts0`)                                                                                                                                                        |
+| `FilterMaintenance` ("Active carbon filter") | `carbonFilter`    | same, from `fltsts2`                                                                                                                                                                                                            |
+| `FilterMaintenance` ("HEPA filter")          | `hepaFilter`      | same, from `fltsts1`                                                                                                                                                                                                            |
+| `FilterMaintenance` ("Wick filter")          | with `humidifier` | same, from `wicksts`                                                                                                                                                                                                            |
+| `HumidifierDehumidifier`                     | `humidifier`      | `Active`, `CurrentHumidifierDehumidifierState` (validValues INACTIVE/HUMIDIFYING only), `TargetHumidifierDehumidifierState` (HUMIDIFIER only), `RelativeHumidityHumidifierThreshold` (`rhset`, minStep 25), `WaterLevel` (`wl`) |
+| `TemperatureSensor`                          | `temperature`     | `CurrentTemperature` (`temp`)                                                                                                                                                                                                   |
+| `HumiditySensor`                             | `humidity`        | `CurrentRelativeHumidity` (`rh`)                                                                                                                                                                                                |
+| `Lightbulb`                                  | `light`           | `On` (`pwr === '1' && aqil > 0`; forced off when the device is off), `Brightness` (`aqil`, minStep 25)                                                                                                                          |
+
+Two behaviours worth memorising:
+
+- `onGet` handlers return the **last polled** state from `this.obj` — the plugin is
+  poll-driven, never request-driven. `onSet` handlers optimistically
+  `updateCharacteristic` first, then send the device command.
+- The `FilterMaintenance` subtypes are addressed by the quoted display names above
+  (`accessory.getService('Pre Filter')` etc.); renaming them orphans the existing
+  service instance on users' accessories.
+
 ## Provenance and maintenance
 
 Verified against the repo at commit 36067a6, 2026-07-12. Re-verify:
@@ -125,4 +156,5 @@ grep -n "status-observe\|'set'" src/accessories/accessories.handler.js   # CLI s
 grep -n "'-I'" src/accessories/accessories.models.js src/accessories/accessories.handler.js  # -I call sites
 node --test test/accessories.handler.test.js test/accessories.models.test.js  # dialect + mapping behaviour
 grep -n "handleCommand" src/accessories/accessories.handler.js            # value-before-key order intact
+grep -n "context.config.\|addService" src/accessories/accessories.service.js  # service conditions + subtypes
 ```
