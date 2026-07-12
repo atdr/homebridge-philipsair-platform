@@ -141,8 +141,10 @@ config enables the option and removed otherwise); values are pushed from
 Two behaviours worth memorising:
 
 - `onGet` handlers return the **last polled** state from `this.obj` — the plugin is
-  poll-driven, never request-driven. `onSet` handlers optimistically
-  `updateCharacteristic` first, then send the device command.
+  poll-driven, never request-driven. Most `onSet` handlers optimistically
+  `updateCharacteristic` before sending the device command, but not all:
+  `setPurifierLockPhysicalControls`, `setLightOn`, and `setLightBrightness` just send
+  and let the next poll confirm.
 - The `FilterMaintenance` subtypes are addressed by the quoted display names above
   (`accessory.getService('Pre Filter')` etc.); renaming them orphans the existing
   service instance on users' accessories.
