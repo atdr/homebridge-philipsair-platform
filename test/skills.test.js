@@ -41,7 +41,9 @@ describe('skills', () => {
     for (const { name, body } of skills) {
       const tokens = body.match(/(?<![A-Za-z0-9_-])(?:src|test)\/[A-Za-z0-9_./-]+/g) || [];
 
-      for (const token of new Set(tokens)) {
+      for (const raw of new Set(tokens)) {
+        //an unbackticked path at the end of a sentence drags its punctuation along
+        const token = raw.replace(/[.,:]+$/, '');
         assert.ok(
           fs.existsSync(path.join(root, token)),
           `${name}/SKILL.md references '${token}', which does not exist — update the skill or restore the file`
