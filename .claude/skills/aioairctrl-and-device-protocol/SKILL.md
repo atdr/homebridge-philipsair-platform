@@ -41,9 +41,8 @@ Built in the `Handler` constructor and methods of
   `setPurifierRotationSpeed` for composite speed entries).
 - `-I` after `set` is appended per model via `extraSetFlags` (AC0850: every set), and
   hard-coded on specific numeric commands: `aqil` (light brightness) and `rhset`
-  (humidity target). (Inferred: `-I` makes the CLI parse the value as an integer rather
-  than a string — consistent with which commands use it, but not documented in this
-  repo; verify with `aioairctrl set --help`.)
+  (humidity target). Per `aioairctrl set --help` (`-I, --int`), it encodes the value as
+  an integer instead of a string (maintainer-confirmed against the CLI, 2026-07-13).
 - The plugin logs the CLI's **stderr** at debug level and assumes **stdout carries
   only status JSON lines** — anything else on stdout triggers
   `Failed to parse device response` (see `debugging-and-operations`).
