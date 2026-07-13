@@ -74,7 +74,8 @@ so per-file setup does not leak).
 - **Pinned compatibility vectors**: `test/accessories.setup.test.js` pins the exact
   UUID for 'Livingroom Philips' produced by HAP's generator. If this test fails, your
   change breaks every user's HomeKit setup — fix the change, never the vector.
-- **Drift-guard tests** (`test/config.schema.test.js`, `test/docs.test.js`): read repo
+- **Drift-guard tests** (`test/config.schema.test.js`, `test/docs.test.js`,
+  `test/skills.test.js`): read repo
   files, assert a doc/code invariant, fail with a pointed message. When a drift guard
   fails, **the fix is almost always to update the doc, not to weaken the test**
   (comment at the top of `test/docs.test.js`). Copy this shape for new invariants.
