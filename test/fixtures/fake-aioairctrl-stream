@@ -1,0 +1,28 @@
+#!/usr/bin/env node
+'use strict';
+
+//aioairctrl stand-in that keeps notifying, the way a healthy device does.
+//Emits a status line every FAKE_INTERVAL_MS (default 40ms) until killed, so a
+//test can prove the stall timer is reset by incoming data rather than firing
+//on a fixed process lifetime.
+
+const args = process.argv.slice(2);
+
+if (!args.includes('status-observe')) {
+  process.exit(2);
+}
+
+const interval = Number(process.env.FAKE_INTERVAL_MS || 20);
+
+const status = JSON.stringify({
+  pwr: '1',
+  mode: 'P',
+  cl: false,
+  om: '2',
+  iaql: 3,
+  pm25: 4,
+});
+
+setInterval(() => {
+  process.stdout.write(status + '\n');
+}, interval);

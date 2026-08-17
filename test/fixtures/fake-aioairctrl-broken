@@ -1,0 +1,9 @@
+#!/usr/bin/env node
+'use strict';
+
+//aioairctrl stand-in for an installed-but-unrunnable CLI: the command exists,
+//so there is no ENOENT, but it dies immediately with a Python traceback on
+//stderr. This is what a missing aioairctrl dependency actually looks like.
+
+process.stderr.write("ModuleNotFoundError: No module named 'aioairctrl'\n");
+process.exit(1);

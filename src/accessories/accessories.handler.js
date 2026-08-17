@@ -10,6 +10,27 @@ const modelConfig = require('./accessories.models');
 //device or CLI streaming data without newlines
 const MAX_STDOUT_BUFFER = 1024 * 1024;
 
+//the observe stream is torn down and respawned once the device has been silent
+//for this long. this is an *idle* timer, reset by every status line, so a
+//healthy stream is never interrupted: an AC0850 notifies roughly every 50s,
+//which a fixed process lifetime races rather than supervises
+const STALL_TIMEOUT = 120 * 1000;
+
+//delay before respawning a stream that ended
+const RESTART_DELAY = 5 * 1000;
+
+//longer delay when the binary could not be executed at all, since retrying
+//quickly cannot fix a missing or unrunnable command
+const SPAWN_ERROR_RESTART_DELAY = 30 * 1000;
+
+//how much of a failing process's stderr is kept so that it can be reported.
+//aioairctrl's tracebacks are what tell a user their Python install is broken
+const MAX_STDERR_CAPTURE = 4 * 1024;
+
+//consecutive polls returning nothing before the plugin escalates from a debug
+//line to a warning. a single dropped stream is normal; a run of them is not
+const FAILURE_ESCALATION_THRESHOLD = 3;
+
 class Handler {
   constructor(api, accessory) {
     this.api = api;
@@ -20,8 +41,18 @@ class Handler {
     this.processTimeout = null;
     this.restartTimeout = null;
     this.stdoutBuffer = '';
-    this.spawnErrorLogged = false;
+    this.stderrBuffer = '';
+    this.receivedData = false;
+    this.stalled = false;
+    this.spawnFailed = false;
+    this.pollFailures = 0;
+    this.failureLogged = false;
     this.obj = {};
+
+    //instance fields rather than bare constants so tests can shorten the waits
+    this.stallTimeout = STALL_TIMEOUT;
+    this.restartDelay = RESTART_DELAY;
+    this.spawnErrorRestartDelay = SPAWN_ERROR_RESTART_DELAY;
 
     const { speeds, keyMaps, valueMaps, extraSetFlags } = modelConfig(this.accessory.context.config);
     this.speeds = speeds;
@@ -387,48 +418,120 @@ class Handler {
 
     clearTimeout(this.processTimeout);
     this.stdoutBuffer = '';
+    this.stderrBuffer = '';
+    this.receivedData = false;
+    this.stalled = false;
+    this.spawnFailed = false;
 
     this.airControl = spawn(this.binary, [...this.args, 'status-observe', '-J']);
 
     this.airControl.stdout.on('data', (data) => this.handleStdoutChunk(data));
 
     this.airControl.stderr.on('data', (data) => {
-      logger.debug(data.toString(), this.accessory.displayName);
+      const text = data.toString();
+
+      //kept so that a process which dies without producing status can explain
+      //itself; a Python traceback here is the whole diagnosis
+      if (this.stderrBuffer.length < MAX_STDERR_CAPTURE) {
+        this.stderrBuffer += text;
+      }
+
+      logger.debug(text, this.accessory.displayName);
     });
 
     this.airControl.on('error', (/** @type {NodeJS.ErrnoException} */ err) => {
       const error = err.code === 'ENOENT' ? this.missingBinaryError() : err;
 
+      //'close' also fires for a failed spawn; this path has already reported it
+      this.spawnFailed = true;
+
       //only log the first failure in a retry loop to avoid spamming every 30s
-      if (this.spawnErrorLogged) {
+      if (this.failureLogged) {
         logger.debug(error, this.accessory.displayName);
       } else {
-        this.spawnErrorLogged = true;
+        this.failureLogged = true;
         logger.warn('Failed to run polling process', this.accessory.displayName);
         logger.error(error, this.accessory.displayName);
       }
 
-      this.scheduleRestart(30 * 1000);
+      this.scheduleRestart(this.spawnErrorRestartDelay);
     });
 
     this.airControl.on('close', (code) => {
+      clearTimeout(this.processTimeout);
+      this.processTimeout = null;
+
       logger.debug(
         `airControl process exited with code ${code} (${this.shutdown ? 'expected' : 'not expected'})`,
         this.accessory.displayName
       );
 
-      if (!this.shutdown) {
-        logger.debug('Restarting polling process', this.accessory.displayName);
-        this.scheduleRestart(5 * 1000);
+      if (this.shutdown) {
+        return;
       }
+
+      if (!this.receivedData && !this.spawnFailed) {
+        this.pollFailures += 1;
+        this.reportPollFailure(code);
+      }
+
+      logger.debug('Restarting polling process', this.accessory.displayName);
+      this.scheduleRestart(this.restartDelay);
     });
 
-    //the observe connection is refreshed once a minute to recover from silent stalls
+    this.armStallTimeout();
+  }
+
+  /**
+   * Reports a poll that returned no status at all. Without this the plugin
+   * respawns forever in silence: a broken `aioairctrl` install exits non-zero
+   * on every attempt, and at debug level that looks identical to a device that
+   * simply has nothing new to say.
+   *
+   * @param {number | null} code
+   */
+  reportPollFailure(code) {
+    //a stall means the subscription was accepted and nothing ever arrived,
+    //which is already conclusive; an exit could still be a one-off
+    const escalate = this.stalled || this.pollFailures >= FAILURE_ESCALATION_THRESHOLD;
+
+    const summary = this.stalled
+      ? `No status received from the device within ${Math.round(this.stallTimeout / 1000)}s. Check that the purifier is powered on and that 'host' and 'port' are correct.`
+      : `The polling process exited with code ${code} without returning any status (attempt ${this.pollFailures}). Check that '${this.binary}' runs as the Homebridge user (see README Troubleshooting).`;
+
+    if (!escalate || this.failureLogged) {
+      logger.debug(summary, this.accessory.displayName);
+      return;
+    }
+
+    this.failureLogged = true;
+    logger.warn(summary, this.accessory.displayName);
+
+    const stderr = this.stderrBuffer.trim();
+
+    if (stderr) {
+      logger.error(new Error(`${this.binary} wrote: ${stderr}`), this.accessory.displayName);
+    }
+  }
+
+  /**
+   * Restarts the observe stream when the device goes quiet. Re-armed by every
+   * status line, so this fires only on an actual stall rather than on a timer
+   * racing the device's own notification interval.
+   */
+  armStallTimeout() {
+    clearTimeout(this.processTimeout);
+
     this.processTimeout = setTimeout(() => {
       if (this.airControl) {
+        logger.debug(
+          `No status received for ${Math.round(this.stallTimeout / 1000)}s, restarting the polling process`,
+          this.accessory.displayName
+        );
+        this.stalled = true;
         this.airControl.kill();
       }
-    }, 60 * 1000);
+    }, this.stallTimeout);
   }
 
   handleStdoutChunk(data) {
@@ -462,7 +565,18 @@ class Handler {
   }
 
   async processUpdate(line) {
-    this.spawnErrorLogged = false;
+    this.receivedData = true;
+    this.pollFailures = 0;
+
+    if (this.failureLogged) {
+      this.failureLogged = false;
+      logger.info('Device is responding again', this.accessory.displayName);
+    }
+
+    //a line arriving proves the stream is alive, whether or not it parses
+    if (this.airControl && !this.shutdown) {
+      this.armStallTimeout();
+    }
 
     try {
       this.handleResponse(JSON.parse(line));
@@ -607,6 +721,7 @@ class Handler {
 
     clearTimeout(this.processTimeout);
     clearTimeout(this.restartTimeout);
+    this.processTimeout = null;
     this.restartTimeout = null;
 
     if (this.airControl) {
