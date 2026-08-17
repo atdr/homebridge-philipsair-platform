@@ -56,6 +56,14 @@ what the gates catch at runtime is not covered here.
   updates only). Majors and production advisories arrive individually for isolated review
   (commit bce7dc3). Major toolchain bumps sometimes need real fixes — e.g.
   TypeScript 7 required config and JSDoc changes (commit 4292672).
+- **The CI audit job mirrors that same split** and is not one of the six gates: it blocks
+  on `npm audit --omit=dev` and reports the full tree with `continue-on-error`, so a red
+  "Dependency audit" annotation on a green job is the development tree, not a regression
+  in the PR. Both steps use `--package-lock-only`, so nothing is installed from the tree
+  being audited. `test/ci-workflow.test.js` asserts the production step can never become
+  non-blocking; fix the workflow, not the test. A dev advisory that Dependabot
+  auto-dismisses still shows up here, and is cleared by hand with
+  `npm update <pkg> --package-lock-only` (commit 5389f52).
 
 ## Docs-sync obligations (mechanical table)
 
@@ -93,7 +101,7 @@ Verified against the repo at commit c5742dc, 2026-08-17. Re-verify:
 ```bash
 grep -n "release-please\|npm publish\|id-token" .github/workflows/release-please.yml  # release + OIDC path
 grep -n "type-enum" commitlint.config.js                                              # allowed commit types
-grep -n "npm run\|npm test" .github/workflows/ci.yml                                  # the six gates still in CI
+grep -n "npm run\|npm test\|npm audit" .github/workflows/ci.yml                       # the six gates + audit job
 cat .husky/commit-msg                                                                 # local commitlint hook
 grep -n "prefix\|applies-to" .github/dependabot.yml                                   # which bumps cut a release
 ```

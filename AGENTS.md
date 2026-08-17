@@ -91,6 +91,12 @@ Tests use the built-in `node:test` runner — no test framework dependencies. Ne
 should come with tests; pure data/logic (models, utils, handler mapping) is the
 easiest to cover.
 
+CI also runs a **dependency audit** job that is not one of the six and has no local
+script. It blocks on `npm audit --omit=dev` (production dependencies are the only ones
+that reach a user's install) and reports the full tree with `continue-on-error`, so a
+development advisory annotates the run without failing it. Dependabot alerts remain the
+signal of record for the development tree. `test/ci-workflow.test.js` guards the split.
+
 ## Logging
 
 All runtime log output must go through the singleton logger in `src/utils/logger.js`.
