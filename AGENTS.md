@@ -67,6 +67,12 @@ commitlint rules (`type(scope): summary`).
 **Releases** are automated with release-please: a `feat` commit drives a minor bump, a
 `fix` a patch. Do not bump the version or edit the changelog by hand.
 
+**Prereleases** are published by hand from the same workflow: run **Release Please** from
+the Actions tab (`workflow_dispatch`) with a prerelease version and an npm dist-tag. The
+bump happens on the runner only, so `main`, `CHANGELOG.md`, and the open release PR are
+untouched, and the tag is never `latest`. Details in CONTRIBUTING.md; invariants are
+guarded by `test/release-workflow.test.js`.
+
 ## Quality checks
 
 Run all six gates before opening a PR — CI (`.github/workflows/ci.yml`) runs them on
