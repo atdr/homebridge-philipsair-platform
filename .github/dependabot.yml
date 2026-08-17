@@ -4,32 +4,41 @@ updates:
     directory: '/'
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
+    # `prefix` covers production dependencies, `prefix-development` the rest.
+    # This package publishes a tarball and npm never includes package-lock.json,
+    # so consumers resolve their own tree from the ranges in package.json: only a
+    # direct production bump reaches them. Those land as `fix` so release-please
+    # cuts a patch with a changelog line. Dev tooling stays `chore` and
+    # release-silent. The scope lives in the prefix, so no `include: scope`.
     commit-message:
-      prefix: chore
-      include: scope
+      prefix: fix(deps)
+      prefix-development: chore(deps)
     groups:
-      production-dependencies:
-        dependency-type: production
-        update-types:
-          - minor
-          - patch
-      development-dependencies:
+      # `applies-to` defaults to version-updates, which is why this group needs
+      # no such key. Production version updates are deliberately ungrouped so
+      # each arrives as its own reviewable `fix` PR.
+      dev-dependencies:
         dependency-type: development
         update-types:
           - minor
           - patch
+      # Security updates are enabled in repo settings, not here, and ignore the
+      # group above. Development advisories batch into one release-silent
+      # `chore` PR: nothing in devDependencies ships to users, so they are
+      # hygiene rather than incidents. Production advisories stay ungrouped and
+      # each cuts its own release.
+      dev-security-updates:
+        applies-to: security-updates
+        dependency-type: development
+        patterns:
+          - '*'
+
+  # Moving major tags (@v7) absorb minor and patch action updates automatically
+  # but never cross majors; this surfaces new majors as PRs.
   - package-ecosystem: github-actions
     directory: '/'
     schedule:
       interval: weekly
     commit-message:
-      prefix: chore
-      include: scope
-    groups:
-      github-actions:
-        patterns:
-          - '*'
-        update-types:
-          - minor
-          - patch
+      prefix: ci
