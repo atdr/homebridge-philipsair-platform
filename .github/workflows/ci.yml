@@ -34,6 +34,31 @@ jobs:
       - run: npm run lint:md
       - run: npm test
 
+  # Separate from the build job: an audit result reflects the advisory database
+  # at a point in time, not the diff under review, so a fresh advisory must not
+  # look like the PR broke something. Kept out of the Node matrix too — the
+  # advisories are Node-independent. --package-lock-only audits the resolved
+  # tree without an install.
+  audit:
+    name: Dependency audit
+    if: github.event_name == 'push' || github.event.pull_request.state == 'open'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.x
+          cache: npm
+      # Blocking. There are no runtime dependencies today, so this passes
+      # trivially; it exists as a tripwire for the day one is added, because
+      # only production dependencies reach a user's Homebridge install.
+      - run: npm audit --audit-level=high --omit=dev --package-lock-only
+      # Advisory only. Linters and commit tooling never ship, so a DoS in one
+      # should not block unrelated PRs. Dependabot alerts stay the signal of
+      # record for the dev tree; this surfaces them during review.
+      - run: npm audit --audit-level=high --package-lock-only
+        continue-on-error: true
+
   commitlint:
     name: Commit messages
     if: github.event_name == 'pull_request' && github.event.pull_request.state == 'open'
