@@ -51,6 +51,14 @@ sudo npm install -g @atdr/homebridge-philipsair-platform@latest
 
 Older releases registered accessories under a different internal plugin identifier, so the first restart after upgrading may remove and re-add your device in HomeKit once. The accessory keeps its name, but you may need to reassign its room and any scenes/automations that reference it.
 
+v1.1.0 and earlier also did not stop their polling process on shutdown, so upgrading can leave one behind. Purifiers serve **one connection at a time**, so the leftover process competes with the new one and the device looks unresponsive for as long as it survives. It is reparented to `init` and will not stop on its own. After upgrading, check for one:
+
+```bash
+ps -eo pid,ppid,args | grep '[a]ioairctrl\|[p]yaircontrol'
+```
+
+Anything with a parent PID of `1` is a leftover, so `kill` it; rebooting clears it too. Later releases stop their own process on shutdown, so this is a one-time step.
+
 ## Example Config
 
 ### AC3829 / AC3036
@@ -205,6 +213,18 @@ If you have any issues with the plugin then you can run this plugin in debug mod
 ### aioairctrl not found
 
 The plugin could not run the `aioairctrl` executable. Check that it is installed for the user that runs Homebridge (`sudo -u homebridge aioairctrl --help`, adjusting the username to your setup). If the command only works for another user or lives outside the PATH — pipx installs to `~/.local/bin` — set the `aioairctrlPath` platform option to the full path reported by `which aioairctrl`.
+
+### The polling process exited with code N without returning any status
+
+`aioairctrl` was found and started, but died three times in a row without producing anything. The plugin logs the command's own error output on the next line. A Python traceback such as `ModuleNotFoundError: No module named 'aioairctrl'` means the executable exists but the Python environment behind it is incomplete, which happens when the CLI and its dependencies were installed for a different interpreter or user. Reinstall it as described under Installation, then confirm it runs for the Homebridge user:
+
+```bash
+sudo -u homebridge aioairctrl -H <device-ip> -P 5683 status-observe -J
+```
+
+### No status received from the device
+
+The device accepted the subscription and then sent nothing for two minutes. Check that `host` and `port` are right, that the purifier is powered on and on the same network, and that nothing else is already talking to it. These purifiers serve **one connection at a time**, so a leftover process (see Upgrading above) or another integration polling the same device will starve the plugin. The plugin keeps retrying and logs `Device is responding again` once status resumes.
 
 ## Disclaimer
 

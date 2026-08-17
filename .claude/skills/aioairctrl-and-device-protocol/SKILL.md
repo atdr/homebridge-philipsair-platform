@@ -45,10 +45,25 @@ Built in the `Handler` constructor and methods of
   an integer instead of a string (maintainer-confirmed against the CLI, 2026-07-13).
 - The plugin logs the CLI's **stderr** at debug level and assumes **stdout carries
   only status JSON lines** — anything else on stdout triggers
-  `Failed to parse device response` (see `debugging-and-operations`).
+  `Failed to parse device response` (see `debugging-and-operations`). stderr is also
+  buffered (4 KB cap) so that a process which dies without producing status can be
+  reported with the CLI's own error text rather than a bare exit code.
 
 The `status-observe` stream is line-buffered by `handleStdoutChunk` (chunks may split or
 merge JSON lines), capped at 1 MB, and each complete line goes to `processUpdate`.
+
+**Two device facts the polling design depends on**, both measured against an AC0850 on
+2026-08-17:
+
+- **The device notifies about every 50 s** when nothing changes (measured from its own
+  `Runtime` counter across consecutive notifications: 1707733076 → 1707784220 ms). Any
+  supervision timeout must therefore be an idle timer comfortably above that, not a fixed
+  process lifetime near it. `STALL_TIMEOUT` is 120 s and is re-armed by every status line.
+- **The device serves one connection at a time.** A second `aioairctrl` against the same
+  purifier does not error: it completes the sync handshake and then simply receives
+  nothing. So "hangs and exits 0 with no output" is the signature of a _competing client_,
+  not a broken install. Stop Homebridge before running a manual `status`/`status-observe`,
+  and allow at least 75 s before concluding the device is silent.
 
 ## The generic status vocabulary
 
