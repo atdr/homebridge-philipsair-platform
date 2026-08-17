@@ -277,13 +277,67 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
 
     const handler = makeHandler({});
     handler.purifierService = makeService();
-    handler.failureLogged = true;
+    handler.loggedFailureKind = 'exit';
     handler.pollFailures = 4;
 
     await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2' }));
 
     assert.deepEqual(logs.info, ['Lifecycle Purifier: Device is responding again']);
     assert.equal(handler.pollFailures, 0);
-    assert.equal(handler.failureLogged, false);
+    assert.equal(handler.loggedFailureKind, null);
+  });
+
+  it('does not treat an unparseable stdout line as proof of health', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.loggedFailureKind = 'exit';
+    handler.pollFailures = 4;
+
+    //a broken CLI writing its traceback to stdout rather than stderr
+    await handler.processUpdate("ModuleNotFoundError: No module named 'aioairctrl'");
+
+    assert.deepEqual(logs.info, [], 'an unparseable line was reported as recovery');
+    assert.equal(handler.pollFailures, 4);
+    assert.equal(handler.receivedData, false);
+    assert.equal(handler.loggedFailureKind, 'exit');
+  });
+
+  it('warns again when the kind of failure changes', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({});
+    //an earlier spawn failure has already been warned about
+    handler.loggedFailureKind = 'spawn';
+    //at the escalation threshold, so the exit is reportable on its own merits
+    handler.pollFailures = 3;
+
+    handler.reportPollFailure(1);
+
+    assert.ok(
+      logs.warn.some((line) => line.includes('without returning any status')),
+      `a new kind of failure was suppressed, got ${JSON.stringify(logs.warn)}`
+    );
+    assert.equal(handler.loggedFailureKind, 'exit');
+
+    //the same kind repeating stays quiet
+    logs.warn.length = 0;
+    handler.reportPollFailure(1);
+
+    assert.deepEqual(logs.warn, []);
+  });
+
+  it('keeps the tail of stderr so a trailing traceback survives the cap', async () => {
+    const handler = makeHandler({});
+
+    handler.stderrBuffer = '';
+    handler.captureStderr('x'.repeat(8 * 1024));
+    handler.captureStderr("ModuleNotFoundError: No module named 'aioairctrl'");
+
+    assert.ok(handler.stderrBuffer.length <= 4 * 1024, 'the stderr capture exceeded its cap');
+    assert.ok(handler.stderrBuffer.endsWith("ModuleNotFoundError: No module named 'aioairctrl'"));
   });
 });

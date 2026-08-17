@@ -46,7 +46,10 @@ class Handler {
     this.stalled = false;
     this.spawnFailed = false;
     this.pollFailures = 0;
-    this.failureLogged = false;
+    //which kind of failure ('spawn' | 'exit' | 'stall') has already been warned
+    //about, so a retry loop stays quiet without hiding a *different* failure
+    /** @type {'spawn' | 'exit' | 'stall' | null} */
+    this.loggedFailureKind = null;
     this.obj = {};
 
     //instance fields rather than bare constants so tests can shorten the waits
@@ -423,41 +426,40 @@ class Handler {
     this.stalled = false;
     this.spawnFailed = false;
 
-    this.airControl = spawn(this.binary, [...this.args, 'status-observe', '-J']);
+    const child = spawn(this.binary, [...this.args, 'status-observe', '-J']);
+    this.airControl = child;
 
-    this.airControl.stdout.on('data', (data) => this.handleStdoutChunk(data));
+    child.stdout.on('data', (data) => this.handleStdoutChunk(data));
 
-    this.airControl.stderr.on('data', (data) => {
+    child.stderr.on('data', (data) => {
       const text = data.toString();
 
-      //kept so that a process which dies without producing status can explain
-      //itself; a Python traceback here is the whole diagnosis
-      if (this.stderrBuffer.length < MAX_STDERR_CAPTURE) {
-        this.stderrBuffer += text;
-      }
-
+      this.captureStderr(text);
       logger.debug(text, this.accessory.displayName);
     });
 
-    this.airControl.on('error', (/** @type {NodeJS.ErrnoException} */ err) => {
+    child.on('error', (/** @type {NodeJS.ErrnoException} */ err) => {
       const error = err.code === 'ENOENT' ? this.missingBinaryError() : err;
 
-      //'close' also fires for a failed spawn; this path has already reported it
-      this.spawnFailed = true;
+      //'error' also fires on an already-running child, e.g. a kill that failed.
+      //only a child that never started is a spawn failure; anything else must
+      //still count toward the escalation threshold in 'close'
+      const spawnFailure = child.pid === undefined;
+      this.spawnFailed = spawnFailure;
 
-      //only log the first failure in a retry loop to avoid spamming every 30s
-      if (this.failureLogged) {
+      //only log the first failure of its kind in a retry loop to avoid spamming
+      if (this.loggedFailureKind === 'spawn') {
         logger.debug(error, this.accessory.displayName);
       } else {
-        this.failureLogged = true;
+        this.loggedFailureKind = 'spawn';
         logger.warn('Failed to run polling process', this.accessory.displayName);
         logger.error(error, this.accessory.displayName);
       }
 
-      this.scheduleRestart(this.spawnErrorRestartDelay);
+      this.scheduleRestart(spawnFailure ? this.spawnErrorRestartDelay : this.restartDelay);
     });
 
-    this.airControl.on('close', (code) => {
+    child.on('close', (code) => {
       clearTimeout(this.processTimeout);
       this.processTimeout = null;
 
@@ -483,6 +485,19 @@ class Handler {
   }
 
   /**
+   * Keeps a bounded copy of what a failing process wrote to stderr, so that it
+   * can explain itself when it dies without producing status. A Python
+   * traceback is the whole diagnosis and it arrives last, so this keeps the
+   * tail: with `debug` enabled the CLI's own startup chatter would otherwise
+   * fill the budget and crowd the error out.
+   *
+   * @param {string} text
+   */
+  captureStderr(text) {
+    this.stderrBuffer = (this.stderrBuffer + text).slice(-MAX_STDERR_CAPTURE);
+  }
+
+  /**
    * Reports a poll that returned no status at all. Without this the plugin
    * respawns forever in silence: a broken `aioairctrl` install exits non-zero
    * on every attempt, and at debug level that looks identical to a device that
@@ -494,17 +509,20 @@ class Handler {
     //a stall means the subscription was accepted and nothing ever arrived,
     //which is already conclusive; an exit could still be a one-off
     const escalate = this.stalled || this.pollFailures >= FAILURE_ESCALATION_THRESHOLD;
+    const kind = this.stalled ? 'stall' : 'exit';
 
     const summary = this.stalled
       ? `No status received from the device within ${Math.round(this.stallTimeout / 1000)}s. Check that the purifier is powered on and that 'host' and 'port' are correct.`
       : `The polling process exited with code ${code} without returning any status (attempt ${this.pollFailures}). Check that '${this.binary}' runs as the Homebridge user (see README Troubleshooting).`;
 
-    if (!escalate || this.failureLogged) {
+    //a failure of a kind already warned about is repetition; a new kind means
+    //the fault has changed and the user has not been told about this one
+    if (!escalate || this.loggedFailureKind === kind) {
       logger.debug(summary, this.accessory.displayName);
       return;
     }
 
-    this.failureLogged = true;
+    this.loggedFailureKind = kind;
     logger.warn(summary, this.accessory.displayName);
 
     const stderr = this.stderrBuffer.trim();
@@ -565,21 +583,26 @@ class Handler {
   }
 
   async processUpdate(line) {
-    this.receivedData = true;
-    this.pollFailures = 0;
-
-    if (this.failureLogged) {
-      this.failureLogged = false;
-      logger.info('Device is responding again', this.accessory.displayName);
-    }
-
     //a line arriving proves the stream is alive, whether or not it parses
     if (this.airControl && !this.shutdown) {
       this.armStallTimeout();
     }
 
     try {
-      this.handleResponse(JSON.parse(line));
+      const response = JSON.parse(line);
+
+      //only a parseable status proves the device is healthy. a CLI that writes
+      //a traceback to stdout instead of stderr would otherwise clear the
+      //failure counters on every retry and never escalate
+      this.receivedData = true;
+      this.pollFailures = 0;
+
+      if (this.loggedFailureKind) {
+        this.loggedFailureKind = null;
+        logger.info('Device is responding again', this.accessory.displayName);
+      }
+
+      this.handleResponse(response);
     } catch (err) {
       logger.warn('Failed to parse device response', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);

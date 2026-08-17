@@ -106,7 +106,7 @@ then confirm the golden-path sequence above. Local development uses `npm run wat
 
 ## Provenance and maintenance
 
-Verified against the repo at commit 36067a6, 2026-07-12. Re-verify:
+Verified against the repo at branch `fix/poller-stall-and-failure-visibility`, 2026-08-17. Re-verify:
 
 ```bash
 grep -n "STALL_TIMEOUT\|RESTART_DELAY\|SPAWN_ERROR_RESTART_DELAY\|FAILURE_ESCALATION" src/accessories/accessories.handler.js  # watchdog/retry timings
