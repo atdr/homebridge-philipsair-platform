@@ -8,9 +8,26 @@ const logger = require('../src/utils/logger');
 const Handler = require('../src/accessories/accessories.handler');
 
 const noop = () => {};
-logger.configure({ info: noop, warn: noop, error: noop }, {});
+const silenceLogger = () => logger.configure({ info: noop, warn: noop, error: noop }, {});
+
+silenceLogger();
+
+//captures what the plugin would actually print at default verbosity, so the
+//tests can assert that a failure is visible rather than only recoverable
+const captureLogs = () => {
+  const entries = { info: [], warn: [], error: [] };
+  const record = (bucket) => (message) =>
+    entries[bucket].push(message instanceof Error ? message.message : String(message));
+
+  logger.configure({ info: record('info'), warn: record('warn'), error: record('error') }, {});
+
+  return entries;
+};
 
 const SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl');
+const STREAM_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-stream');
+const SILENT_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-silent');
+const BROKEN_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-broken');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -129,6 +146,45 @@ describe('polling lifecycle', () => {
     assert.ok(handler.airControl.killed);
   });
 
+  it('leaves a stream that keeps notifying alone past the stall timeout', async () => {
+    const handler = makeHandler({ aioairctrlPath: STREAM_SHIM });
+    const purifier = makeService();
+    handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+
+    //the shim notifies every 20ms, so a stall timer reset by incoming data
+    //never fires; a fixed process lifetime would kill the stream at 200ms.
+    //the 10x margin keeps this from flaking on a loaded CI runner
+    handler.stallTimeout = 200;
+    handler.restartDelay = 10;
+
+    handler.longPoll();
+    const firstPid = handler.airControl.pid;
+    await delay(500);
+
+    assert.equal(handler.airControl.pid, firstPid, 'a healthy stream was restarted anyway');
+    assert.ok(updated(purifier, 'Active').length > 1);
+
+    handler.kill(true);
+    await delay(50);
+  });
+
+  it('restarts a stream that accepts the subscription and then goes silent', async () => {
+    const handler = makeHandler({ aioairctrlPath: SILENT_SHIM });
+    handler.accessory.getService = () => null;
+
+    handler.stallTimeout = 100;
+    handler.restartDelay = 10;
+
+    handler.longPoll();
+    const firstPid = handler.airControl.pid;
+    await delay(400);
+
+    assert.notEqual(handler.airControl.pid, firstPid, 'a stalled stream was never restarted');
+
+    handler.kill(true);
+    await delay(50);
+  });
+
   it('does not schedule overlapping restarts', () => {
     const handler = makeHandler({});
 
@@ -150,5 +206,138 @@ describe('polling lifecycle', () => {
     handler.scheduleRestart(1000);
 
     assert.equal(handler.restartTimeout, null);
+  });
+});
+
+//the logger is a module singleton, so these tests must not capture it at the same time
+describe('poll failure reporting', { concurrency: 1 }, () => {
+  it('warns with the CLI stderr when an installed binary keeps dying', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({ aioairctrlPath: BROKEN_SHIM });
+    handler.accessory.getService = () => null;
+    handler.restartDelay = 10;
+
+    handler.longPoll();
+    await delay(400);
+    handler.kill(true);
+
+    assert.ok(
+      logs.warn.some((line) => line.includes('exited with code 1')),
+      `no warning about the failing process, got ${JSON.stringify(logs.warn)}`
+    );
+    assert.ok(
+      logs.error.some((line) => line.includes("No module named 'aioairctrl'")),
+      'the CLI stderr was never surfaced'
+    );
+
+    //one warning for the run, not one per retry
+    assert.equal(logs.warn.filter((line) => line.includes('exited with code 1')).length, 1);
+  });
+
+  it('stays quiet while a single failure is still plausibly transient', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({ aioairctrlPath: BROKEN_SHIM });
+    handler.accessory.getService = () => null;
+    //long enough that only the first attempt runs inside the window
+    handler.restartDelay = 5000;
+
+    handler.longPoll();
+    await delay(200);
+    handler.kill(true);
+
+    assert.deepEqual(logs.warn, []);
+  });
+
+  it('warns as soon as a subscription is accepted but nothing ever arrives', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({ aioairctrlPath: SILENT_SHIM });
+    handler.accessory.getService = () => null;
+    handler.stallTimeout = 60;
+    handler.restartDelay = 5000;
+
+    handler.longPoll();
+    await delay(300);
+    handler.kill(true);
+
+    assert.ok(
+      logs.warn.some((line) => line.includes('No status received from the device')),
+      `a silent device was never reported, got ${JSON.stringify(logs.warn)}`
+    );
+  });
+
+  it('reports recovery once status arrives again', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.loggedFailureKind = 'exit';
+    handler.pollFailures = 4;
+
+    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2' }));
+
+    assert.deepEqual(logs.info, ['Lifecycle Purifier: Device is responding again']);
+    assert.equal(handler.pollFailures, 0);
+    assert.equal(handler.loggedFailureKind, null);
+  });
+
+  it('does not treat an unparseable stdout line as proof of health', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.loggedFailureKind = 'exit';
+    handler.pollFailures = 4;
+
+    //a broken CLI writing its traceback to stdout rather than stderr
+    await handler.processUpdate("ModuleNotFoundError: No module named 'aioairctrl'");
+
+    assert.deepEqual(logs.info, [], 'an unparseable line was reported as recovery');
+    assert.equal(handler.pollFailures, 4);
+    assert.equal(handler.receivedData, false);
+    assert.equal(handler.loggedFailureKind, 'exit');
+  });
+
+  it('warns again when the kind of failure changes', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({});
+    //an earlier spawn failure has already been warned about
+    handler.loggedFailureKind = 'spawn';
+    //at the escalation threshold, so the exit is reportable on its own merits
+    handler.pollFailures = 3;
+
+    handler.reportPollFailure(1);
+
+    assert.ok(
+      logs.warn.some((line) => line.includes('without returning any status')),
+      `a new kind of failure was suppressed, got ${JSON.stringify(logs.warn)}`
+    );
+    assert.equal(handler.loggedFailureKind, 'exit');
+
+    //the same kind repeating stays quiet
+    logs.warn.length = 0;
+    handler.reportPollFailure(1);
+
+    assert.deepEqual(logs.warn, []);
+  });
+
+  it('keeps the tail of stderr so a trailing traceback survives the cap', async () => {
+    const handler = makeHandler({});
+
+    handler.stderrBuffer = '';
+    handler.captureStderr('x'.repeat(8 * 1024));
+    handler.captureStderr("ModuleNotFoundError: No module named 'aioairctrl'");
+
+    assert.ok(handler.stderrBuffer.length <= 4 * 1024, 'the stderr capture exceeded its cap');
+    assert.ok(handler.stderrBuffer.endsWith("ModuleNotFoundError: No module named 'aioairctrl'"));
   });
 });

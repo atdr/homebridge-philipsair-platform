@@ -1,0 +1,14 @@
+#!/usr/bin/env node
+'use strict';
+
+//aioairctrl stand-in for a device that accepts the subscription and then never
+//notifies. The process stays healthy, so only an idle timer notices; this is
+//the silent stall the plugin has to recover from.
+
+const args = process.argv.slice(2);
+
+if (!args.includes('status-observe')) {
+  process.exit(2);
+}
+
+setInterval(() => {}, 1000);
