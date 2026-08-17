@@ -45,9 +45,16 @@ what the gates catch at runtime is not covered here.
 - **One logical change per commit** exists so a bad change can be reverted without
   collateral (AGENTS.md); the release automation above amplifies the cost of tangled
   commits.
-- **Dependabot PRs** arrive pre-formatted as `chore(deps)`/`chore(deps-dev)` and are
-  grouped minor/patch by dependency type; majors arrive individually for isolated
-  review (commit bce7dc3). Major toolchain bumps sometimes need real fixes — e.g.
+- **Dependabot PRs** arrive pre-formatted from `.github/dependabot.yml`, and the prefix
+  encodes whether the bump reaches users. Development bumps are `chore(deps)` and
+  release-silent; production bumps are `fix(deps)` and cut a patch release. The split
+  exists because npm never publishes `package-lock.json`, so consumers resolve their own
+  tree from the ranges in `package.json`: only a direct production bump changes what they
+  install. There are no runtime dependencies today, so every bump is currently `chore`.
+  Dev minor/patch updates are grouped, as are dev security advisories (a group needs
+  `applies-to: security-updates` to cover advisories at all; the default is version
+  updates only). Majors and production advisories arrive individually for isolated review
+  (commit bce7dc3). Major toolchain bumps sometimes need real fixes — e.g.
   TypeScript 7 required config and JSDoc changes (commit 4292672).
 
 ## Docs-sync obligations (mechanical table)
@@ -81,11 +88,12 @@ are in `testing-and-validation`.
 
 ## Provenance and maintenance
 
-Verified against the repo at commit 1f47250, 2026-08-17. Re-verify:
+Verified against the repo at commit c5742dc, 2026-08-17. Re-verify:
 
 ```bash
 grep -n "release-please\|npm publish\|id-token" .github/workflows/release-please.yml  # release + OIDC path
 grep -n "type-enum" commitlint.config.js                                              # allowed commit types
 grep -n "npm run\|npm test" .github/workflows/ci.yml                                  # the six gates still in CI
 cat .husky/commit-msg                                                                 # local commitlint hook
+grep -n "prefix\|applies-to" .github/dependabot.yml                                   # which bumps cut a release
 ```
