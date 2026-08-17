@@ -33,7 +33,10 @@ what the gates catch at runtime is not covered here.
   the publisher is repointed on npmjs.com. The guards (no stable version, never `latest`,
   never committed, inputs read via `env`) are asserted by `test/release-workflow.test.js`;
   fix the workflow, not the test. Note `npm publish` tags whatever it publishes `latest`
-  unless `--tag` is passed: npm does not infer anything from the `-beta.1` suffix.
+  unless `--tag` is passed: npm does not infer anything from the `-beta.1` suffix. For
+  the same reason the release `publish` job branches on the version and derives a tag
+  from the prerelease identifier (`1.2.0-beta.1` → `beta`), so a deliberate
+  `Release-As: 1.2.0-beta.1` footer publishes correctly instead of moving `latest`.
 - **npm publishing uses trusted publishing (OIDC)** — GitHub Actions authenticates to
   npm directly; there is no `NPM_TOKEN` secret to leak or rotate, and provenance is
   automatic (PR #3). If publishing breaks, the trusted-publisher configuration lives on

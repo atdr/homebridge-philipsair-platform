@@ -60,6 +60,12 @@ The six checks above still run, via `prepublishOnly`.
 Published versions are permanent past npm's 72 hour unpublish window, so treat the
 dispatch form as irreversible and bump the `.n` rather than reusing a version.
 
+A prerelease can also come through the normal release path, from a
+`Release-As: 1.2.0-beta.1` commit footer. That is a deliberate act, so the release job
+publishes it rather than refusing it, under a tag taken from the version's own
+identifier (`1.2.0-beta.1` publishes to `beta`). Either way, `latest` only ever points
+at a stable version.
+
 ## Credits
 
 > This project is based on <https://github.com/seydx/homebridge-philipsair-platform>, which was heavily inspired by <https://github.com/NikDevx/homebridge-philips-air>. Credit for the mappable config parameters goes to <https://github.com/we5/homebridge-philipsair-platform/tree/refactor/use-config-mappings>

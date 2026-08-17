@@ -56,6 +56,14 @@ describe('release workflow', () => {
     assert.match(prerelease, /\*-\*\) ;;/, 'no guard against dispatching a stable version');
   });
 
+  it('tags rather than refuses a prerelease reaching the release path', () => {
+    //Reachable only via a Release-As footer or prerelease config, but npm
+    //publishes are permanent, so the release path must not assume 'latest'.
+    const publish = jobs.get('publish');
+    assert.match(publish, /case "\$version" in/, 'the release publish does not branch on the version');
+    assert.match(publish, /npm publish --tag "\$tag"/, 'a prerelease from the release path would move latest');
+  });
+
   it('keeps the prerelease version bump off the repository', () => {
     //release-please owns package.json's version and CHANGELOG.md. A committed
     //bump here would collide with its open release PR.

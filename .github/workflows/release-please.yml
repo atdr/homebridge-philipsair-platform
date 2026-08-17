@@ -47,7 +47,20 @@ jobs:
           node-version: 24.x
           registry-url: https://registry.npmjs.org
       - run: npm ci
-      - run: npm publish
+      # npm tags whatever it publishes 'latest' unless --tag is passed; it infers
+      # nothing from a prerelease suffix. A prerelease only reaches this job from a
+      # deliberate Release-As footer, so publish it under its own identifier
+      # (1.2.0-beta.1 -> beta) rather than refusing it.
+      - name: Publish
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          case "$version" in
+            *-*)
+              tag=$(node -p 'process.argv[1].match(/-([a-z]+)/i)?.[1] ?? "next"' "$version")
+              npm publish --tag "$tag"
+              ;;
+            *) npm publish ;;
+          esac
 
   publish-prerelease:
     if: github.event_name == 'workflow_dispatch'
