@@ -52,18 +52,72 @@ Built in the `Handler` constructor and methods of
 The `status-observe` stream is line-buffered by `handleStdoutChunk` (chunks may split or
 merge JSON lines), capped at 1 MB, and each complete line goes to `processUpdate`.
 
-**Two device facts the polling design depends on**, both measured against an AC0850 on
-2026-08-17:
+## Measured device behaviour (AC0850/31, 2026-08-17/18)
 
-- **The device notifies about every 50 s** when nothing changes (measured from its own
-  `Runtime` counter across consecutive notifications: 1707733076 → 1707784220 ms). Any
-  supervision timeout must therefore be an idle timer comfortably above that, not a fixed
-  process lifetime near it. `STALL_TIMEOUT` is 120 s and is re-armed by every status line.
-- **The device serves one connection at a time.** A second `aioairctrl` against the same
-  purifier does not error: it completes the sync handshake and then simply receives
-  nothing. So "hangs and exits 0 with no output" is the signature of a _competing client_,
-  not a broken install. Stop Homebridge before running a manual `status`/`status-observe`,
-  and allow at least 75 s before concluding the device is silent.
+Everything the polling and command design rests on. All of it was measured on real hardware
+over one session; where an earlier version of this file stated a figure unconditionally, the
+correction is called out, because generalising from a single condition is what produced the
+current `STALL_TIMEOUT` value.
+
+> ⚠️ **Scope: one AC0850/31, one deployment.** Nothing here was measured on an AC1715,
+> AC3036 or AC3829, and those run different firmware behind different dialects. Treat the
+> **timings** as properties of this device, not of Philips purifiers generally. Each item is
+> tagged **[AC0850]** measured only here, **[protocol]** true of the CLI/CoAP layer for every
+> model, or **[unverified]** believed protocol-level but observed only on the AC0850.
+>
+> Design consequence: **do not tune a constant to these numbers.** A value that suits this
+> purifier is a magic number on hardware nobody has measured. Prefer an interval the plugin
+> chooses, and a user can configure, over one inferred from a single device.
+
+**[AC0850] The device answers on a ~50-60 s cycle.** A one-shot `status` took **58 s**; an observe
+subscription was answered after **53 s** (and after 9 s on another attempt). This is not
+network latency: ICMP replies in milliseconds throughout, the signature of a combo WiFi
+module (`AWS_Philips_AIR_Combo@86`) answering ping in firmware while the application sleeps.
+**Never conclude the device is dead from a short timeout.** Allow at least 90 s.
+
+**[AC0850] It pushes spontaneously only while values are changing.** Running, it notified every ~51 s
+(from its own `Runtime` counter: 1707733076 → 1707784220 ms). Switched **off** and idle, it
+sent nothing for over 120 s at a stretch.
+
+> ⚠️ **Correction.** This file previously stated the ~50 s interval unconditionally, and
+> `STALL_TIMEOUT = 120 s` in `accessories.handler.js` was sized from it. That measurement was
+> taken while the purifier was **running**. Any timeout must be sized for the **idle** case.
+> Tracked in issue #38.
+
+**[AC0850] A fresh subscription elicits a reading.** This is why the pre-#30 fixed 60 s process
+lifetime accidentally worked as a ~65 s poll loop, and why raising `STALL_TIMEOUT` alone
+makes idle staleness worse rather than better. A deliberate periodic refresh is the fix.
+
+**[protocol] Writes are fire and forget: `exit 0` means transmitted, not applied.** `set` returned in
+**0 s** with exit 0 over unacknowledged (`NON`) CoAP. A packet lost, or arriving while the
+device dozes, disappears with no error anywhere, and the `set*` handlers have already pushed
+the optimistic value to HomeKit. A confirmed real-world case: an automation logged
+`Purifier Active: 1` with no error and the device stayed off. Tracked in issue #37.
+**Confirm a write by reading `D03102` back, never by trusting the log.**
+
+**[unverified] The device serves one connection at a time.** A second `aioairctrl` against the same
+purifier does not error: it completes the sync handshake and then simply receives nothing.
+So "hangs and exits 0 with no output" is the signature of a _competing client_, not a broken
+install. Stop Homebridge before running a manual `status`/`status-observe`, and allow at
+least 90 s before concluding the device is silent.
+
+**Verifying a polling change on hardware.** The discriminator is PID stability, and it is
+only meaningful **with the purifier switched on**, since an idle device legitimately triggers
+the stall timer:
+
+```bash
+for i in $(seq 1 8); do sleep 60; ps -eo pid,etimes,args | grep '[a]ioairctrl'; done
+```
+
+One PID for the whole window means the idle timer is working (verified for #30 on 2026-08-18:
+one PID across 8 minutes, zero warnings). A PID changing every ~125 s means the stream is
+being torn down. Checking that the process _runs_ proves nothing; only a status line arriving
+proves data moves.
+
+**[deployment] Not the network.** Ruled out on this deployment: the host reaches the purifier over
+**ethernet**, and the traffic is **unicast** UDP, so neither the host's WiFi power save nor
+the router's IGMP snooping is on the path. IGMP snooping only affects multicast, which is why
+it can break mDNS/`.local` while leaving this untouched.
 
 ## The generic status vocabulary
 
