@@ -5,13 +5,43 @@ const logger = require('./logger');
 exports.generateConfig = (config) => {
   return {
     name: config.name || 'PhilipsAirPlatform',
-    aioairctrlPath: config.aioairctrlPath || '',
+    aioairctrlPath: exports.validBinaryPath(config.aioairctrlPath),
     debug: config.debug || false,
     warn: config.warn !== false,
     error: config.error !== false,
     extendedError: config.extendedError !== false,
     devices: config.devices || [],
   };
+};
+
+//the aioairctrl executable, either a bare command resolved from PATH or a full
+//path. existence is not checked here — that is the startup preflight's job —
+//but the same shapes validHost rejects are rejected for the same reason: this
+//value becomes argv[0] of a child process, and a leading '-' or embedded
+//whitespace turns it into flags or extra arguments. an empty result means
+//'fall back to the PATH lookup', which is the documented default
+exports.validBinaryPath = (path) => {
+  if (path === undefined || path === null || path === '') {
+    return '';
+  }
+
+  if (typeof path !== 'string') {
+    logger.warn(`Invalid aioairctrlPath '${path}' configured, resolving 'aioairctrl' from the PATH instead.`);
+    return '';
+  }
+
+  const trimmed = path.trim();
+
+  if (!trimmed) {
+    return '';
+  }
+
+  if (trimmed.startsWith('-') || /\s/.test(trimmed)) {
+    logger.warn(`Invalid aioairctrlPath '${path}' configured, resolving 'aioairctrl' from the PATH instead.`);
+    return '';
+  }
+
+  return trimmed;
 };
 
 //IP address or hostname; resolution is left to the aioairctrl CLI, but

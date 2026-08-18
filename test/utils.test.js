@@ -4,7 +4,14 @@ const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
 
 const logger = require('../src/utils/logger');
-const { generateConfig, validHost, validPort, validRefreshInterval, hapNumber } = require('../src/utils/utils');
+const {
+  generateConfig,
+  validBinaryPath,
+  validHost,
+  validPort,
+  validRefreshInterval,
+  hapNumber,
+} = require('../src/utils/utils');
 
 //capture warnings so the silent-fallback behavior can be asserted
 const warnings = [];
@@ -40,6 +47,43 @@ describe('generateConfig', () => {
     assert.equal(config.error, false);
     assert.equal(config.extendedError, false);
     assert.deepEqual(config.devices, [{ name: 'Purifier' }]);
+  });
+});
+
+describe('validBinaryPath', () => {
+  it('accepts a bare command and a full path', () => {
+    assert.equal(validBinaryPath('aioairctrl'), 'aioairctrl');
+    assert.equal(validBinaryPath('/home/pi/.local/bin/aioairctrl'), '/home/pi/.local/bin/aioairctrl');
+  });
+
+  it('trims surrounding whitespace', () => {
+    assert.equal(validBinaryPath('  /usr/bin/aioairctrl  '), '/usr/bin/aioairctrl');
+  });
+
+  it('falls back to the PATH lookup when unset', () => {
+    assert.equal(validBinaryPath(undefined), '');
+    assert.equal(validBinaryPath(''), '');
+    assert.equal(validBinaryPath('   '), '');
+  });
+
+  //this value becomes argv[0] of a child process, so the shapes validHost
+  //rejects are rejected here for the same reason
+  it('rejects values that could be read as flags or extra arguments', () => {
+    warnings.length = 0;
+
+    assert.equal(validBinaryPath('-D'), '');
+    assert.equal(validBinaryPath('/usr/bin/aioairctrl --debug'), '');
+    assert.equal(validBinaryPath(42), '');
+
+    assert.equal(warnings.length, 3);
+  });
+
+  it('says which value it rejected, so the config can be fixed', () => {
+    warnings.length = 0;
+    validBinaryPath('-D');
+
+    assert.match(warnings[0], /-D/);
+    assert.match(warnings[0], /PATH/);
   });
 });
 
