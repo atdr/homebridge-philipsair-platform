@@ -74,6 +74,11 @@ when status resumes. Both are deduplicated to once per outage.
 > `reportableStderr()` hands the user is only `WARNING` and above plus anything that is not a
 > log record at all, tracebacks included. **The raw stream is still in the debug log**, so
 > reading it there stays the way to see what the CLI actually did.
+>
+> **Verified on hardware 2026-08-18 with `debug: true`**: 53 minutes on 1.2.0-beta.5, including a
+> real stall that did report a failure, produced **zero `ERROR` lines and zero `aioairctrl wrote:`
+> lines**, while that stall's own warning still appeared. The filter is not blanket suppression of
+> stall reporting, which was the risk in fixing this by silencing plugin-initiated exits instead.
 
 First move on any runtime issue: set `debug: true` in the platform config (Homebridge
 UI → plugin config, or config.json) and restart. Log access: Homebridge UI log page, or
