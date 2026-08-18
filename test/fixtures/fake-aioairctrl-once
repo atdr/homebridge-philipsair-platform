@@ -1,0 +1,25 @@
+#!/usr/bin/env node
+'use strict';
+
+//aioairctrl stand-in for a device that answers once and then goes dark, which
+//no stateless shim can express: every later invocation accepts the
+//subscription and says nothing. Lets a test prove that a stall is still
+//reported when the stream is being restarted for other reasons in between.
+
+const fs = require('node:fs');
+
+const args = process.argv.slice(2);
+
+if (!args.includes('status-observe')) {
+  process.exit(2);
+}
+
+const marker = process.env.FAKE_ONCE_FILE;
+const answered = fs.existsSync(marker);
+
+if (!answered) {
+  fs.writeFileSync(marker, 'answered');
+  process.stdout.write(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2' }) + '\n');
+}
+
+setInterval(() => {}, 1000);

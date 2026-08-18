@@ -82,11 +82,20 @@ sent nothing for over 120 s at a stretch.
 > ⚠️ **Correction.** This file previously stated the ~50 s interval unconditionally, and
 > `STALL_TIMEOUT = 120 s` in `accessories.handler.js` was sized from it. That measurement was
 > taken while the purifier was **running**. Any timeout must be sized for the **idle** case.
-> Tracked in issue #38.
+> Fixed for #38: the plugin no longer depends on the device's push cadence at all. It asks for a
+> reading `refreshInterval` seconds after the last one (default 60 s, per-device config, `0`
+> disables), and `STALL_TIMEOUT` is now 300 s and purely a fault detector.
 
 **[AC0850] A fresh subscription elicits a reading.** This is why the pre-#30 fixed 60 s process
 lifetime accidentally worked as a ~65 s poll loop, and why raising `STALL_TIMEOUT` alone
-makes idle staleness worse rather than better. A deliberate periodic refresh is the fix.
+makes idle staleness worse rather than better. The deliberate periodic refresh in
+`armRefreshTimeout` is the fix, and the 60 s default is that accidental v1.1.0 behaviour made
+explicit rather than a number derived from these measurements.
+
+**The refresh timer is armed only from `processUpdate`, never from `longPoll`,** and any change
+to it must keep that property: the interval then measures the time since a _reading_, so a
+subscription that has not been answered yet is never killed. On a device slower than the
+interval this degrades into waiting, not into starvation.
 
 **[protocol] Writes are fire and forget: `exit 0` means transmitted, not applied.** `set` returned in
 **0 s** with exit 0 over unacknowledged (`NON`) CoAP. A packet lost, or arriving while the
@@ -97,13 +106,18 @@ the optimistic value to HomeKit. A confirmed real-world case: an automation logg
 reading `D03102`; in the plugin, `recordWrite` registers each write and `reconcilePendingWrites`
 checks it against the next status the observe stream delivers, resending once before warning.
 A separate `status` process is not an option for the read-back, because of the single-connection
-behaviour below, so `requestRefresh` re-subscribes instead to elicit a reading.
+behaviour below. Verification therefore **rides the refresh the stream is doing anyway**: an
+earlier design killed the subscription on the write's own schedule and measurably threw away the
+notification it was waiting for (the device answered a `set` 83 s later; the refresh fired at
+30 s), then paid a fresh subscription's latency to ask again.
 
-Two rules that keep that verification portable to models nobody has measured, and that any
-change to it must preserve: **only a status that arrived after the write is evidence about it**,
-and **only a disagreement is evidence that it was lost.** A verification window passing in
-silence means this device is slower than the AC0850, which is a freshness problem (issue #38),
-so it stays at debug rather than warning.
+Three rules keep that verification portable to models nobody has measured, and any change to it
+must preserve them: **only a status that arrived after the write is evidence about it**, **only a
+status that mentions the key is evidence about that key** (issue #41: treating an unreported key
+as a disagreement reported writes that were never lost, and on the AC0850 `mode` and `cl` are
+exactly that), and **only a disagreement is evidence that it was lost.** A verification window
+passing in silence means this device answers more slowly than the refresh cycle assumes, which is
+a freshness problem, so it stays at debug rather than warning.
 
 **[unverified] The device serves one connection at a time.** A second `aioairctrl` against the same
 purifier does not error: it completes the sync handshake and then simply receives nothing.

@@ -1,6 +1,6 @@
 'use strict';
 
-const { validHost, validPort } = require('../utils/utils');
+const { validHost, validPort, validRefreshInterval } = require('../utils/utils');
 
 const Config = (deviceConfig) => {
   return {
@@ -11,6 +11,7 @@ const Config = (deviceConfig) => {
     serialNumber: deviceConfig.serialNumber || '000000',
     host: validHost(deviceConfig.host),
     port: validPort(deviceConfig.port),
+    refreshInterval: validRefreshInterval(deviceConfig.refreshInterval),
     light: deviceConfig.light || false,
     temperature: deviceConfig.temperature || false,
     humidity: deviceConfig.humidity || false,

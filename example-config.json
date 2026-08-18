@@ -25,6 +25,7 @@
           "serialNumber": "000000",
           "host": "192.168.178.111",
           "port": 5683,
+          "refreshInterval": 60,
           "light": true,
           "temperature": true,
           "humidity": true,

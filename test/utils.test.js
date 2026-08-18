@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
 
 const logger = require('../src/utils/logger');
-const { generateConfig, validHost, validPort, hapNumber } = require('../src/utils/utils');
+const { generateConfig, validHost, validPort, validRefreshInterval, hapNumber } = require('../src/utils/utils');
 
 //capture warnings so the silent-fallback behavior can be asserted
 const warnings = [];
@@ -66,6 +66,33 @@ describe('validHost', () => {
     assert.equal(validHost('--help'), undefined);
     assert.equal(validHost('purifier.local -D'), undefined);
     assert.equal(validHost('purifier local'), undefined);
+  });
+});
+
+describe('validRefreshInterval', () => {
+  it('defaults to 60 seconds when unset', () => {
+    assert.equal(validRefreshInterval(undefined), 60);
+  });
+
+  it('accepts an explicit interval and zero to disable', () => {
+    assert.equal(validRefreshInterval(120), 120);
+    assert.equal(validRefreshInterval(0), 0);
+  });
+
+  it('floors an interval too short for a device to answer in', () => {
+    assert.equal(validRefreshInterval(5), 15);
+    assert.equal(validRefreshInterval(15), 15);
+  });
+
+  it('warns and falls back on nonsense, but not when unset', () => {
+    warnings.length = 0;
+
+    validRefreshInterval(undefined);
+    assert.equal(warnings.length, 0);
+
+    assert.equal(validRefreshInterval('soon'), 60);
+    assert.equal(validRefreshInterval(-1), 60);
+    assert.equal(warnings.length, 2);
   });
 });
 

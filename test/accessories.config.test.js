@@ -17,6 +17,7 @@ describe('accessories.config', () => {
       serialNumber: '000000',
       host: '192.168.1.142',
       port: 5683,
+      refreshInterval: 60,
       light: false,
       temperature: false,
       humidity: false,
@@ -44,6 +45,11 @@ describe('accessories.config', () => {
     assert.equal(Config({ name: 'Purifier', host: '10.0.0.2', port: 65536 }).port, 5683);
   });
 
+  it('floors a refresh interval below the minimum, and keeps zero as disabled', () => {
+    assert.equal(Config({ name: 'Purifier', host: '10.0.0.2', refreshInterval: 5 }).refreshInterval, 15);
+    assert.equal(Config({ name: 'Purifier', host: '10.0.0.2', refreshInterval: 0 }).refreshInterval, 0);
+  });
+
   it('keeps explicit values', () => {
     const device = Config({
       active: true,
@@ -51,12 +57,14 @@ describe('accessories.config', () => {
       model: 'AC0850',
       host: '10.0.0.2',
       port: 3333,
+      refreshInterval: 120,
       hepaFilter: true,
     });
 
     assert.equal(device.active, true);
     assert.equal(device.model, 'AC0850');
     assert.equal(device.port, 3333);
+    assert.equal(device.refreshInterval, 120);
     assert.equal(device.hepaFilter, true);
   });
 });

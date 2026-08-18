@@ -83,6 +83,7 @@ Anything with a parent PID of `1` is a leftover, so `kill` it; rebooting clears 
           "serialNumber": "000000",
           "host": "192.168.178.111",
           "port": 5683,
+          "refreshInterval": 60,
           "light": true,
           "temperature": true,
           "humidity": true,
@@ -133,32 +134,33 @@ Anything with a parent PID of `1` is a leftover, so `kill` it; rebooting clears 
 }
 ```
 
-| Fields         | Description                                                 | Default                | Required |
-| -------------- | ----------------------------------------------------------- | ---------------------- | -------- |
-| **platform**   | Must always be `PhilipsAirPlatform`.                        | `"PhilipsAirPlatform"` | Yes      |
-| name           | For logging purposes.                                       | `"PhilipsAirPlatform"` | No       |
-| aioairctrlPath | Full path to the `aioairctrl` executable, if not on PATH.   | `"aioairctrl"`         | No       |
-| debug          | Enables additional output (debug) in the log.               | `false`                | No       |
-| warn           | Enables additional output (warn) in the log.                | `true`                 | No       |
-| error          | Enables additional output (error) in the log.               | `true`                 | No       |
-| extendedError  | Enables additional output (detailed error) in the log.      | `true`                 | No       |
-| **devices**    | Array of Philips air purifiers.                             |                        | Yes      |
-| - active       | Set `true` to expose the device. Inactive ones are skipped. | `false`                | No       |
-| - name         | Unique name of your device.                                 |                        | Yes      |
-| - **host**     | IP address or hostname of your device.                      |                        | Yes      |
-| - port         | Port of your device.                                        | `5683`                 | No       |
-| - manufacturer | Set the manufacturer name for display in the Home app.      | `"Philips"`            | No       |
-| - model        | Set the model for display in the Home app.                  | `"Air Purifier"`       | No *1    |
-| - serialNumber | Set the serial number for display in the Home app.          | `"000000"`             | No       |
-| - humidifier   | Expose a separate humidifier accessory to HomeKit.          | `false`                | No       |
-| - light        | Expose device lights as lightbulbs to HomeKit.              | `false`                | No       |
-| - temperature  | Expose device temperature as temperature sensor to HomeKit. | `false`                | No       |
-| - humidity     | Expose device humidity as humidity sensor to HomeKit.       | `false`                | No       |
-| - allergicFunc | Does this device support 'allergic' function?               | `false`                | No       |
-| - sleepSpeed   | Does this device support 'sleep' speed?                     | `false`                | No       |
-| - preFilter    | Expose pre-filter status to HomeKit.                        | `false`                | No       |
-| - carbonFilter | Expose active carbon filter status to HomeKit.              | `false`                | No       |
-| - hepaFilter   | Expose HEPA/NanoProtect filter status to HomeKit.           | `false`                | No       |
+| Fields            | Description                                                          | Default                | Required |
+| ----------------- | -------------------------------------------------------------------- | ---------------------- | -------- |
+| **platform**      | Must always be `PhilipsAirPlatform`.                                 | `"PhilipsAirPlatform"` | Yes      |
+| name              | For logging purposes.                                                | `"PhilipsAirPlatform"` | No       |
+| aioairctrlPath    | Full path to the `aioairctrl` executable, if not on PATH.            | `"aioairctrl"`         | No       |
+| debug             | Enables additional output (debug) in the log.                        | `false`                | No       |
+| warn              | Enables additional output (warn) in the log.                         | `true`                 | No       |
+| error             | Enables additional output (error) in the log.                        | `true`                 | No       |
+| extendedError     | Enables additional output (detailed error) in the log.               | `true`                 | No       |
+| **devices**       | Array of Philips air purifiers.                                      |                        | Yes      |
+| - active          | Set `true` to expose the device. Inactive ones are skipped.          | `false`                | No       |
+| - name            | Unique name of your device.                                          |                        | Yes      |
+| - **host**        | IP address or hostname of your device.                               |                        | Yes      |
+| - port            | Port of your device.                                                 | `5683`                 | No       |
+| - refreshInterval | Seconds after a reading before asking for another one. `0` disables. | `60`                   | No       |
+| - manufacturer    | Set the manufacturer name for display in the Home app.               | `"Philips"`            | No       |
+| - model           | Set the model for display in the Home app.                           | `"Air Purifier"`       | No *1    |
+| - serialNumber    | Set the serial number for display in the Home app.                   | `"000000"`             | No       |
+| - humidifier      | Expose a separate humidifier accessory to HomeKit.                   | `false`                | No       |
+| - light           | Expose device lights as lightbulbs to HomeKit.                       | `false`                | No       |
+| - temperature     | Expose device temperature as temperature sensor to HomeKit.          | `false`                | No       |
+| - humidity        | Expose device humidity as humidity sensor to HomeKit.                | `false`                | No       |
+| - allergicFunc    | Does this device support 'allergic' function?                        | `false`                | No       |
+| - sleepSpeed      | Does this device support 'sleep' speed?                              | `false`                | No       |
+| - preFilter       | Expose pre-filter status to HomeKit.                                 | `false`                | No       |
+| - carbonFilter    | Expose active carbon filter status to HomeKit.                       | `false`                | No       |
+| - hepaFilter      | Expose HEPA/NanoProtect filter status to HomeKit.                    | `false`                | No       |
 
 For a full config.json, please look at [Example Config](https://github.com/atdr/homebridge-philipsair-platform/blob/main/example-config.json) for more details.
 
@@ -224,7 +226,11 @@ sudo -u homebridge aioairctrl -H <device-ip> -P 5683 status-observe -J
 
 ### No status received from the device
 
-The device accepted the subscription and then sent nothing for two minutes. Check that `host` and `port` are right, that the purifier is powered on and on the same network, and that nothing else is already talking to it. These purifiers serve **one connection at a time**, so a leftover process (see Upgrading above) or another integration polling the same device will starve the plugin. The plugin keeps retrying and logs `Device is responding again` once status resumes.
+The device accepted the subscription and then sent nothing for five minutes, despite the plugin asking for a fresh reading in the meantime. Check that `host` and `port` are right, that the purifier is powered on and on the same network, and that nothing else is already talking to it. These purifiers serve **one connection at a time**, so a leftover process (see Upgrading above) or another integration polling the same device will starve the plugin. The plugin keeps retrying and logs `Device is responding again` once status resumes.
+
+### The state in the Home app is out of date
+
+These purifiers report spontaneously only while their values are changing, so a device sitting idle can stay quiet for several minutes at a time. The plugin therefore asks for a fresh reading `refreshInterval` seconds after the last one, by re-subscribing, which is what prompts the device to answer. The default of 60 seconds suits every device tested so far; raise it if your device reports often enough on its own, or set it to `0` to switch the refresh off entirely and rely on the device alone. Values below 15 seconds are treated as 15, because a device generally needs longer than that to answer a fresh subscription.
 
 ### The device did not apply a command
 
