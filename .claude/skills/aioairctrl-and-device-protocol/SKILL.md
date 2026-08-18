@@ -98,8 +98,8 @@ much further that goes.
 > reading `refreshInterval` seconds after the last one (default 60 s, per-device config, `0`
 > disables), and `STALL_TIMEOUT` is now 300 s. **That 300 s is itself now known to be too
 > short** on a switched-off AC0850 (issue #48), for reasons no larger constant fixes, so the
-> stall timer has two regimes: see the off-state item below. The refresh half of this fix is
-> verified working on hardware.
+> stall timer has two regimes: see the off-state item below. Both halves are verified on
+> hardware, the refresh on 1.2.0-beta.4 and the two regimes on 1.2.0-beta.5.
 
 **[AC0850] Switched off, it answers only intermittently, and 25 minute silences are normal.**
 Measured 2026-08-18 against 1.2.0-beta.4. Homebridge was stopped so nothing could kill a
@@ -139,6 +139,28 @@ cleared by every `longPoll`, and an off-state stall is by definition judged on a
 has itself answered nothing. An empty `this.obj` is what makes a device that has never answered
 report normally.
 
+**Verified on hardware 2026-08-18/19 (1.2.0-beta.5), both regimes and the boundary between
+them.** The purifier was switched off for ~50 minutes: **zero stall warnings and zero failure
+reports**, where 1.2.0-beta.4 had produced one every 5 minutes in the same state. The regime
+switch is visible directly rather than inferred, and the cold-start case is the one worth
+keeping, because it is the one where "off" and "unreachable" are indistinguishable:
+
+```text
+21:12:28  set -I D03102=0, device reports "pwr":0 the same second
+21:45:18  refresh; device then silent
+21:54:50  answers, 9 min 32 s later   <-- 300 s regime would have stalled at 21:50:18
+21:28:29  Homebridge restarted while the device was off, so this.obj is empty
+21:33:29  warns at exactly 300 s      <-- correct: a device that has never answered
+21:37:02  "Device is responding again"
+```
+
+The debug line for an off-state stall carries a `while the device is off` suffix and the
+cold-start one does not, which is the quickest way to tell from a log which regime was in force.
+Two paths were **not** reachable on hardware: the escalation brake (a second consecutive stall
+logging at debug rather than warning again) never got its chance, because the device answered
+inside the next 300 s window; and #33's parse brake and failed-stop path cannot be triggered by
+a real AC0850, which emits no malformed lines and no unkillable process. Both are unit-tested.
+
 **That is the third time a timer has destroyed a subscription that was going to be answered**
 (the pre-#30 fixed process lifetime, #38's write-triggered refresh, #48's stall). Standing rule:
 **never tear down a subscription on a timer unless something independent of that timer says the
@@ -177,6 +199,16 @@ behaviour below. Verification therefore **rides the refresh the stream is doing 
 earlier design killed the subscription on the write's own schedule and measurably threw away the
 notification it was waiting for (the device answered a `set` 83 s later; the refresh fired at
 30 s), then paid a fresh subscription's latency to ask again.
+
+**[AC0850] A write that lands is echoed immediately by a `"StatusType":"control"` push, but the
+83 s figure above is also real.** Measured 2026-08-18: `set -I D03102=0` at 21:12:28 produced a
+status **within the same second**, carrying the new value and `"StatusType":"control"` where
+every periodic push says `"status"`. That is the device acknowledging a control action, and it
+is three orders of magnitude faster than the 83 s a beta.3 write waited for. **Do not replace
+one number with the other**: write-to-notification latency on this model spans at least
+0-83 s, which is exactly why verification must ride the stream rather than run on a schedule
+sized from any single measurement. The `control` marker is a usable signal if a future change
+wants one, since it distinguishes an answer to a write from a periodic push.
 
 Three rules keep that verification portable to models nobody has measured, and any change to it
 must preserve them: **only a status that arrived after the write is evidence about it**, **only a
