@@ -65,6 +65,23 @@ The six checks above still run, via `prepublishOnly`.
 Published versions are permanent past npm's 72 hour unpublish window, so treat the
 dispatch form as irreversible and bump the `.n` rather than reusing a version.
 
+Each published prerelease is tagged `prerelease/<version>` at the commit it was built
+from, so a bug report against a beta can be read against the code that beta actually
+contained:
+
+```bash
+git fetch --tags
+git log prerelease/1.2.0-beta.1..main   # what has landed since that beta
+git show prerelease/1.2.0-beta.1
+```
+
+The tag is a plain ref and never a GitHub Release. release-please finds the last release
+by reading the Releases API and applies no prerelease filter, so a `1.2.0-beta.5` Release
+would outrank `v1.1.0` and become the version it bumps from. Bare tags are only its
+third-choice fallback, unreachable while a merged release PR or a Release exists, so the
+tag itself is inert either way; the `prerelease/` prefix is belt-and-braces and keeps
+`git tag -l 'v*'` meaning released versions.
+
 A prerelease can also come through the normal release path, from a
 `Release-As: 1.2.0-beta.1` commit footer. That is a deliberate act, so the release job
 publishes it rather than refusing it, under a tag taken from the version's own

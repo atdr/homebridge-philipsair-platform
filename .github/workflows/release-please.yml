@@ -95,3 +95,32 @@ jobs:
       # the pending release-please PR keeps proposing a clean next version.
       - run: npm version "$VERSION" --no-git-tag-version
       - run: npm publish --tag "$DIST_TAG"
+
+  tag-prerelease:
+    # Records which commit a given beta was built from, so that when a tester
+    # reports against 1.2.0-beta.4, `git log prerelease/1.2.0-beta.4..main` says
+    # exactly what has landed since. Runs after the publish so the tag only ever
+    # marks a version that reached npm, and lives in its own job so the
+    # publishing job's token stays read-only.
+    needs: publish-prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Tag the published commit
+        env:
+          VERSION: ${{ inputs.version }}
+          DIST_TAG: ${{ inputs.dist_tag }}
+          GH_TOKEN: ${{ github.token }}
+        # A plain ref, never a GitHub Release: release-please reads the Releases
+        # API to find the last release and does not filter out prereleases, so a
+        # published 1.2.0-beta.5 Release would outrank v1.1.0 and become the base
+        # it bumps from. Bare tags are only its third-choice fallback, unreachable
+        # while a release PR or Release exists, so they are inert. The
+        # 'prerelease/' prefix is belt-and-braces, and keeps `git tag -l 'v*'`
+        # meaning released versions.
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/prerelease/$VERSION" \
+            -f "sha=$GITHUB_SHA" >/dev/null
+          echo "tagged $GITHUB_SHA as prerelease/$VERSION (npm dist-tag: $DIST_TAG)"

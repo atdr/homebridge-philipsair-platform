@@ -71,12 +71,48 @@ describe('release workflow', () => {
   });
 
   it('passes dispatch inputs through the environment, not shell interpolation', () => {
-    const prerelease = jobs.get('publish-prerelease');
-    assert.match(prerelease, /VERSION: \$\{\{ inputs\.version \}\}/);
-    assert.match(prerelease, /DIST_TAG: \$\{\{ inputs\.dist_tag \}\}/);
-    //Those two env lines are the only places an input may be expanded; anywhere
-    //else means it reaches a run script, where a crafted value is shell.
-    const expansions = prerelease.match(/\$\{\{ *inputs\./g) ?? [];
-    assert.equal(expansions.length, 2, 'dispatch inputs must only be expanded into env, never into a run script');
+    //Every job on the dispatch path, so a later one cannot reintroduce the hole.
+    for (const name of ['publish-prerelease', 'tag-prerelease']) {
+      const job = jobs.get(name);
+      assert.match(job, /VERSION: \$\{\{ inputs\.version \}\}/, `${name} does not read version through env`);
+      assert.match(job, /DIST_TAG: \$\{\{ inputs\.dist_tag \}\}/, `${name} does not read dist_tag through env`);
+      //Those two env lines are the only places an input may be expanded; anywhere
+      //else means it reaches a run script, where a crafted value is shell.
+      const expansions = job.match(/\$\{\{ *inputs\./g) ?? [];
+      assert.equal(expansions.length, 2, `${name} must only expand dispatch inputs into env, never into a run script`);
+    }
+  });
+
+  it('tags the commit a published prerelease came from', () => {
+    //The tag is what maps a beta a tester is running back to a commit on main.
+    const tag = jobs.get('tag-prerelease');
+    assert.ok(tag, 'no tag-prerelease job');
+    assert.match(tag, /needs: publish-prerelease/, 'a tag must not outlive a failed publish');
+    assert.match(tag, /refs\/tags\/prerelease\/\$VERSION/, 'the tag does not name the published version');
+    assert.match(tag, /sha=\$GITHUB_SHA/, 'the tag does not point at the dispatched commit');
+  });
+
+  it('never turns a prerelease into a GitHub Release', () => {
+    //release-please reads the Releases API to find the last release and applies
+    //no prerelease filter, so a 1.2.0-beta.5 Release would outrank v1.1.0 and
+    //become the version it bumps from. A plain ref is invisible to it: bare tags
+    //are only its third-choice fallback, unreachable while a merged release PR or
+    //a Release exists.
+    const tag = jobs.get('tag-prerelease');
+    assert.match(tag, /git\/refs/, 'the tag is not created through the plain git refs API');
+    assert.doesNotMatch(
+      tag,
+      /gh release create|action-gh-release|\/releases/,
+      'a GitHub Release would be read as the latest release'
+    );
+    //Belt-and-braces, and keeps `git tag -l 'v*'` meaning released versions.
+    assert.doesNotMatch(tag, /refs\/tags\/v/, 'prerelease tags should not share the release tag namespace');
+  });
+
+  it('grants write access only to the job that creates the tag', () => {
+    assert.match(jobs.get('tag-prerelease'), /contents: write/, 'the tag job cannot push a ref');
+    for (const name of ['publish', 'publish-prerelease']) {
+      assert.match(jobs.get(name), /contents: read/, `${name} should not hold a writable token while publishing`);
+    }
   });
 });
