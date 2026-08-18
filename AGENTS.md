@@ -21,8 +21,9 @@ The runtime flow is:
   - `accessories.config.js` — per-accessory config shaping.
   - `accessories.models.js` — per-model speed/key/value maps (pure data).
   - `index.js` — barrel export.
-- `src/utils/` — `logger.js` (singleton logger) and `utils.js` (`generateConfig`,
-  `validHost`, `validPort`, `hapNumber`).
+- `src/utils/` — `logger.js` (singleton logger), `utils.js` (`generateConfig`,
+  `validBinaryPath`, `validHost`, `validPort`, `hapNumber`), and `preflight.js`
+  (`checkAioairctrl`, run once at startup to verify the CLI before any device uses it).
 
 **Key gotcha:** device communication is not pure JavaScript. `accessories.handler.js`
 runs the [`aioairctrl`](https://pypi.org/project/aioairctrl/) CLI (the pip package that
@@ -112,6 +113,13 @@ logger.info('Thing happened');
 logger.debug('Detail', accessoryName);
 logger.error(err, accessoryName);
 ```
+
+`logger.alert(message)` is a fifth level that ignores the `error` flag. It exists for
+**setup faults that stop the plugin working at all** — currently only the startup
+`aioairctrl` preflight in `src/platform.js`. The log flags are verbosity switches for
+per-device operational noise, so a user who turned `error` off has not asked to be kept
+in the dark about an install that cannot work. Do not reach for it to make an ordinary
+warning louder: anything the plugin can recover from belongs on `warn`/`error`.
 
 ## Docs
 
