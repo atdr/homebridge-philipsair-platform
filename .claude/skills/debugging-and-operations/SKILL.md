@@ -30,13 +30,23 @@ accessory...` (every later run).
 6. With `debug: true`: each status line logs as `[DEBUG] <name>: {"pwr":"1",...}` and
    HomeKit characteristics update.
 
-Steady state is **one long-lived observe process**. The stall timer is an _idle_ timer,
-re-armed by every status line in `processUpdate`, so it fires only after 120 s of real
-silence; it then kills the process and the `close` handler respawns after 5 s, logging
-`[DEBUG] <name>: airControl process exited with code ... (not expected)`. A healthy stream
-is never interrupted, so **a churning PID is a symptom, not the normal state**. Spawn
-failures retry after 30 s and log only once (`failureLogged`).
+Steady state is **one observe process per refresh cycle**. Two idle timers run on it, both
+re-armed by every status line in `processUpdate`:
 
+- `armRefreshTimeout` (`refreshInterval`, default 60 s, per-device config, `0` disables) asks the
+  device for a fresh reading by killing the stream so the `close` handler re-subscribes after 5 s.
+  A fresh subscription is what prompts an idle purifier to answer. It is armed **only** from
+  `processUpdate`, so a subscription that has never been answered is never killed by it.
+- `armStallTimeout` (`STALL_TIMEOUT`, 300 s) is the fault detector, and only fires when the device
+  has said nothing for far longer than a refresh cycle can explain.
+
+So on an **idle** device a PID cycling every ~65 s is the refresh working as designed; on a
+**running** device that notifies every ~50 s the refresh timer is re-armed before it fires and one
+PID persists. Spawn failures retry after 30 s and log only once (`failureLogged`).
+
+> Reading logs from v1.2.0-beta.3 or earlier? `STALL_TIMEOUT` was 120 s there and there was no
+> refresh, so an idle purifier was torn down every ~125 s **with a warning each time** (issue #38).
+>
 > Reading logs from v1.2.0-beta.1 or earlier? There the watchdog was a **fixed 60 s process
 > lifetime**, so the PID cycled every ~65 s even when perfectly healthy, and that was
 > normal. It also raced the device: an AC0850 notifies roughly every 50 s, leaving ~9 s of
@@ -60,7 +70,7 @@ Homebridge, not plugin-specific).
 | `aioairctrl not found. Install it with 'pipx install aioairctrl'...`                     | Binary missing or not on the Homebridge user's PATH                                                                                       | `sudo -u <hbuser> aioairctrl --help`                                                                                                                                      | README "aioairctrl not found" section (doc of record): install per README or set `aioairctrlPath`                 |
 | `Failed to run polling process` (once, then silence)                                     | Same as above, but on the observe spawn; retries every 30 s                                                                               | Same as above                                                                                                                                                             | Same as above                                                                                                     |
 | `The polling process exited with code N without returning any status` + the CLI's stderr | `aioairctrl` starts but dies immediately. A `ModuleNotFoundError` traceback means the binary exists while its Python environment does not | Run the logged command as the Homebridge user; the plugin has already captured the stderr for you                                                                         | README "The polling process exited..." section: reinstall the CLI for the right user/interpreter                  |
-| `No status received from the device within 120s`                                         | Subscription accepted, nothing ever sent: device off/renumbered, wrong `host`/`port`, or **another connection already holds the device**  | `ps -eo pid,ppid,args \| grep [a]ioairctrl` for a competing process (a leftover from ≤ v1.1.0 has PPID 1); then `ping` the device                                         | Kill the competitor / fix the config. Purifiers serve one connection at a time                                    |
+| `No status received from the device within 300s`                                         | Subscription accepted, nothing ever sent: device off/renumbered, wrong `host`/`port`, or **another connection already holds the device**  | `ps -eo pid,ppid,args \| grep [a]ioairctrl` for a competing process (a leftover from ≤ v1.1.0 has PPID 1); then `ping` the device                                         | Kill the competitor / fix the config. Purifiers serve one connection at a time                                    |
 | Home app state frozen/stale, and the log is quiet                                        | Only possible when the accessory never got a first update at all, or warnings are suppressed by `warn: false`                             | Check the platform `warn` option is not false, then set `debug: true` and watch for status lines                                                                          | If the CLI itself fails, the problem is upstream of this repo                                                     |
 | `Failed to parse device response`                                                        | Non-JSON line on stdout                                                                                                                   | With `debug: true`, look at the offending line in the log just before the warning                                                                                         | If aioairctrl started printing diagnostics to stdout, that's an upstream change — pin/downgrade and file upstream |
 | `Device response exceeded buffer limit, discarding buffered data`                        | >1 MB of stdout without a newline                                                                                                         | Run the manual observe command and inspect raw output                                                                                                                     | Same as above; the cap protects Homebridge memory (PR #5)                                                         |
@@ -112,7 +122,7 @@ Verified against the repo at branch `fix/poller-stall-and-failure-visibility`, 2
 
 ```bash
 grep -n "STALL_TIMEOUT\|RESTART_DELAY\|SPAWN_ERROR_RESTART_DELAY\|FAILURE_ESCALATION" src/accessories/accessories.handler.js  # watchdog/retry timings
-grep -n "armStallTimeout" src/accessories/accessories.handler.js  # still an idle timer, re-armed by processUpdate?
+grep -n "armStallTimeout\|armRefreshTimeout" src/accessories/accessories.handler.js  # both still idle timers, re-armed by processUpdate?
 grep -n "Failed to run polling process\|Failed to parse device response\|exceeded buffer limit\|without returning any status\|No status received\|responding again" src/accessories/accessories.handler.js  # exact log strings
 grep -n "Initializing device\|Configuring new accessory\|Setup accessory" src/platform.js src/accessories/accessories.setup.js  # startup log order
 grep -n "context.config" src/platform.js  # config still overwritten per launch

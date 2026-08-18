@@ -45,6 +45,28 @@ exports.validPort = (port) => {
   return 5683;
 };
 
+//seconds between a reading and the plugin asking for another one. 0 switches
+//the refresh off entirely; anything else is floored, because an interval below
+//the time a device takes to answer a fresh subscription only wastes wake-ups
+exports.validRefreshInterval = (interval) => {
+  if (interval === undefined) {
+    return 60;
+  }
+
+  const number = Number(interval);
+
+  if (!Number.isFinite(number) || number < 0) {
+    logger.warn(`Invalid refresh interval '${interval}' configured, using default interval 60s instead.`);
+    return 60;
+  }
+
+  if (number === 0) {
+    return 0;
+  }
+
+  return Math.max(Math.round(number), 15);
+};
+
 //coerce a raw device field into the finite, in-range number HAP expects;
 //homebridge 2's stricter validation warns on undefined/NaN/out-of-range values
 exports.hapNumber = (value, min, max) => {

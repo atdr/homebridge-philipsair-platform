@@ -31,6 +31,7 @@ const STREAM_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-stream');
 const SILENT_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-silent');
 const BROKEN_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-broken');
 const STATEFUL_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-stateful');
+const ONCE_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-once');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -188,6 +189,53 @@ describe('polling lifecycle', () => {
     await delay(50);
   });
 
+  it('asks for a fresh reading once an answered stream goes quiet', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    //the shim answers once and then stays alive without notifying, which is
+    //what an idle purifier does between value changes
+    const handler = makeHandler({ aioairctrlPath: SHIM });
+    const purifier = makeService();
+    handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+    handler.stallTimeout = 5000;
+    handler.restartDelay = 10;
+    handler.refreshInterval = 150;
+
+    handler.longPoll();
+    await delay(120);
+    const firstPid = handler.airControl.pid;
+    await delay(400);
+
+    assert.notEqual(handler.airControl.pid, firstPid, 'an idle stream was never refreshed');
+    assert.equal(handler.pollFailures, 0, 'a deliberate refresh counted as a failed poll');
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+    await delay(50);
+  });
+
+  it('leaves a stream that keeps notifying alone past the refresh interval', async () => {
+    const handler = makeHandler({ aioairctrlPath: STREAM_SHIM });
+    const purifier = makeService();
+    handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+
+    //the shim notifies every 20ms, so a refresh timer re-armed by every reading
+    //never fires: the interval measures silence, not process age
+    handler.stallTimeout = 5000;
+    handler.restartDelay = 10;
+    handler.refreshInterval = 200;
+
+    handler.longPoll();
+    const firstPid = handler.airControl.pid;
+    await delay(500);
+
+    assert.equal(handler.airControl.pid, firstPid, 'a device reporting on its own was refreshed anyway');
+
+    handler.kill(true);
+    await delay(50);
+  });
+
   it('does not schedule overlapping restarts', () => {
     const handler = makeHandler({});
 
@@ -272,6 +320,38 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
       logs.warn.some((line) => line.includes('No status received from the device')),
       `a silent device was never reported, got ${JSON.stringify(logs.warn)}`
     );
+  });
+
+  it('still reports a stall when the refresh keeps restarting the stream', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const marker = path.join(os.tmpdir(), `fake-once-${process.pid}-${Date.now()}`);
+    process.env.FAKE_ONCE_FILE = marker;
+
+    t.after(() => {
+      delete process.env.FAKE_ONCE_FILE;
+      fs.rmSync(marker, { force: true });
+    });
+
+    //answers once, then never again: the refresh restarts the stream on a
+    //cadence far shorter than the stall timeout, and the fault must still surface
+    const handler = makeHandler({ aioairctrlPath: ONCE_SHIM });
+    handler.accessory.getService = () => null;
+    handler.stallTimeout = 150;
+    handler.restartDelay = 10;
+    handler.refreshInterval = 60;
+
+    handler.longPoll();
+    await delay(600);
+
+    assert.ok(
+      logs.warn.some((line) => line.includes('No status received from the device')),
+      `a device that went dark was never reported, got ${JSON.stringify(logs.warn)}`
+    );
+
+    handler.kill(true);
+    await delay(50);
   });
 
   it('reports recovery once status arrives again', async (t) => {
@@ -484,13 +564,34 @@ describe('write verification', { concurrency: 1 }, () => {
     const { handler } = recordingHandler();
     //silence means this device is slower than the one the delays were chosen
     //against, which is not evidence that the command was lost
-    handler.verifyRefreshDelay = 20;
     handler.verifyWindow = 60;
 
     await handler.setPurifierActive(true);
     await delay(150);
 
     assert.equal(handler.pendingWrites.size, 0);
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
+  it('expires a pending write on its own deadline, not on the last status', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler } = recordingHandler();
+    handler.verifyWindow = 200;
+
+    await handler.setPurifierActive(true);
+
+    //a chatty device that never mentions pwr must not hold the write open: the
+    //expiry timer is re-armed by every status, the deadline is not
+    for (let i = 0; i < 6; i += 1) {
+      await delay(50);
+      await handler.processUpdate(JSON.stringify({ mode: 'M', cl: false, om: '1' }));
+    }
+
+    assert.equal(handler.pendingWrites.size, 0, 'a pending write outlived its window');
     assert.deepEqual(logs.warn, []);
 
     handler.kill(true);
@@ -505,6 +606,8 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
     handler.stallTimeout = 5000;
     handler.restartDelay = 10;
+    //the refresh under test here is the explicit one, not the timer
+    handler.refreshInterval = 0;
 
     handler.longPoll();
     await delay(100);
@@ -540,7 +643,6 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
     handler.stallTimeout = 5000;
     handler.restartDelay = 10;
-    handler.verifyRefreshDelay = 100;
     handler.verifyWindow = 400;
 
     handler.longPoll();

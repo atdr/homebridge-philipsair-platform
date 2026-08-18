@@ -107,6 +107,17 @@
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               }
             },
+            "refreshInterval": {
+              "title": "Refresh Interval",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3600,
+              "placeholder": 60,
+              "description": "Seconds after a reading before the plugin asks the device for another one, by re-subscribing. Raise it if your device reports on its own often enough; set it to 0 to switch the refresh off and rely entirely on the device. Values below 15 are treated as 15.",
+              "condition": {
+                "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
+              }
+            },
             "humidifier": {
               "title": "Humidifier",
               "type": "boolean",
@@ -185,6 +196,7 @@
             "devices[].name",
             "devices[].host",
             "devices[].port",
+            "devices[].refreshInterval",
             {
               "key": "devices[]",
               "type": "section",

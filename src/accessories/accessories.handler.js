@@ -11,10 +11,16 @@ const modelConfig = require('./accessories.models');
 const MAX_STDOUT_BUFFER = 1024 * 1024;
 
 //the observe stream is torn down and respawned once the device has been silent
-//for this long. this is an *idle* timer, reset by every status line, so a
-//healthy stream is never interrupted: an AC0850 notifies roughly every 50s,
-//which a fixed process lifetime races rather than supervises
-const STALL_TIMEOUT = 120 * 1000;
+//for this long. this is an *idle* timer, reset by every status line, and it is
+//a *fault* detector, not a poll: the refresh below is what keeps an idle device
+//fresh, so this only has to be longer than a refresh cycle can legitimately take
+const STALL_TIMEOUT = 300 * 1000;
+
+//how long after a reading the plugin asks for another one, by re-subscribing.
+//not derived from any device measurement: it is what v1.1.0's fixed 60s process
+//lifetime did accidentally, on every model, for years. a device that pushes on
+//its own faster than this never triggers it
+const REFRESH_INTERVAL = 60 * 1000;
 
 //delay before respawning a stream that ended
 const RESTART_DELAY = 5 * 1000;
@@ -31,16 +37,16 @@ const MAX_STDERR_CAPTURE = 4 * 1024;
 //line to a warning. a single dropped stream is normal; a run of them is not
 const FAILURE_ESCALATION_THRESHOLD = 3;
 
-//how long a write waits for the device to say something about it before the
-//plugin elicits a reading. a bound the plugin chooses, not a device
-//measurement: the only purifier these have been observed on is an AC0850
-const VERIFY_REFRESH_DELAY = 30 * 1000;
+//how long a write stays pending, over and above two refresh cycles: one for the
+//device to answer the write, one for it to answer the resend. a write still
+//unconfirmed when this expires is only reported if the device actually answered
+//and disagreed; silence means this model answers more slowly than the refresh
+//cycle assumes, which is a freshness problem rather than a lost command
+const VERIFY_WINDOW_MARGIN = 180 * 1000;
 
-//how long a write stays pending in total. a write still unconfirmed when this
-//expires is only reported if the device actually answered and disagreed;
-//silence means this model is slower than the one the delays were chosen
-//against, which is a freshness problem rather than a lost command
-const VERIFY_WINDOW = 90 * 1000;
+//floor for the same, so switching the refresh off does not switch verification
+//off with it
+const VERIFY_WINDOW_MIN = 300 * 1000;
 
 //resends of a write the device answered and did not apply, before the user is
 //told. one lost packet is unremarkable; two in a row is worth a warning
@@ -68,9 +74,10 @@ class Handler {
     this.loggedFailureKind = null;
     //writes waiting for the device to confirm them, keyed by the generic status
     //key each one sets. see recordWrite
-    /** @type {Map<string, { expected: unknown, args: string[], attempts: number, since: number }>} */
+    /** @type {Map<string, { expected: unknown, args: string[], attempts: number, since: number, recordedAt: number }>} */
     this.pendingWrites = new Map();
     this.verifyTimeout = null;
+    this.refreshTimeout = null;
     //whether an unapplied write has already been warned about, so an automation
     //that keeps failing reports once rather than on every cycle
     this.loggedWriteFailure = false;
@@ -80,9 +87,14 @@ class Handler {
     this.stallTimeout = STALL_TIMEOUT;
     this.restartDelay = RESTART_DELAY;
     this.spawnErrorRestartDelay = SPAWN_ERROR_RESTART_DELAY;
-    this.verifyRefreshDelay = VERIFY_REFRESH_DELAY;
-    this.verifyWindow = VERIFY_WINDOW;
     this.maxWriteRetries = MAX_WRITE_RETRIES;
+
+    const configuredInterval = this.accessory.context.config.refreshInterval;
+    this.refreshInterval = (configuredInterval === undefined ? REFRESH_INTERVAL / 1000 : configuredInterval) * 1000;
+
+    //a write is answered by the same stream everything else is: one refresh
+    //cycle for the device to report it, another for the resend, plus margin
+    this.verifyWindow = Math.max(2 * this.refreshInterval + VERIFY_WINDOW_MARGIN, VERIFY_WINDOW_MIN);
 
     const { speeds, keyMaps, valueMaps, extraSetFlags } = modelConfig(this.accessory.context.config);
     this.speeds = speeds;
@@ -470,34 +482,35 @@ class Handler {
         continue;
       }
 
-      this.pendingWrites.set(key, { expected, args, attempts: 0, since });
+      this.pendingWrites.set(key, { expected, args, attempts: 0, since, recordedAt: since });
     }
 
     this.armVerifyTimeout();
   }
 
   /**
-   * Gives the device a chance to report the write on its own, then elicits a
-   * reading. The device pushes spontaneously only while values are changing, so
-   * a *dropped* write is exactly the case that produces no notification at all.
+   * Closes the window on writes the device never spoke to. Verification rides
+   * the refresh the stream is doing anyway: killing the subscription on a
+   * write's own schedule threw away the notification it was waiting for, and
+   * then paid a fresh subscription's latency to ask for it again.
    */
   armVerifyTimeout() {
     if (this.verifyTimeout || !this.pendingWrites.size) {
       return;
     }
 
-    this.verifyTimeout = setTimeout(() => {
-      this.requestRefresh();
+    //the earliest deadline still outstanding, so a sweep triggered by an
+    //unrelated status does not push an older write's expiry out by a window
+    const oldest = Math.min(...[...this.pendingWrites.values()].map((pending) => pending.recordedAt));
 
-      //let the elicited reading use what is left of the window
-      this.verifyTimeout = setTimeout(
-        () => {
-          this.verifyTimeout = null;
-          this.expirePendingWrites();
-        },
-        Math.max(this.verifyWindow - this.verifyRefreshDelay, 0)
-      );
-    }, this.verifyRefreshDelay);
+    this.verifyTimeout = setTimeout(
+      () => {
+        this.verifyTimeout = null;
+        this.expirePendingWrites();
+        this.armVerifyTimeout();
+      },
+      Math.max(oldest + this.verifyWindow - Date.now(), 0)
+    );
   }
 
   /**
@@ -578,14 +591,23 @@ class Handler {
    * unmeasured model into a warning loop.
    */
   expirePendingWrites() {
+    const now = Date.now();
+
     for (const [key, pending] of this.pendingWrites) {
+      //each write owns its deadline: the timer is re-armed by every status, and
+      //a device that keeps talking about other keys would otherwise hold a
+      //pending write open indefinitely
+      if (now - pending.recordedAt < this.verifyWindow) {
+        continue;
+      }
+
       logger.debug(
         `No status covering ${key}=${pending.expected} arrived within ${Math.round(this.verifyWindow / 1000)}s`,
         this.accessory.displayName
       );
-    }
 
-    this.pendingWrites.clear();
+      this.pendingWrites.delete(key);
+    }
   }
 
   /**
@@ -642,6 +664,8 @@ class Handler {
     this.wickFilterService = this.accessory.getService('Wick filter');
 
     clearTimeout(this.processTimeout);
+    clearTimeout(this.refreshTimeout);
+    this.refreshTimeout = null;
     this.stdoutBuffer = '';
     this.stderrBuffer = '';
     this.receivedData = false;
@@ -758,9 +782,34 @@ class Handler {
   }
 
   /**
-   * Restarts the observe stream when the device goes quiet. Re-armed by every
-   * status line, so this fires only on an actual stall rather than on a timer
-   * racing the device's own notification interval.
+   * Asks the device for a fresh reading once its own reporting goes quiet.
+   *
+   * Armed only from `processUpdate`, never from `longPoll`, and that is the
+   * whole safety argument: the interval measures the time since a *reading*, so
+   * a subscription that has not been answered yet is never killed, and an
+   * interval shorter than a slow model's response latency degrades into wasted
+   * waiting rather than into starvation. A device that pushes on its own faster
+   * than the interval re-arms this before it ever fires.
+   */
+  armRefreshTimeout() {
+    clearTimeout(this.refreshTimeout);
+    this.refreshTimeout = null;
+
+    if (!this.refreshInterval) {
+      return;
+    }
+
+    this.refreshTimeout = setTimeout(() => {
+      this.refreshTimeout = null;
+      this.requestRefresh();
+    }, this.refreshInterval);
+  }
+
+  /**
+   * Restarts the observe stream when the device goes quiet for far longer than
+   * a refresh cycle can account for. Re-armed by every status line, so this is
+   * a fault detector rather than a poll: the refresh above is what keeps an
+   * idle device fresh.
    */
   armStallTimeout() {
     clearTimeout(this.processTimeout);
@@ -813,6 +862,7 @@ class Handler {
     //a line arriving proves the stream is alive, whether or not it parses
     if (this.airControl && !this.shutdown) {
       this.armStallTimeout();
+      this.armRefreshTimeout();
     }
 
     try {
@@ -976,9 +1026,11 @@ class Handler {
     clearTimeout(this.processTimeout);
     clearTimeout(this.restartTimeout);
     clearTimeout(this.verifyTimeout);
+    clearTimeout(this.refreshTimeout);
     this.processTimeout = null;
     this.restartTimeout = null;
     this.verifyTimeout = null;
+    this.refreshTimeout = null;
     this.pendingWrites.clear();
 
     if (this.airControl) {
