@@ -5,6 +5,8 @@
 //no stateless shim can express: every later invocation accepts the
 //subscription and says nothing. Lets a test prove that a stall is still
 //reported when the stream is being restarted for other reasons in between.
+//FAKE_ONCE_PWR sets the power the one answer reports, since a device that says
+//it is switched off is expected to go quiet and one that says it is on is not.
 
 const fs = require('node:fs');
 
@@ -19,7 +21,9 @@ const answered = fs.existsSync(marker);
 
 if (!answered) {
   fs.writeFileSync(marker, 'answered');
-  process.stdout.write(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2' }) + '\n');
+  const pwr = process.env.FAKE_ONCE_PWR || '1';
+
+  process.stdout.write(JSON.stringify({ pwr, mode: 'P', cl: false, om: '2' }) + '\n');
 }
 
 setInterval(() => {}, 1000);
