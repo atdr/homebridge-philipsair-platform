@@ -112,8 +112,15 @@ Each option carries an evidence obligation from Gates 3–4:
    Evidence: Gate 3 table covering every generic key you map, Gate 4 round-trip for
    every writable one.
 5. **`extraSetFlags` entry** (AC0850 shape) — Gate 4 showed sets need `-I`. Evidence:
-   the failing and succeeding command outputs.
-6. **Handler code change** — last resort, only when the dialect cannot be expressed as
+   the failing and succeeding command outputs. (`-I` is dropped automatically for any
+   command whose values are not integers, so a model that needs it does not have to have
+   integer values for every key.)
+6. **`unsupported` entry** (AC0850 shape) — the device has no register for a generic key
+   at all, so `Handler.supports()` suppresses the command, the push, and the HomeKit
+   control. Evidence: the key absent from **every** Gate 3 dump, in every relevant device
+   state, not merely a mapping you have not worked out. This removes a control from users'
+   Home apps, so an unproven absence belongs in an issue, not in this field.
+7. **Handler code change** — last resort, only when the dialect cannot be expressed as
    data in `accessories.models.js`. Stop and discuss with the maintainer first; this
    crosses from data into the fragile paths listed in `architecture-and-invariants`.
 
