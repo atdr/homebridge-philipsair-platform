@@ -93,7 +93,17 @@ makes idle staleness worse rather than better. A deliberate periodic refresh is 
 device dozes, disappears with no error anywhere, and the `set*` handlers have already pushed
 the optimistic value to HomeKit. A confirmed real-world case: an automation logged
 `Purifier Active: 1` with no error and the device stayed off. Tracked in issue #37.
-**Confirm a write by reading `D03102` back, never by trusting the log.**
+**Confirm a write by reading the key back, never by trusting the log.** At a terminal that means
+reading `D03102`; in the plugin, `recordWrite` registers each write and `reconcilePendingWrites`
+checks it against the next status the observe stream delivers, resending once before warning.
+A separate `status` process is not an option for the read-back, because of the single-connection
+behaviour below, so `requestRefresh` re-subscribes instead to elicit a reading.
+
+Two rules that keep that verification portable to models nobody has measured, and that any
+change to it must preserve: **only a status that arrived after the write is evidence about it**,
+and **only a disagreement is evidence that it was lost.** A verification window passing in
+silence means this device is slower than the AC0850, which is a freshness problem (issue #38),
+so it stays at debug rather than warning.
 
 **[unverified] The device serves one connection at a time.** A second `aioairctrl` against the same
 purifier does not error: it completes the sync handshake and then simply receives nothing.
