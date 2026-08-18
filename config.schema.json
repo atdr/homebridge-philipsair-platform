@@ -2,7 +2,7 @@
   "pluginAlias": "PhilipsAirPlatform",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Homebridge Plugin for Philips Air Purifiers / Humidifiers.",
+  "headerDisplay": "Homebridge plugin for Philips air purifiers and humidifiers.\n\n**Before this plugin can talk to any device**, the [`aioairctrl`](https://pypi.org/project/aioairctrl/) command-line tool must be installed **for the user that runs Homebridge** \u2014 this plugin runs it to speak the encrypted protocol the purifiers use. It is not installed automatically:\n\n```\npipx install aioairctrl\n```\n\nThen check it works for the Homebridge user: `sudo -u homebridge aioairctrl --help`. If it only runs for another user, or lives outside that user's PATH (pipx installs to `~/.local/bin`, which services often do not search), run `which aioairctrl` and put the full path into **aioairctrl Path** below.\n\nThe plugin checks this at startup and explains what to fix in the Homebridge log if it cannot run the command.",
   "footerDisplay": "For documentation please see [GitHub repository](https://github.com/atdr/homebridge-philipsair-platform)",
   "schema": {
     "type": "object",
@@ -17,36 +17,35 @@
         "title": "aioairctrl Path",
         "type": "string",
         "placeholder": "aioairctrl",
-        "description": "Full path to the aioairctrl executable, e.g. /home/pi/.local/bin/aioairctrl. Leave empty if it is on the PATH of the user running Homebridge."
+        "description": "Only needed if `aioairctrl` is not on the PATH of the user running Homebridge. Run `which aioairctrl` as that user and paste the full path here, e.g. /home/pi/.local/bin/aioairctrl. Leave empty to look it up on the PATH."
       },
       "debug": {
         "title": "Debug Log",
         "type": "boolean",
-        "description": "Enables additional output (debug) in the log."
+        "description": "Logs every device status and command. Switch this on before reporting a problem, and off again afterwards \u2014 it is very noisy."
       },
       "warn": {
         "title": "Warn Log",
         "type": "boolean",
-        "description": "Enables additional output (warn) in the log.",
+        "description": "Reports problems the plugin recovered from, such as a lost command or a device that stopped responding. Unchecking this hides those reports; it does not stop them happening.",
         "default": true
       },
       "error": {
         "title": "Error Log",
         "type": "boolean",
-        "description": "Enables additional output (error) in the log.",
+        "description": "Reports the underlying error behind a problem. Unchecking this hides the detail that usually says what to fix. Faults that stop the plugin working at all are always reported.",
         "default": true
       },
       "extendedError": {
         "title": "Extended Error Log",
         "type": "boolean",
-        "description": "Enables additional output (detailed error) in the log.",
+        "description": "Includes the full stack trace with each error. Useful when reporting an issue.",
         "default": true,
         "condition": {
           "functionBody": "try { return model.error } catch(e){ return false }"
         }
       },
       "devices": {
-        "title": "Devices",
         "type": "array",
         "required": true,
         "minLength": 1,
@@ -70,21 +69,24 @@
               "type": "string",
               "placeholder": "Philips",
               "default": "Philips",
-              "description": "Set the manufacturer name for display in the Home app."
+              "description": "Shown in the Home app. Cosmetic only."
             },
             "model": {
               "title": "Model",
               "type": "string",
               "placeholder": "Air Purifier",
               "default": "Air Purifier",
-              "description": "Model for display in the Home app. For tested devices, pick the exact ID from the suggestions — some models need it for the correct speed/key mappings (see the tested devices list in the README). Any other value works with default settings."
+              "description": "Determines how the plugin controls this device, not just what the Home app displays. If your device is in the suggestions, pick the exact ID \u2014 those models need it for correct fan speeds and controls. Any other value works, using default settings that suit most purifiers. See the tested devices list in the README.",
+              "condition": {
+                "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
+              }
             },
             "serialNumber": {
               "title": "Serial Number",
               "type": "string",
               "placeholder": "000000",
               "default": "000000",
-              "description": "Set the serial number for display in the Home app."
+              "description": "Shown in the Home app. Cosmetic only."
             },
             "host": {
               "title": "Host Address",
@@ -141,7 +143,7 @@
             "sleepSpeed": {
               "title": "Sleep Speed",
               "type": "boolean",
-              "description": "Does this device support 'sleep' speed?"
+              "description": "Adds a 'sleep' step below the lowest fan speed. Ignored for models with their own speed mapping (pick your model above and the plugin uses the right speeds automatically)."
             },
             "allergicFunc": {
               "title": "Allergic mode function",
@@ -181,41 +183,44 @@
     },
     {
       "title": "Devices",
+      "type": "section",
       "expandable": true,
       "expanded": true,
       "orderable": false,
-      "type": "section",
       "items": [
         {
           "key": "devices",
-          "type": "array",
+          "type": "tabarray",
+          "title": "{{ value.name || 'New device' }}",
           "orderable": false,
-          "buttonText": "Add Device",
           "items": [
             "devices[].active",
             "devices[].name",
+            {
+              "key": "devices[].model",
+              "typeahead": {
+                "source": ["AC0850", "AC1715", "AC3036", "AC3829"]
+              }
+            },
             "devices[].host",
-            "devices[].port",
-            "devices[].refreshInterval",
+            {
+              "key": "devices[].port",
+              "type": "number"
+            },
+            {
+              "key": "devices[].refreshInterval",
+              "type": "number"
+            },
             {
               "key": "devices[]",
               "type": "section",
-              "title": "Branding",
+              "title": "Home app display",
               "expandable": true,
               "expanded": false,
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               },
-              "items": [
-                "devices[].manufacturer",
-                {
-                  "key": "devices[].model",
-                  "typeahead": {
-                    "source": ["AC0850", "AC1715", "AC3036", "AC3829"]
-                  }
-                },
-                "devices[].serialNumber"
-              ]
+              "items": ["devices[].manufacturer", "devices[].serialNumber"]
             },
             {
               "key": "devices[]",

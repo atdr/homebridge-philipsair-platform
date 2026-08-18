@@ -138,10 +138,10 @@ Anything with a parent PID of `1` is a leftover, so `kill` it; rebooting clears 
 | ----------------- | -------------------------------------------------------------------- | ---------------------- | -------- |
 | **platform**      | Must always be `PhilipsAirPlatform`.                                 | `"PhilipsAirPlatform"` | Yes      |
 | name              | For logging purposes.                                                | `"PhilipsAirPlatform"` | No       |
-| aioairctrlPath    | Full path to the `aioairctrl` executable, if not on PATH.            | `"aioairctrl"`         | No       |
-| debug             | Enables additional output (debug) in the log.                        | `false`                | No       |
-| warn              | Enables additional output (warn) in the log.                         | `true`                 | No       |
-| error             | Enables additional output (error) in the log.                        | `true`                 | No       |
+| aioairctrlPath    | Full path to the `aioairctrl` executable, if not on PATH.            | _(PATH lookup)_        | No       |
+| debug             | Logs every device status and command. Very noisy.                    | `false`                | No       |
+| warn              | Reports problems the plugin recovered from.                          | `true`                 | No       |
+| error             | Reports the underlying error behind a problem. *2                    | `true`                 | No       |
 | extendedError     | Enables additional output (detailed error) in the log.               | `true`                 | No       |
 | **devices**       | Array of Philips air purifiers.                                      |                        | Yes      |
 | - active          | Set `true` to expose the device. Inactive ones are skipped.          | `false`                | No       |
@@ -150,14 +150,14 @@ Anything with a parent PID of `1` is a leftover, so `kill` it; rebooting clears 
 | - port            | Port of your device.                                                 | `5683`                 | No       |
 | - refreshInterval | Seconds after a reading before asking for another one. `0` disables. | `60`                   | No       |
 | - manufacturer    | Set the manufacturer name for display in the Home app.               | `"Philips"`            | No       |
-| - model           | Set the model for display in the Home app.                           | `"Air Purifier"`       | No *1    |
+| - model           | Selects the speed/control mapping, and shown in the Home app.        | `"Air Purifier"`       | No *1    |
 | - serialNumber    | Set the serial number for display in the Home app.                   | `"000000"`             | No       |
 | - humidifier      | Expose a separate humidifier accessory to HomeKit.                   | `false`                | No       |
 | - light           | Expose device lights as lightbulbs to HomeKit.                       | `false`                | No       |
 | - temperature     | Expose device temperature as temperature sensor to HomeKit.          | `false`                | No       |
 | - humidity        | Expose device humidity as humidity sensor to HomeKit.                | `false`                | No       |
 | - allergicFunc    | Does this device support 'allergic' function?                        | `false`                | No       |
-| - sleepSpeed      | Does this device support 'sleep' speed?                              | `false`                | No       |
+| - sleepSpeed      | Adds a 'sleep' step below the lowest speed. *3                       | `false`                | No       |
 | - preFilter       | Expose pre-filter status to HomeKit.                                 | `false`                | No       |
 | - carbonFilter    | Expose active carbon filter status to HomeKit.                       | `false`                | No       |
 | - hepaFilter      | Expose HEPA/NanoProtect filter status to HomeKit.                    | `false`                | No       |
@@ -167,6 +167,8 @@ For a full config.json, please look at [Example Config](https://github.com/atdr/
 ## Notes
 
 1. Use model IDs from the tested devices list below for full compatibility. For AC0850 this field is required for correct speed/key mapping.
+2. Faults that stop the plugin working at all — such as an `aioairctrl` it cannot run — are always reported, whatever this is set to.
+3. Ignored for models that have their own speed mapping (see the tested devices list); those use the right speeds automatically.
 
 Not every device supports every control. The AC0850 reports no auto/manual mode and no child lock, so neither is offered in the Home app for that model; power, fan speed, air quality and the filter status are unaffected.
 
