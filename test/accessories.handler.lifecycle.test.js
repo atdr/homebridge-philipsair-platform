@@ -301,32 +301,36 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     assert.equal(logs.warn.filter((line) => line.includes('exited with code 1')).length, 1);
   });
 
-  it('does not report the CLI progress log that debug mode writes to stderr', async (t) => {
+  it('captures nothing reportable from the CLI progress log that debug mode writes', async () => {
+    //with 'debug' enabled the plugin passes -D and aioairctrl logs its whole
+    //run to stderr, so the buffer used to be full of progress records that then
+    //surfaced as errors. this drives the real stream rather than the buffer
+    const handler = makeHandler({ aioairctrlPath: DEBUG_LOG_SHIM, debug: true });
+    handler.accessory.getService = () => null;
+    handler.restartDelay = 5000;
+
+    handler.longPoll();
+    await delay(200);
+    handler.kill(true);
+
+    assert.equal(handler.reportableStderr(), '');
+  });
+
+  it('reports a failure without the progress records that came with it', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
 
-    //with 'debug' enabled the plugin passes -D and aioairctrl logs its whole
-    //run to stderr, so the buffer is never empty. reporting it as an error told
-    //users their install was broken when only the process had ended
-    const handler = makeHandler({ aioairctrlPath: DEBUG_LOG_SHIM, debug: true });
-    handler.accessory.getService = () => null;
-    handler.restartDelay = 10;
+    const handler = makeHandler({ debug: true });
 
-    handler.longPoll();
-    //three failed spawns are needed to escalate, and a loaded machine spawns
-    //slowly, so this leaves room rather than racing the threshold
-    await delay(900);
-    handler.kill(true);
+    handler.captureStderr('DEBUG:aioairctrl.coap.client:syncing\n');
+    handler.pollFailures = 3;
+    handler.reportPollFailure(1);
 
     assert.ok(
       logs.warn.some((line) => line.includes('exited with code 1')),
       `no warning about the failing process, got ${JSON.stringify(logs.warn)}`
     );
-    assert.deepEqual(
-      logs.error.filter((line) => line.includes('wrote:')),
-      [],
-      'the CLI progress log was reported as an error'
-    );
+    assert.deepEqual(logs.error, [], 'the CLI progress log was reported as an error');
   });
 
   it('stays quiet while a single failure is still plausibly transient', async (t) => {
@@ -511,6 +515,50 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     assert.equal(handler.pollFailures, 4);
     assert.equal(handler.receivedData, false);
     assert.equal(handler.loggedFailureKind, 'exit');
+  });
+
+  it('warns once while stdout keeps failing to parse', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+
+    for (let i = 0; i < 4; i += 1) {
+      await handler.processUpdate('not json at all');
+    }
+
+    assert.deepEqual(logs.warn, ['Lifecycle Purifier: Failed to parse device response']);
+    assert.equal(logs.error.length, 1, 'every unparseable line logged its own error');
+
+    //a line that parses clears the latch, so a later burst is reported again
+    await handler.processUpdate(JSON.stringify({ pwr: '1' }));
+    await handler.processUpdate('not json at all');
+
+    assert.equal(logs.warn.length, 2, 'a fresh burst of unparseable output was swallowed');
+  });
+
+  it('says so when it was stopping the process that failed, not starting it', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({ aioairctrlPath: SILENT_SHIM });
+    handler.accessory.getService = () => null;
+    handler.restartDelay = 5000;
+
+    handler.longPoll();
+    await delay(150);
+
+    //node reports a kill that failed on the same 'error' event as a command
+    //that never started; only the second is anything to do with the install
+    handler.airControl.emit('error', new Error('kill ESRCH'));
+    await delay(20);
+
+    assert.deepEqual(logs.warn, ['Lifecycle Purifier: Failed to stop the polling process']);
+    assert.equal(handler.loggedFailureKind, 'stop');
+
+    handler.kill(true);
+    await delay(50);
   });
 
   it('warns again when the kind of failure changes', async (t) => {

@@ -89,10 +89,13 @@ class Handler {
     this.spawnFailed = false;
     this.refreshing = false;
     this.pollFailures = 0;
-    //which kind of failure ('spawn' | 'exit' | 'stall') has already been warned
-    //about, so a retry loop stays quiet without hiding a *different* failure
-    /** @type {'spawn' | 'exit' | 'stall' | null} */
+    //which kind of failure ('spawn' | 'stop' | 'exit' | 'stall') has already been
+    //warned about, so a retry loop stays quiet without hiding a *different* failure
+    /** @type {'spawn' | 'stop' | 'exit' | 'stall' | null} */
     this.loggedFailureKind = null;
+    //the same brake for unparseable output, which arrives per line rather than
+    //per process and so has its own latch
+    this.loggedParseFailure = false;
     //writes waiting for the device to confirm them, keyed by the generic status
     //key each one sets. see recordWrite
     /** @type {Map<string, { expected: unknown, args: string[], attempts: number, since: number, recordedAt: number }>} */
@@ -767,12 +770,18 @@ class Handler {
       const spawnFailure = child.pid === undefined;
       this.spawnFailed = spawnFailure;
 
+      //a command that could not be started and one that would not stop are
+      //different faults with the same event. calling the second one a failure
+      //to run sends the reader after an aioairctrl install that is working
+      const kind = spawnFailure ? 'spawn' : 'stop';
+      const summary = spawnFailure ? 'Failed to run polling process' : 'Failed to stop the polling process';
+
       //only log the first failure of its kind in a retry loop to avoid spamming
-      if (this.loggedFailureKind === 'spawn') {
+      if (this.loggedFailureKind === kind) {
         logger.debug(error, this.accessory.displayName);
       } else {
-        this.loggedFailureKind = 'spawn';
-        logger.warn('Failed to run polling process', this.accessory.displayName);
+        this.loggedFailureKind = kind;
+        logger.warn(summary, this.accessory.displayName);
         logger.error(error, this.accessory.displayName);
       }
 
@@ -1001,6 +1010,7 @@ class Handler {
       //failure counters on every retry and never escalate
       this.receivedData = true;
       this.pollFailures = 0;
+      this.loggedParseFailure = false;
 
       if (this.loggedFailureKind) {
         this.loggedFailureKind = null;
@@ -1009,6 +1019,18 @@ class Handler {
 
       this.handleResponse(response);
     } catch (err) {
+      //the brake the poll path already has, for the same reason. this normally
+      //never fires, since the CLI writes only status JSON to stdout, but if it
+      //ever began writing something else continuously that would be two log
+      //entries per line for as long as it lasted, filling a disk and burying
+      //everything else. the first one is the one worth seeing
+      if (this.loggedParseFailure) {
+        logger.debug('Failed to parse device response', this.accessory.displayName);
+        logger.debug(err, this.accessory.displayName);
+        return;
+      }
+
+      this.loggedParseFailure = true;
       logger.warn('Failed to parse device response', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
       return;
