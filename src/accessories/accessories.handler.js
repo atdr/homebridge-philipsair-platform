@@ -132,9 +132,44 @@ class Handler {
         }
 
         logger.debug(stderr, this.accessory.displayName);
+
+        //a `set` the CLI refuses is not a non-zero exit: aioairctrl prints its
+        //complaint on *stdout* ("Cannot encode value 'P' as int"), drops the
+        //write and still exits 0. a successful `set` prints nothing at all, so
+        //anything here is the command being rejected rather than sent
+        const rejection = args.includes('set') ? stdout.toString().trim() : '';
+
+        if (rejection) {
+          return reject(new Error(`${this.binary} rejected the command: ${rejection}`));
+        }
+
         resolve();
       });
     });
+  }
+
+  /**
+   * Builds a `set` invocation. `-I` asks aioairctrl to encode every value in
+   * the command as an integer, so it is dropped when any value is not one:
+   * applying it to `mode=P` makes the CLI reject the whole command, and a model
+   * that needs `-I` for its registers (`extraSetFlags`) can still have keys
+   * whose values are words.
+   *
+   * @param {string[]} cmds `key=value` elements from handleCommand
+   * @param {string[]} [extraFlags] flags this specific command asks for
+   * @returns {string[]}
+   */
+  setArgs(cmds, extraFlags = []) {
+    //aioairctrl converts 'true'/'false' to booleans before int(), so those
+    //survive -I as 1/0; anything else has to look like a whole number
+    const intEncodable = cmds.every((cmd) => {
+      const value = cmd.slice(cmd.indexOf('=') + 1);
+      return value === 'true' || value === 'false' || /^\s*[+-]?\d+\s*$/.test(value);
+    });
+
+    const flags = [...new Set([...this.extraSetFlags, ...extraFlags])].filter((flag) => flag !== '-I' || intEncodable);
+
+    return [...this.args, 'set', ...flags, ...cmds];
   }
 
   handleResponse(json) {
@@ -176,8 +211,7 @@ class Handler {
     try {
       const stateNumber = state ? 1 : 0;
 
-      const args = [...this.args];
-      args.push('set', ...this.extraSetFlags, `${this.handleCommand('pwr', stateNumber)}`);
+      const args = this.setArgs([this.handleCommand('pwr', stateNumber)]);
 
       this.purifierService.updateCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState, stateNumber * 2);
 
@@ -202,8 +236,7 @@ class Handler {
           .updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, state);
       }
 
-      const args = [...this.args];
-      args.push('set', ...this.extraSetFlags, `${this.handleCommand('mode', values.mode)}`);
+      const args = this.setArgs([this.handleCommand('mode', values.mode)]);
 
       logger.info(`Purifier Mode: ${state}`, this.accessory.displayName);
 
@@ -221,8 +254,7 @@ class Handler {
         cl: state == 1,
       };
 
-      const args = [...this.args];
-      args.push('set', ...this.extraSetFlags, `${this.handleCommand('cl', values.cl)}`);
+      const args = this.setArgs([this.handleCommand('cl', values.cl)]);
 
       logger.info(`Lock: ${state}`, this.accessory.displayName);
 
@@ -242,12 +274,11 @@ class Handler {
         this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, 0);
         logger.info(`Purifier Rotation Speed: value: ${value}`, this.accessory.displayName);
 
-        let args = [...this.args];
         let cmds = [];
         Object.entries(this.speeds[speed - 1]).forEach(([cmd, value]) => {
           cmds.push(`${this.handleCommand(cmd, value)}`);
         });
-        args.push('set', ...this.extraSetFlags, ...cmds);
+        const args = this.setArgs(cmds);
 
         logger.info(`Purifier Rotation Speed: cmds: ${cmds.join(' ')}`, this.accessory.displayName);
 
@@ -304,8 +335,7 @@ class Handler {
           .updateCharacteristic(this.api.hap.Characteristic.RelativeHumidityHumidifierThreshold, 0);
       }
 
-      const args = [...this.args];
-      args.push('set', ...this.extraSetFlags, `${this.handleCommand('func', values.func)}`);
+      const args = this.setArgs([this.handleCommand('func', values.func)]);
 
       logger.info(`Humidifier Active: ${state}`, this.accessory.displayName);
 
@@ -364,11 +394,8 @@ class Handler {
         this.humidifierService.updateCharacteristic(this.api.hap.Characteristic.Active, 0);
       }
 
-      const args1 = [...this.args];
-      const args2 = [...this.args];
-
-      args1.push('set', ...this.extraSetFlags, `${this.handleCommand('func', values.func)}`);
-      args2.push('set', ...this.extraSetFlags, `${this.handleCommand('rhset', values.rhset)}`, '-I');
+      const args1 = this.setArgs([this.handleCommand('func', values.func)]);
+      const args2 = this.setArgs([this.handleCommand('rhset', values.rhset)], ['-I']);
 
       logger.info(`Humidifier State: ${state}`, this.accessory.displayName);
 
@@ -401,11 +428,8 @@ class Handler {
       };
 
       //Light
-      const args1 = [...this.args];
-      const args2 = [...this.args];
-
-      args1.push('set', ...this.extraSetFlags, `${this.handleCommand('aqil', values.aqil)}`, '-I');
-      args2.push('set', ...this.extraSetFlags, `${this.handleCommand('uil', values.uil)}`);
+      const args1 = this.setArgs([this.handleCommand('aqil', values.aqil)], ['-I']);
+      const args2 = this.setArgs([this.handleCommand('uil', values.uil)]);
 
       logger.info(`Light state: ${state}`, this.accessory.displayName);
 
@@ -436,11 +460,8 @@ class Handler {
       };
 
       //Light
-      const args1 = [...this.args];
-      const args2 = [...this.args];
-
-      args1.push('set', ...this.extraSetFlags, `${this.handleCommand('aqil', values.aqil)}`, '-I');
-      args2.push('set', ...this.extraSetFlags, `${this.handleCommand('uil', values.uil)}`);
+      const args1 = this.setArgs([this.handleCommand('aqil', values.aqil)], ['-I']);
+      const args2 = this.setArgs([this.handleCommand('uil', values.uil)]);
 
       logger.info(`Brightness: ${value}`, this.accessory.displayName);
 

@@ -39,12 +39,23 @@ Built in the `Handler` constructor and methods of
   `node --test --test-name-pattern 'builds the base arguments' test/accessories.handler.test.js`.
 - `set` accepts multiple `key=value` pairs in one invocation (used by
   `setPurifierRotationSpeed` for composite speed entries).
-- `-I` after `set` is appended per model via `extraSetFlags` (AC0850: every set), and
-  hard-coded on specific numeric commands: `aqil` (light brightness) and `rhset`
-  (humidity target). Per `aioairctrl set --help` (`-I, --int`), it encodes the value as
-  an integer instead of a string (maintainer-confirmed against the CLI, 2026-07-13).
+- `-I` after `set` is requested per model via `extraSetFlags` (AC0850: every set) and by
+  specific numeric commands: `aqil` (light brightness) and `rhset` (humidity target). Per
+  `aioairctrl set --help` (`-I, --int`), it encodes the value as an integer instead of a
+  string (maintainer-confirmed against the CLI, 2026-07-13). Every `set` is built by
+  `Handler.setArgs`, which **drops `-I` when any value in the command is not
+  int-encodable**, because the flag applies to the whole invocation: `set -I mode=P` is
+  refused outright (issue #42), and a model that needs `-I` for its registers still has keys
+  whose values are words. `'true'`/`'false'` survive `-I`, since the CLI converts them to
+  booleans before `int()`.
+- **A `set` the CLI refuses is not a non-zero exit.** `aioairctrl` prints its complaint on
+  **stdout** (`Cannot encode value 'P' as int`), skips the write and exits **0**
+  (`cli.py`, confirmed against 0.2.5). A successful `set` prints nothing, so `sendCMD`
+  treats any stdout from a `set` as a rejection and rejects the promise with the CLI's own
+  text. This is coupled to upstream's output contract: a future version that chattered on a
+  successful `set` would make writes look rejected.
 - The plugin logs the CLI's **stderr** at debug level and assumes **stdout carries
-  only status JSON lines** — anything else on stdout triggers
+  only status JSON lines** for `status-observe` — anything else on that stream triggers
   `Failed to parse device response` (see `debugging-and-operations`). stderr is also
   buffered (4 KB cap) so that a process which dies without producing status can be
   reported with the CLI's own error text rather than a bare exit code.
