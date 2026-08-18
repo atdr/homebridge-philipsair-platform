@@ -459,6 +459,17 @@ class Handler {
     const since = Date.now();
 
     for (const [key, expected] of Object.entries(expectations)) {
+      //a key the device has never mentioned can never confirm anything, so an
+      //expectation on it would only buy a resend and a report of a failure that
+      //may not have happened. the model may simply have no register for it
+      if (this.receivedData && !(key in this.obj)) {
+        logger.debug(
+          `The device does not report ${key}, so ${key}=${expected} cannot be confirmed`,
+          this.accessory.displayName
+        );
+        continue;
+      }
+
       this.pendingWrites.set(key, { expected, args, attempts: 0, since });
     }
 
@@ -492,9 +503,10 @@ class Handler {
   /**
    * Reconciles pending writes against a status the device has just sent.
    *
-   * Two rules, both model-independent unlike the timings: only a status that
-   * arrived *after* the write says anything about it, and only a disagreement
-   * proves it was lost. A window passing in silence proves nothing.
+   * Three rules, all model-independent unlike the timings: only a status that
+   * arrived *after* the write says anything about it, only a status that
+   * mentions the key says anything about that key, and only a disagreement
+   * proves the write was lost. A window passing in silence proves nothing.
    *
    * @param {number} receivedAt
    */
@@ -508,6 +520,13 @@ class Handler {
       //it. the resolution is coarse, and the cost of getting it wrong is one
       //extra resend of a command the device has already applied
       if (receivedAt < pending.since) {
+        continue;
+      }
+
+      //silence about a key is not disagreement with it: a status that never
+      //mentions the key says exactly as much about the write as one sent before
+      //it did. treating absent as unequal reported writes that were never lost
+      if (!(key in this.obj)) {
         continue;
       }
 

@@ -444,6 +444,39 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.kill(true);
   });
 
+  it('does not treat a key the device never reports as a disagreement', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    await handler.setPurifierLockPhysicalControls(1);
+    sent.length = 0;
+
+    //an AC0850-shaped status: the model reports no 'cl' register at all
+    await handler.processUpdate(JSON.stringify({ pwr: '0', D0310A: 2, D0310C: 0 }));
+
+    assert.deepEqual(sent, [], 'a key the device never mentioned triggered a resend');
+    assert.deepEqual(logs.warn, [], 'a write the device said nothing about was reported as lost');
+    assert.equal(handler.pendingWrites.size, 1, 'the write should still be waiting for evidence');
+
+    handler.kill(true);
+  });
+
+  it('does not register a write on a key the device has never reported', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler } = recordingHandler();
+    await handler.processUpdate(JSON.stringify({ pwr: '0', D0310A: 2, D0310C: 0 }));
+
+    await handler.setPurifierLockPhysicalControls(1);
+
+    assert.equal(handler.pendingWrites.size, 0, 'an expectation that can never be met was registered');
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
   it('gives up quietly when the device never answers at all', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
