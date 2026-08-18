@@ -36,6 +36,18 @@ const CLI_ERROR_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-cli-err
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+//waits for the first status to be processed, since a shim is a node process and
+//its startup is slower than the timers these tests shorten
+const answered = async (handler, timeout = 2000) => {
+  for (let waited = 0; waited < timeout; waited += 20) {
+    if (handler.obj.pwr !== undefined) {
+      return;
+    }
+    await delay(20);
+  }
+  throw new Error('the shim never answered');
+};
+
 //characteristics resolve to their own names so updates can be asserted by name
 const fakeApi = {
   hap: { Service: { AirPurifier: 'AirPurifier' }, Characteristic: new Proxy({}, { get: (target, prop) => prop }) },
@@ -349,6 +361,89 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     assert.ok(
       logs.warn.some((line) => line.includes('No status received from the device')),
       `a device that went dark was never reported, got ${JSON.stringify(logs.warn)}`
+    );
+
+    handler.kill(true);
+    await delay(50);
+  });
+
+  it('leaves a stream alone while the device reports itself switched off', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const marker = path.join(os.tmpdir(), `fake-off-${process.pid}-${Date.now()}`);
+    process.env.FAKE_ONCE_FILE = marker;
+    process.env.FAKE_ONCE_PWR = '0';
+
+    t.after(() => {
+      delete process.env.FAKE_ONCE_FILE;
+      delete process.env.FAKE_ONCE_PWR;
+      fs.rmSync(marker, { force: true });
+    });
+
+    //a purifier that is switched off answers only intermittently, and killing
+    //the subscription does not make it answer sooner, so silence must neither
+    //restart the stream on the short timeout nor be reported as a fault
+    const handler = makeHandler({ aioairctrlPath: ONCE_SHIM });
+    const purifier = makeService();
+    handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+    //long enough that the shim's own startup cannot outrun the first arming,
+    //which happens before any status and so cannot know the device is off
+    handler.stallTimeout = 5000;
+    handler.offStallTimeout = 5000;
+    handler.restartDelay = 10;
+    handler.refreshInterval = 0;
+
+    handler.longPoll();
+    await answered(handler);
+
+    const pid = handler.airControl.pid;
+
+    //re-arm the way a status does, now that the device has reported itself off
+    handler.stallTimeout = 50;
+    handler.armStallTimeout();
+    await delay(400);
+
+    assert.equal(handler.airControl.pid, pid, 'the stream serving a switched-off device was restarted');
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+    await delay(50);
+  });
+
+  it('still restarts and reports a device that went dark while switched on', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const marker = path.join(os.tmpdir(), `fake-on-${process.pid}-${Date.now()}`);
+    process.env.FAKE_ONCE_FILE = marker;
+    process.env.FAKE_ONCE_PWR = '1';
+
+    t.after(() => {
+      delete process.env.FAKE_ONCE_FILE;
+      delete process.env.FAKE_ONCE_PWR;
+      fs.rmSync(marker, { force: true });
+    });
+
+    //the contrast to the test above, and the regression the off-state timeout
+    //could introduce: a running device has no reason to go quiet
+    const handler = makeHandler({ aioairctrlPath: ONCE_SHIM });
+    handler.accessory.getService = () => null;
+    handler.stallTimeout = 5000;
+    handler.offStallTimeout = 5000;
+    handler.restartDelay = 10;
+    handler.refreshInterval = 0;
+
+    handler.longPoll();
+    await answered(handler);
+
+    handler.stallTimeout = 50;
+    handler.armStallTimeout();
+    await delay(400);
+
+    assert.ok(
+      logs.warn.some((line) => line.includes('No status received from the device')),
+      `a running device that went dark was never reported, got ${JSON.stringify(logs.warn)}`
     );
 
     handler.kill(true);

@@ -16,6 +16,15 @@ const MAX_STDOUT_BUFFER = 1024 * 1024;
 //fresh, so this only has to be longer than a refresh cycle can legitimately take
 const STALL_TIMEOUT = 300 * 1000;
 
+//the same timer while the device reports itself switched off, when silence is
+//normal rather than a fault: an AC0850 held on a single uninterrupted
+//subscription answered nothing for 25 minutes and then resumed on its own, so
+//no constant makes the short timeout right for this case and restarting the
+//stream demonstrably does not elicit an answer. This is only a backstop against
+//a subscription that died without anyone noticing, which is why it is far
+//longer than the measured silence rather than tuned to it
+const OFF_STALL_TIMEOUT = 30 * 60 * 1000;
+
 //how long after a reading the plugin asks for another one, by re-subscribing.
 //not derived from any device measurement: it is what v1.1.0's fixed 60s process
 //lifetime did accidentally, on every model, for years. a device that pushes on
@@ -65,6 +74,9 @@ class Handler {
     this.stderrBuffer = '';
     this.receivedData = false;
     this.stalled = false;
+    //whether the stall that ended the stream was the long off-state backstop,
+    //which is a teardown the plugin chose rather than a fault to report
+    this.stalledWhileOff = false;
     this.spawnFailed = false;
     this.refreshing = false;
     this.pollFailures = 0;
@@ -85,6 +97,7 @@ class Handler {
 
     //instance fields rather than bare constants so tests can shorten the waits
     this.stallTimeout = STALL_TIMEOUT;
+    this.offStallTimeout = OFF_STALL_TIMEOUT;
     this.restartDelay = RESTART_DELAY;
     this.spawnErrorRestartDelay = SPAWN_ERROR_RESTART_DELAY;
     this.maxWriteRetries = MAX_WRITE_RETRIES;
@@ -719,6 +732,7 @@ class Handler {
     this.stderrBuffer = '';
     this.receivedData = false;
     this.stalled = false;
+    this.stalledWhileOff = false;
     this.spawnFailed = false;
     this.refreshing = false;
 
@@ -768,9 +782,10 @@ class Handler {
         return;
       }
 
-      //a stream torn down on purpose to elicit a reading has not failed, even
-      //if it produced nothing before it was killed
-      if (!this.receivedData && !this.spawnFailed && !this.refreshing) {
+      //a stream torn down on purpose has not failed, even if it produced
+      //nothing before it was killed: the refresh elicits a reading, and the
+      //off-state backstop only guards against a subscription that died unseen
+      if (!this.receivedData && !this.spawnFailed && !this.refreshing && !this.stalledWhileOff) {
         this.pollFailures += 1;
         this.reportPollFailure(code);
       }
@@ -855,24 +870,52 @@ class Handler {
   }
 
   /**
+   * Whether the device has told us it is switched off. Model-independent:
+   * `handleResponse` maps every dialect's registers back into generic key
+   * space, so `pwr` is the generic key on all of them, the same basis
+   * `processUpdate` uses to drive the Active characteristic.
+   *
+   * A device that has never answered is deliberately *not* known to be off: it
+   * may be unplugged, misconfigured or on another network, which is exactly
+   * what the stall warning exists to report. `this.obj` is empty until the
+   * first status arrives, which says that on its own. It is deliberately not
+   * `receivedData`, which is reset on every restart: the last known power
+   * outlives the stream that reported it, and has to, since every off-state
+   * stall is judged on a stream that has itself answered nothing yet.
+   */
+  deviceKnownOff() {
+    return this.obj.pwr !== undefined && !parseInt(this.obj.pwr);
+  }
+
+  /**
    * Restarts the observe stream when the device goes quiet for far longer than
    * a refresh cycle can account for. Re-armed by every status line, so this is
    * a fault detector rather than a poll: the refresh above is what keeps an
    * idle device fresh.
+   *
+   * A device that reports itself switched off gets a much longer timeout and no
+   * failure report, because silence from one is not a fault: these purifiers
+   * answer only intermittently while off, and tearing the subscription down
+   * does not make them answer sooner. The regime is chosen at arm time, so it
+   * follows the device within one status of it being switched on or off.
    */
   armStallTimeout() {
     clearTimeout(this.processTimeout);
 
+    const off = this.deviceKnownOff();
+    const timeout = off ? this.offStallTimeout : this.stallTimeout;
+
     this.processTimeout = setTimeout(() => {
       if (this.airControl) {
         logger.debug(
-          `No status received for ${Math.round(this.stallTimeout / 1000)}s, restarting the polling process`,
+          `No status received for ${Math.round(timeout / 1000)}s${off ? ' while the device is off' : ''}, restarting the polling process`,
           this.accessory.displayName
         );
         this.stalled = true;
+        this.stalledWhileOff = off;
         this.airControl.kill();
       }
-    }, this.stallTimeout);
+    }, timeout);
   }
 
   handleStdoutChunk(data) {

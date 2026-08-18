@@ -203,6 +203,40 @@ describe('handleResponse', () => {
   });
 });
 
+describe('deviceKnownOff', () => {
+  it('is false until the device has said anything', () => {
+    assert.equal(makeHandler({}).deviceKnownOff(), false);
+  });
+
+  it('follows the last reported power', () => {
+    const handler = makeHandler({});
+
+    handler.handleResponse({ pwr: '0' });
+    assert.equal(handler.deviceKnownOff(), true);
+
+    handler.handleResponse({ pwr: '1' });
+    assert.equal(handler.deviceKnownOff(), false);
+  });
+
+  it('reads a model that reports power as a word', () => {
+    const handler = makeHandler({ model: 'AC1715' });
+
+    handler.handleResponse({ 'D03-02': 'OFF' });
+    assert.equal(handler.deviceKnownOff(), true);
+  });
+
+  it('outlives the stream that reported it', () => {
+    const handler = makeHandler({});
+
+    handler.handleResponse({ pwr: '0' });
+    //longPoll clears receivedData on every restart, and every off-state stall
+    //is judged on a stream that has itself answered nothing
+    handler.receivedData = false;
+
+    assert.equal(handler.deviceKnownOff(), true);
+  });
+});
+
 describe('rotationSpeed', () => {
   it('derives the HomeKit percentage from the matching speed entry', () => {
     const handler = makeHandler({});

@@ -97,8 +97,9 @@ much further that goes.
 > Fixed for #38: the plugin no longer depends on the device's push cadence at all. It asks for a
 > reading `refreshInterval` seconds after the last one (default 60 s, per-device config, `0`
 > disables), and `STALL_TIMEOUT` is now 300 s. **That 300 s is itself now known to be too
-> short** on a switched-off AC0850 (issue #48), for reasons no larger constant fixes: see the
-> off-state item below. The refresh half of this fix is verified working on hardware.
+> short** on a switched-off AC0850 (issue #48), for reasons no larger constant fixes, so the
+> stall timer has two regimes: see the off-state item below. The refresh half of this fix is
+> verified working on hardware.
 
 **[AC0850] Switched off, it answers only intermittently, and 25 minute silences are normal.**
 Measured 2026-08-18 against 1.2.0-beta.4. Homebridge was stopped so nothing could kill a
@@ -125,7 +126,24 @@ So off-state responsiveness is **intermittent on a scale of tens of minutes**, n
 distribution with a long tail. The consequence for design is the important part: **no polling
 timeout value fixes this**, and `STALL_TIMEOUT = 300 s` is not a fault detector on an off
 device, it is a restart generator. Silence from a switched-off unit is normal and must not be
-treated as a fault. Tracked in issue #48.
+treated as a fault.
+
+Fixed for #48 by making the stall timer state-dependent rather than by choosing a different
+constant, which the experiment above rules out. `armStallTimeout` picks its timeout from
+`deviceKnownOff()` at arm time: 300 s when the device is on or has never answered, 30 minutes
+(`OFF_STALL_TIMEOUT`) when the last status said `pwr` is 0. The long one is a backstop against
+a subscription that died unseen, not a poll, so a stall in that regime restarts the stream
+without counting as a poll failure or reporting one, the same treatment a refresh teardown
+already gets. `deviceKnownOff()` reads `this.obj.pwr`, **not** `receivedData`: the latter is
+cleared by every `longPoll`, and an off-state stall is by definition judged on a stream that
+has itself answered nothing. An empty `this.obj` is what makes a device that has never answered
+report normally.
+
+**That is the third time a timer has destroyed a subscription that was going to be answered**
+(the pre-#30 fixed process lifetime, #38's write-triggered refresh, #48's stall). Standing rule:
+**never tear down a subscription on a timer unless something independent of that timer says the
+device is at fault.** The refresh is legitimate because it is armed from a _reading_; the
+off-state regime is legitimate because power state is independent evidence.
 
 Two caveats on that experiment, both honest limitations of how it was run. Stderr was
 suppressed, so it is **unknown whether the `sync` POST succeeded during the silent 25
