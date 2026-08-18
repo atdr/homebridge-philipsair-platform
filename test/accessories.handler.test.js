@@ -203,6 +203,63 @@ describe('handleResponse', () => {
   });
 });
 
+describe('captured stderr', () => {
+  it('drops the CLI progress records that -D writes', () => {
+    const handler = makeHandler({});
+
+    handler.captureStderr('DEBUG:aioairctrl.coap.client:syncing\nINFO:aioairctrl.coap.client:connected\n');
+
+    assert.equal(handler.reportableStderr(), '');
+  });
+
+  it('keeps records the CLI logs as a problem', () => {
+    const handler = makeHandler({});
+
+    handler.captureStderr('DEBUG:aioairctrl.coap.client:syncing\nERROR:aioairctrl.coap.client:sync failed\n');
+
+    assert.equal(handler.reportableStderr(), 'ERROR:aioairctrl.coap.client:sync failed');
+  });
+
+  it('keeps a traceback written straight to stderr', () => {
+    const handler = makeHandler({});
+
+    handler.captureStderr('DEBUG:aioairctrl.coap.client:syncing\n');
+    handler.captureStderr('Traceback (most recent call last):\n  File "cli.py", line 1\n');
+    //no trailing newline: the line naming the exception arrives as the process dies
+    handler.captureStderr("ModuleNotFoundError: No module named 'aioairctrl'");
+
+    const reported = handler.reportableStderr();
+
+    assert.ok(reported.startsWith('Traceback (most recent call last):'), reported);
+    assert.ok(reported.endsWith("ModuleNotFoundError: No module named 'aioairctrl'"), reported);
+  });
+
+  it('judges a record split across two chunks by its whole line', () => {
+    const handler = makeHandler({});
+
+    handler.captureStderr('DEBUG:aioairctrl.coap.');
+    handler.captureStderr('client:syncing\n');
+
+    assert.equal(handler.reportableStderr(), '');
+  });
+
+  it('drops a progress record still waiting for its newline', () => {
+    const handler = makeHandler({});
+
+    handler.captureStderr('DEBUG:aioairctrl.coap.client:syncing');
+
+    assert.equal(handler.reportableStderr(), '');
+  });
+
+  it('keeps output that is not a log record at all', () => {
+    const handler = makeHandler({});
+
+    handler.captureStderr('bash: aioairctrl: Permission denied\n');
+
+    assert.equal(handler.reportableStderr(), 'bash: aioairctrl: Permission denied');
+  });
+});
+
 describe('deviceKnownOff', () => {
   it('is false until the device has said anything', () => {
     assert.equal(makeHandler({}).deviceKnownOff(), false);

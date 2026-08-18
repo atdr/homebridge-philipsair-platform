@@ -220,7 +220,7 @@ The plugin could not run the `aioairctrl` executable. Check that it is installed
 
 ### The polling process exited with code N without returning any status
 
-`aioairctrl` was found and started, but died three times in a row without producing anything. The plugin logs the command's own error output on the next line. A Python traceback such as `ModuleNotFoundError: No module named 'aioairctrl'` means the executable exists but the Python environment behind it is incomplete, which happens when the CLI and its dependencies were installed for a different interpreter or user. Reinstall it as described under Installation, then confirm it runs for the Homebridge user:
+`aioairctrl` was found and started, but died three times in a row without producing anything. The plugin logs the command's own error output on the next line, minus the progress messages the CLI writes when `debug` is enabled (those stay in the debug log). A Python traceback such as `ModuleNotFoundError: No module named 'aioairctrl'` means the executable exists but the Python environment behind it is incomplete, which happens when the CLI and its dependencies were installed for a different interpreter or user. Reinstall it as described under Installation, then confirm it runs for the Homebridge user:
 
 ```bash
 sudo -u homebridge aioairctrl -H <device-ip> -P 5683 status-observe -J
