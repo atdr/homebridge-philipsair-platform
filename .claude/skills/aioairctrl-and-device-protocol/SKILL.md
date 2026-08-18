@@ -87,15 +87,53 @@ module (`AWS_Philips_AIR_Combo@86`) answering ping in firmware while the applica
 **Never conclude the device is dead from a short timeout.** Allow at least 90 s.
 
 **[AC0850] It pushes spontaneously only while values are changing.** Running, it notified every ~51 s
-(from its own `Runtime` counter: 1707733076 → 1707784220 ms). Switched **off** and idle, it
-sent nothing for over 120 s at a stretch.
+(from its own `Runtime` counter: 1707733076 → 1707784220 ms), and on a later run every 10-30 s.
+Switched **off**, it sent nothing for over 120 s at a stretch, and see the next item for how
+much further that goes.
 
 > ⚠️ **Correction.** This file previously stated the ~50 s interval unconditionally, and
 > `STALL_TIMEOUT = 120 s` in `accessories.handler.js` was sized from it. That measurement was
 > taken while the purifier was **running**. Any timeout must be sized for the **idle** case.
 > Fixed for #38: the plugin no longer depends on the device's push cadence at all. It asks for a
 > reading `refreshInterval` seconds after the last one (default 60 s, per-device config, `0`
-> disables), and `STALL_TIMEOUT` is now 300 s and purely a fault detector.
+> disables), and `STALL_TIMEOUT` is now 300 s. **That 300 s is itself now known to be too
+> short** on a switched-off AC0850 (issue #48), for reasons no larger constant fixes: see the
+> off-state item below. The refresh half of this fix is verified working on hardware.
+
+**[AC0850] Switched off, it answers only intermittently, and 25 minute silences are normal.**
+Measured 2026-08-18 against 1.2.0-beta.4. Homebridge was stopped so nothing could kill a
+subscription and no client competed, the purifier was switched off, then left 10 minutes to
+settle (it answers normally for the first ~11 minutes after switch-off, so testing immediately
+tests the easy case). A **single uninterrupted** `status-observe` was then held open for 25
+minutes and received **nothing at all**. A one-shot `status` immediately afterwards also
+returned nothing, hitting its own 300 s timeout. Yet two minutes later, still off, the plugin
+got readings, went silent through two more 300 s windows, and answered again:
+
+```text
+16:05:43  status-observe starts (single subscription, nothing kills it)
+16:30:43  ends after 1500 s        <-- zero notifications
+16:30:43  one-shot status -J
+16:35:43  hits its own 300 s timeout <-- no output
+16:38:03  "pwr":0   <-- plugin gets a reading, 43 min after switch-off
+16:41:08  "pwr":0
+16:47:13  stall
+16:52:18  stall
+16:55:05  answers again
+```
+
+So off-state responsiveness is **intermittent on a scale of tens of minutes**, not a latency
+distribution with a long tail. The consequence for design is the important part: **no polling
+timeout value fixes this**, and `STALL_TIMEOUT = 300 s` is not a fault detector on an off
+device, it is a restart generator. Silence from a switched-off unit is normal and must not be
+treated as a fault. Tracked in issue #48.
+
+Two caveats on that experiment, both honest limitations of how it was run. Stderr was
+suppressed, so it is **unknown whether the `sync` POST succeeded during the silent 25
+minutes**; it demonstrably did during an equivalent silence earlier the same day (`4F43D908`,
+`0FA49D7A`), so the device was reachable then, but this was not re-verified. And every failure
+window in both runs began **after a CoAP client was killed**, which keeps an orphaned-observer
+explanation alive (see the single-connection item below) without coming close to proving it.
+**If repeating this, keep stderr.**
 
 **[AC0850] A fresh subscription elicits a reading.** This is why the pre-#30 fixed 60 s process
 lifetime accidentally worked as a ~65 s poll loop, and why raising `STALL_TIMEOUT` alone
@@ -202,6 +240,12 @@ Defined in `src/accessories/accessories.models.js` (pure data; see
    `unsupported`: no register for either appears in its status dumps or its key maps, so
    the plugin neither sends those commands nor exposes the HomeKit controls bound to them.
    Believed, not proven — issue #46 carries the status-diff experiment that settles it.
+   A **baseline register inventory** is now attached to that issue: 89 status payloads from
+   one unit on firmware `0.1.3`, off versus on, showing the complete set of 27 registers it
+   reports. That closes the candidate list for `mode`/`cl` to the 16 unmapped constants, and
+   shows `D0310D` tracking power alongside `D03102`. It **identifies neither key**, because
+   the unit never changed mode or lock state during the capture, so anything encoding them
+   would read as constant. The experiment still needs someone at the physical unit.
 
 A fourth field, **`unsupported`**, is a per-model list of generic keys the device has no
 register for at all. `Handler.supports(key)` reads it, and it gates three things: the `set*`
