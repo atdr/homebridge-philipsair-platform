@@ -58,6 +58,13 @@ three consecutive failed spawns, or immediately on a stall that never delivered 
 the plugin warns and logs the CLI's captured stderr, then logs `Device is responding again`
 when status resumes. Both are deduplicated to once per outage.
 
+> ⚠️ **In debug mode that captured stderr is not evidence of a fault** (issue #49, seen on
+> 1.2.0-beta.4). `debug: true` passes `-D`, which makes aioairctrl write its entire debug log
+> to stderr, so the buffer is never empty and any unexpected exit — including the stall
+> restarts and `requestRefresh` kills the plugin causes itself — surfaces a benign line as an
+> error. `Error: aioairctrl wrote: DEBUG:aioairctrl.coap.client:syncing` is the signature.
+> Read it as "a process exited", not "a process failed".
+
 First move on any runtime issue: set `debug: true` in the platform config (Homebridge
 UI → plugin config, or config.json) and restart. Log access: Homebridge UI log page, or
 `journalctl -u homebridge -f`, or `hb-service logs`, depending on the install (standard
