@@ -1,0 +1,16 @@
+#!/usr/bin/env node
+'use strict';
+
+//aioairctrl stand-in for a `set` the CLI itself refuses. Upstream prints its
+//complaint on stdout, skips the write and exits 0 (cli.py: "Cannot encode
+//value '%s' as int"), so nothing about the exit status says the command never
+//reached the device.
+
+const args = process.argv.slice(2);
+
+if (!args.includes('set')) {
+  process.exit(2);
+}
+
+process.stdout.write("Cannot encode value 'P' as int\n");
+process.exit(0);

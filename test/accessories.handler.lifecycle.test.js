@@ -32,6 +32,7 @@ const SILENT_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-silent');
 const BROKEN_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-broken');
 const STATEFUL_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-stateful');
 const ONCE_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-once');
+const CLI_ERROR_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-cli-error');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -520,6 +521,29 @@ describe('write verification', { concurrency: 1 }, () => {
     assert.deepEqual(sent, [], 'a stale status triggered a resend');
     assert.equal(handler.pendingWrites.size, 1);
     assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
+  it('reports a set command the CLI refused instead of recording it', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    //the CLI prints its complaint on stdout and still exits 0
+    const handler = makeHandler({ aioairctrlPath: CLI_ERROR_SHIM });
+    handler.purifierService = makeService();
+
+    await handler.setPurifierActive(true);
+
+    assert.equal(handler.pendingWrites.size, 0, 'a command that never went out was registered as pending');
+    assert.ok(
+      logs.error.some((line) => line.includes("Cannot encode value 'P' as int")),
+      `the CLI's own complaint never reached the log, got ${JSON.stringify(logs.error)}`
+    );
+    assert.ok(
+      logs.warn.some((line) => line.includes('An error occured during changing purifier state!')),
+      `a rejected command was logged as success, got ${JSON.stringify(logs.warn)}`
+    );
 
     handler.kill(true);
   });

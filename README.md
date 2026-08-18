@@ -238,6 +238,10 @@ The plugin sent a command, the purifier answered, and its answer still shows the
 
 An occasional message is normal on a busy or distant network. If it happens every time for one control, the command is probably wrong for your model rather than lost: set `debug` to true, copy the logged `CMD: aioairctrl ...` line, run it yourself, and open an issue with what the device reports afterwards.
 
+### aioairctrl rejected the command
+
+The `aioairctrl` CLI refused to send the command, so it never reached the device. The plugin logs the CLI's own text after this message, and `Cannot encode value 'X' as int` is the usual one: it means the value is not a number but the command asked for integer encoding. The plugin no longer builds such a command itself, so if you see this, the model mapping is sending a word where your device's register expects a number — please open an issue with the logged `CMD:` line.
+
 ## Disclaimer
 
 All product and company names are trademarks™ or registered® trademarks of their respective holders. Use of them does not imply any affiliation with or endorsement by them.

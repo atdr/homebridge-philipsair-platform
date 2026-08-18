@@ -86,6 +86,58 @@ describe('command construction', () => {
   });
 });
 
+describe('set argument construction', () => {
+  it('keeps -I for a model whose registers need it', () => {
+    const handler = makeHandler({ model: 'AC0850' });
+    assert.deepEqual(handler.setArgs([handler.handleCommand('pwr', 1)]), [
+      '-H',
+      '192.168.1.142',
+      '-P',
+      '5683',
+      'set',
+      '-I',
+      'D03102=1',
+    ]);
+  });
+
+  it('drops -I when a value cannot be encoded as an integer', () => {
+    const handler = makeHandler({ model: 'AC0850' });
+    //aioairctrl prints "Cannot encode value 'P' as int" and drops the write
+    assert.deepEqual(handler.setArgs([handler.handleCommand('mode', 'P')]), [
+      '-H',
+      '192.168.1.142',
+      '-P',
+      '5683',
+      'set',
+      'mode=P',
+    ]);
+  });
+
+  it('keeps -I for booleans, which the CLI converts before encoding', () => {
+    const handler = makeHandler({ model: 'AC0850' });
+    assert.ok(handler.setArgs([handler.handleCommand('cl', false)]).includes('-I'));
+  });
+
+  it('keeps a flag a specific command asks for, without duplicating it', () => {
+    assert.deepEqual(makeHandler({}).setArgs(['aqil=100'], ['-I']).slice(4), ['set', '-I', 'aqil=100']);
+    assert.deepEqual(makeHandler({ model: 'AC0850' }).setArgs(['aqil=100'], ['-I']).slice(4), [
+      'set',
+      '-I',
+      'aqil=100',
+    ]);
+  });
+
+  it('leaves a command that never asked for -I without it', () => {
+    assert.deepEqual(makeHandler({}).setArgs(['uil=1']).slice(4), ['set', 'uil=1']);
+  });
+
+  it('drops -I when any value in a composite command is not an integer', () => {
+    const handler = makeHandler({ model: 'AC0850' });
+    assert.ok(!handler.setArgs(['D0310A=2', 'mode=P']).includes('-I'));
+    assert.ok(handler.setArgs(['D0310A=2', 'D0310C=17']).includes('-I'));
+  });
+});
+
 describe('handleResponse', () => {
   it('remaps device keys back to generic keys', () => {
     const handler = makeHandler({ model: 'AC0850' });
