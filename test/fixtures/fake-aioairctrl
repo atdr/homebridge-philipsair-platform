@@ -7,6 +7,14 @@
 
 const args = process.argv.slice(2);
 
+//the real CLI answers --help with usage and exit 0, needing no -H and no
+//device. that is what the startup preflight probes, so the stand-in has to
+//answer it too or a healthy install would look broken.
+if (args.includes('--help') || args.includes('-h')) {
+  process.stdout.write('usage: aioairctrl [-h] -H HOST [-P PORT] [-D] {status,status-observe,set} ...\n');
+  process.exit(0);
+}
+
 if (!args.includes('status-observe')) {
   process.exit(2);
 }

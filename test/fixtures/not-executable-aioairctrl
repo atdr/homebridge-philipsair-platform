@@ -1,0 +1,9 @@
+#!/usr/bin/env node
+
+//a file that exists and is NOT executable, so spawning it fails with EACCES
+//rather than ENOENT. the remedy for this is permissions, not installing
+//anything, which is why the two cases are reported differently.
+
+'use strict';
+
+process.exit(0);
