@@ -33,6 +33,7 @@ const BROKEN_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-broken');
 const STATEFUL_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-stateful');
 const ONCE_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-once');
 const CLI_ERROR_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-cli-error');
+const DEBUG_LOG_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-debug-log');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -300,6 +301,34 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     assert.equal(logs.warn.filter((line) => line.includes('exited with code 1')).length, 1);
   });
 
+  it('does not report the CLI progress log that debug mode writes to stderr', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    //with 'debug' enabled the plugin passes -D and aioairctrl logs its whole
+    //run to stderr, so the buffer is never empty. reporting it as an error told
+    //users their install was broken when only the process had ended
+    const handler = makeHandler({ aioairctrlPath: DEBUG_LOG_SHIM, debug: true });
+    handler.accessory.getService = () => null;
+    handler.restartDelay = 10;
+
+    handler.longPoll();
+    //three failed spawns are needed to escalate, and a loaded machine spawns
+    //slowly, so this leaves room rather than racing the threshold
+    await delay(900);
+    handler.kill(true);
+
+    assert.ok(
+      logs.warn.some((line) => line.includes('exited with code 1')),
+      `no warning about the failing process, got ${JSON.stringify(logs.warn)}`
+    );
+    assert.deepEqual(
+      logs.error.filter((line) => line.includes('wrote:')),
+      [],
+      'the CLI progress log was reported as an error'
+    );
+  });
+
   it('stays quiet while a single failure is still plausibly transient', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
@@ -516,8 +545,8 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     handler.captureStderr('x'.repeat(8 * 1024));
     handler.captureStderr("ModuleNotFoundError: No module named 'aioairctrl'");
 
-    assert.ok(handler.stderrBuffer.length <= 4 * 1024, 'the stderr capture exceeded its cap');
-    assert.ok(handler.stderrBuffer.endsWith("ModuleNotFoundError: No module named 'aioairctrl'"));
+    assert.ok(handler.reportableStderr().length <= 4 * 1024, 'the stderr capture exceeded its cap');
+    assert.ok(handler.reportableStderr().endsWith("ModuleNotFoundError: No module named 'aioairctrl'"));
   });
 });
 

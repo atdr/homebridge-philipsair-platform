@@ -1,0 +1,11 @@
+#!/usr/bin/env node
+'use strict';
+
+//aioairctrl stand-in for the CLI running with -D: it writes its own progress
+//log to stderr before dying, which is what 'debug: true' produces on a real
+//install. Nothing here is a diagnosis, so none of it belongs in an error.
+
+process.stderr.write('DEBUG:aioairctrl.coap.client:syncing\n');
+process.stderr.write('INFO:aioairctrl.coap.client:connected\n');
+process.stderr.write('DEBUG:aioairctrl.coap.client:sending\n');
+process.exit(1);

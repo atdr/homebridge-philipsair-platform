@@ -42,6 +42,13 @@ const SPAWN_ERROR_RESTART_DELAY = 30 * 1000;
 //aioairctrl's tracebacks are what tell a user their Python install is broken
 const MAX_STDERR_CAPTURE = 4 * 1024;
 
+//Python logging's default record format, 'LEVEL:logger.name:message'. with
+//'debug' enabled the plugin passes -D and aioairctrl writes its whole debug log
+//to stderr, so the stream carries progress as well as faults: 'syncing' is not
+//a diagnosis and must never be reported as one. records at WARNING and above
+//are kept, since those are the CLI reporting a problem in its own words
+const CLI_PROGRESS_LINE = /^(DEBUG|INFO):[^\s:]*:/;
+
 //consecutive polls returning nothing before the plugin escalates from a debug
 //line to a warning. a single dropped stream is normal; a run of them is not
 const FAILURE_ESCALATION_THRESHOLD = 3;
@@ -72,6 +79,8 @@ class Handler {
     this.restartTimeout = null;
     this.stdoutBuffer = '';
     this.stderrBuffer = '';
+    //the tail of the last stderr chunk, which may stop mid-line
+    this.stderrPartial = '';
     this.receivedData = false;
     this.stalled = false;
     //whether the stall that ended the stream was the long off-state backstop,
@@ -730,6 +739,7 @@ class Handler {
     this.refreshTimeout = null;
     this.stdoutBuffer = '';
     this.stderrBuffer = '';
+    this.stderrPartial = '';
     this.receivedData = false;
     this.stalled = false;
     this.stalledWhileOff = false;
@@ -801,13 +811,39 @@ class Handler {
    * Keeps a bounded copy of what a failing process wrote to stderr, so that it
    * can explain itself when it dies without producing status. A Python
    * traceback is the whole diagnosis and it arrives last, so this keeps the
-   * tail: with `debug` enabled the CLI's own startup chatter would otherwise
-   * fill the budget and crowd the error out.
+   * tail.
+   *
+   * The CLI's own progress records are dropped here rather than at report time,
+   * so that with `debug` enabled its continuous chatter cannot push a real
+   * diagnostic out of the budget. Only whole lines are judged: a Python crash
+   * writes its traceback to stderr raw, after whatever the logger last wrote,
+   * and swallowing that because the line above it was a `DEBUG:` record would
+   * be far worse than keeping a stray continuation line.
    *
    * @param {string} text
    */
   captureStderr(text) {
-    this.stderrBuffer = (this.stderrBuffer + text).slice(-MAX_STDERR_CAPTURE);
+    const lines = (this.stderrPartial + text).split('\n');
+
+    //a CLI writing without newlines would otherwise grow this without bound
+    this.stderrPartial = lines.pop().slice(-MAX_STDERR_CAPTURE);
+
+    const kept = lines.filter((line) => !CLI_PROGRESS_LINE.test(line));
+
+    if (kept.length) {
+      this.stderrBuffer = (this.stderrBuffer + kept.join('\n') + '\n').slice(-MAX_STDERR_CAPTURE);
+    }
+  }
+
+  /**
+   * What of the captured stderr is worth showing a user. The trailing partial
+   * line is included: a traceback's last line can arrive without a newline
+   * before the process exits, and it is the line that names the exception.
+   */
+  reportableStderr() {
+    const partial = CLI_PROGRESS_LINE.test(this.stderrPartial) ? '' : this.stderrPartial;
+
+    return (this.stderrBuffer + partial).slice(-MAX_STDERR_CAPTURE).trim();
   }
 
   /**
@@ -838,7 +874,7 @@ class Handler {
     this.loggedFailureKind = kind;
     logger.warn(summary, this.accessory.displayName);
 
-    const stderr = this.stderrBuffer.trim();
+    const stderr = this.reportableStderr();
 
     if (stderr) {
       logger.error(new Error(`${this.binary} wrote: ${stderr}`), this.accessory.displayName);
