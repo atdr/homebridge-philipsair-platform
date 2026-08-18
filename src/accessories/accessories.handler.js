@@ -31,6 +31,21 @@ const MAX_STDERR_CAPTURE = 4 * 1024;
 //line to a warning. a single dropped stream is normal; a run of them is not
 const FAILURE_ESCALATION_THRESHOLD = 3;
 
+//how long a write waits for the device to say something about it before the
+//plugin elicits a reading. a bound the plugin chooses, not a device
+//measurement: the only purifier these have been observed on is an AC0850
+const VERIFY_REFRESH_DELAY = 30 * 1000;
+
+//how long a write stays pending in total. a write still unconfirmed when this
+//expires is only reported if the device actually answered and disagreed;
+//silence means this model is slower than the one the delays were chosen
+//against, which is a freshness problem rather than a lost command
+const VERIFY_WINDOW = 90 * 1000;
+
+//resends of a write the device answered and did not apply, before the user is
+//told. one lost packet is unremarkable; two in a row is worth a warning
+const MAX_WRITE_RETRIES = 1;
+
 class Handler {
   constructor(api, accessory) {
     this.api = api;
@@ -45,17 +60,29 @@ class Handler {
     this.receivedData = false;
     this.stalled = false;
     this.spawnFailed = false;
+    this.refreshing = false;
     this.pollFailures = 0;
     //which kind of failure ('spawn' | 'exit' | 'stall') has already been warned
     //about, so a retry loop stays quiet without hiding a *different* failure
     /** @type {'spawn' | 'exit' | 'stall' | null} */
     this.loggedFailureKind = null;
+    //writes waiting for the device to confirm them, keyed by the generic status
+    //key each one sets. see recordWrite
+    /** @type {Map<string, { expected: unknown, args: string[], attempts: number, since: number }>} */
+    this.pendingWrites = new Map();
+    this.verifyTimeout = null;
+    //whether an unapplied write has already been warned about, so an automation
+    //that keeps failing reports once rather than on every cycle
+    this.loggedWriteFailure = false;
     this.obj = {};
 
     //instance fields rather than bare constants so tests can shorten the waits
     this.stallTimeout = STALL_TIMEOUT;
     this.restartDelay = RESTART_DELAY;
     this.spawnErrorRestartDelay = SPAWN_ERROR_RESTART_DELAY;
+    this.verifyRefreshDelay = VERIFY_REFRESH_DELAY;
+    this.verifyWindow = VERIFY_WINDOW;
+    this.maxWriteRetries = MAX_WRITE_RETRIES;
 
     const { speeds, keyMaps, valueMaps, extraSetFlags } = modelConfig(this.accessory.context.config);
     this.speeds = speeds;
@@ -144,6 +171,7 @@ class Handler {
 
       logger.info(`Purifier Active: ${state}`, this.accessory.displayName);
       await this.sendCMD(args);
+      this.recordWrite(args, { pwr: stateNumber });
     } catch (err) {
       logger.warn('An error occured during changing purifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -168,6 +196,7 @@ class Handler {
       logger.info(`Purifier Mode: ${state}`, this.accessory.displayName);
 
       await this.sendCMD(args);
+      this.recordWrite(args, { mode: values.mode });
     } catch (err) {
       logger.warn('An error occured during changing target purifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -186,6 +215,7 @@ class Handler {
       logger.info(`Lock: ${state}`, this.accessory.displayName);
 
       await this.sendCMD(args);
+      this.recordWrite(args, { cl: values.cl });
     } catch (err) {
       logger.warn('An error occured during changing lock state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -210,6 +240,7 @@ class Handler {
         logger.info(`Purifier Rotation Speed: cmds: ${cmds.join(' ')}`, this.accessory.displayName);
 
         await this.sendCMD(args);
+        this.recordWrite(args, this.speeds[speed - 1]);
       }
     } catch (err) {
       logger.warn('An error occured during changing purifier rotation speed!', this.accessory.displayName);
@@ -267,6 +298,7 @@ class Handler {
       logger.info(`Humidifier Active: ${state}`, this.accessory.displayName);
 
       await this.sendCMD(args);
+      this.recordWrite(args, { func: values.func });
     } catch (err) {
       logger.warn('An error occured during changing humidifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -329,7 +361,9 @@ class Handler {
       logger.info(`Humidifier State: ${state}`, this.accessory.displayName);
 
       await this.sendCMD(args1);
+      this.recordWrite(args1, { func: values.func });
       await this.sendCMD(args2);
+      this.recordWrite(args2, { rhset: values.rhset });
     } catch (err) {
       logger.warn('An error occured during changing target humidifer state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -363,6 +397,9 @@ class Handler {
 
       logger.info(`Light state: ${state}`, this.accessory.displayName);
 
+      //the light writes are deliberately not verified: they are cosmetic, and a
+      //slider dragged across its range would otherwise elicit a re-subscribe per
+      //step. see recordWrite
       await this.sendCMD(args1);
       await this.sendCMD(args2);
     } catch (err) {
@@ -405,6 +442,172 @@ class Handler {
     this.settingBrightness = false;
   }
 
+  /**
+   * Registers a write for confirmation. `aioairctrl set` sends an
+   * unacknowledged (NON) CoAP packet and exits, so a resolved `sendCMD` proves
+   * the command was *transmitted*, not that it was applied: a packet lost in
+   * transit, or arriving while the device dozes, disappears with no error while
+   * HomeKit keeps showing the value it was optimistically given.
+   *
+   * Expectations are recorded in generic key space, the space `handleResponse`
+   * maps device registers back into, so this needs no per-model code.
+   *
+   * @param {string[]} args the exact command to resend if it did not take
+   * @param {Record<string, unknown>} expectations generic key -> expected value
+   */
+  recordWrite(args, expectations) {
+    const since = Date.now();
+
+    for (const [key, expected] of Object.entries(expectations)) {
+      this.pendingWrites.set(key, { expected, args, attempts: 0, since });
+    }
+
+    this.armVerifyTimeout();
+  }
+
+  /**
+   * Gives the device a chance to report the write on its own, then elicits a
+   * reading. The device pushes spontaneously only while values are changing, so
+   * a *dropped* write is exactly the case that produces no notification at all.
+   */
+  armVerifyTimeout() {
+    if (this.verifyTimeout || !this.pendingWrites.size) {
+      return;
+    }
+
+    this.verifyTimeout = setTimeout(() => {
+      this.requestRefresh();
+
+      //let the elicited reading use what is left of the window
+      this.verifyTimeout = setTimeout(
+        () => {
+          this.verifyTimeout = null;
+          this.expirePendingWrites();
+        },
+        Math.max(this.verifyWindow - this.verifyRefreshDelay, 0)
+      );
+    }, this.verifyRefreshDelay);
+  }
+
+  /**
+   * Reconciles pending writes against a status the device has just sent.
+   *
+   * Two rules, both model-independent unlike the timings: only a status that
+   * arrived *after* the write says anything about it, and only a disagreement
+   * proves it was lost. A window passing in silence proves nothing.
+   *
+   * @param {number} receivedAt
+   */
+  reconcilePendingWrites(receivedAt) {
+    if (!this.pendingWrites.size) {
+      return;
+    }
+
+    for (const [key, pending] of [...this.pendingWrites]) {
+      //a status already in flight when the write was sent cannot have observed
+      //it. the resolution is coarse, and the cost of getting it wrong is one
+      //extra resend of a command the device has already applied
+      if (receivedAt < pending.since) {
+        continue;
+      }
+
+      //the loose comparison rotationSpeed uses: device values arrive as strings
+      //where the model maps hold numbers
+      if ((this.obj[key] ?? '').toString() === (pending.expected ?? '').toString()) {
+        this.pendingWrites.delete(key);
+        this.loggedWriteFailure = false;
+        continue;
+      }
+
+      if (pending.attempts < this.maxWriteRetries) {
+        pending.attempts += 1;
+        //nothing is evidence about the resend until the resend is on the wire:
+        //status the device sent in the meantime describes the state before it
+        pending.since = Infinity;
+
+        logger.debug(
+          `Device reports ${key}=${this.obj[key]}, resending ${key}=${pending.expected}`,
+          this.accessory.displayName
+        );
+
+        //not awaited: this runs while a status line is being processed, and the
+        //answer to it arrives as another status line, not as an exit code
+        this.sendCMD(pending.args)
+          .then(() => {
+            pending.since = Date.now();
+          })
+          .catch((err) => {
+            this.pendingWrites.delete(key);
+            logger.error(err, this.accessory.displayName);
+          });
+        continue;
+      }
+
+      this.pendingWrites.delete(key);
+      this.reportWriteFailure(key, pending);
+    }
+
+    clearTimeout(this.verifyTimeout);
+    this.verifyTimeout = null;
+    this.armVerifyTimeout();
+  }
+
+  /**
+   * Drops writes the device never spoke to. Deliberately quiet: silence past
+   * the window means this device answers more slowly than the one the delays
+   * were chosen against, and reporting that as a lost command would turn every
+   * unmeasured model into a warning loop.
+   */
+  expirePendingWrites() {
+    for (const [key, pending] of this.pendingWrites) {
+      logger.debug(
+        `No status covering ${key}=${pending.expected} arrived within ${Math.round(this.verifyWindow / 1000)}s`,
+        this.accessory.displayName
+      );
+    }
+
+    this.pendingWrites.clear();
+  }
+
+  /**
+   * Reports a write the device demonstrably did not apply: it answered, and its
+   * answer disagrees. Latched like reportPollFailure, since the HomeKit
+   * automation that produced it will keep producing it.
+   *
+   * @param {string} key
+   * @param {{ expected: unknown, attempts: number }} pending
+   */
+  reportWriteFailure(key, pending) {
+    const summary =
+      `The device did not apply ${key}=${pending.expected} after ${pending.attempts + 1} attempts ` +
+      `(it reports ${this.obj[key]}). The command was most likely lost in transit; ` +
+      'see README Troubleshooting.';
+
+    if (this.loggedWriteFailure) {
+      logger.debug(summary, this.accessory.displayName);
+      return;
+    }
+
+    this.loggedWriteFailure = true;
+    logger.warn(summary, this.accessory.displayName);
+  }
+
+  /**
+   * Elicits a reading by re-subscribing. A second `aioairctrl` process cannot
+   * be used to read back: the device serves one connection at a time and
+   * answers a competing client with nothing. A *fresh* subscription is
+   * answered, which is the only prompt read-back available.
+   */
+  requestRefresh() {
+    if (this.shutdown || this.refreshing || this.restartTimeout || !this.airControl) {
+      return;
+    }
+
+    logger.debug('Requesting a fresh reading from the device', this.accessory.displayName);
+    this.refreshing = true;
+    this.airControl.kill();
+  }
+
   //Longpoll Process
   longPoll() {
     this.purifierService = this.accessory.getService(this.api.hap.Service.AirPurifier);
@@ -425,6 +628,7 @@ class Handler {
     this.receivedData = false;
     this.stalled = false;
     this.spawnFailed = false;
+    this.refreshing = false;
 
     const child = spawn(this.binary, [...this.args, 'status-observe', '-J']);
     this.airControl = child;
@@ -472,7 +676,9 @@ class Handler {
         return;
       }
 
-      if (!this.receivedData && !this.spawnFailed) {
+      //a stream torn down on purpose to elicit a reading has not failed, even
+      //if it produced nothing before it was killed
+      if (!this.receivedData && !this.spawnFailed && !this.refreshing) {
         this.pollFailures += 1;
         this.reportPollFailure(code);
       }
@@ -583,6 +789,8 @@ class Handler {
   }
 
   async processUpdate(line) {
+    const receivedAt = Date.now();
+
     //a line arriving proves the stream is alive, whether or not it parses
     if (this.airControl && !this.shutdown) {
       this.armStallTimeout();
@@ -608,6 +816,10 @@ class Handler {
       logger.error(err, this.accessory.displayName);
       return;
     }
+
+    //outside the parse guard above: a failure in here is not a parse failure,
+    //and must not be reported as one
+    this.reconcilePendingWrites(receivedAt);
 
     try {
       //Air Purifier
@@ -744,8 +956,11 @@ class Handler {
 
     clearTimeout(this.processTimeout);
     clearTimeout(this.restartTimeout);
+    clearTimeout(this.verifyTimeout);
     this.processTimeout = null;
     this.restartTimeout = null;
+    this.verifyTimeout = null;
+    this.pendingWrites.clear();
 
     if (this.airControl) {
       logger.debug('Killing airControl process', this.accessory.displayName);

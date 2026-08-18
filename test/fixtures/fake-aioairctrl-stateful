@@ -1,0 +1,50 @@
+#!/usr/bin/env node
+'use strict';
+
+//aioairctrl stand-in with state, for proving that a write the device never
+//applied is noticed. `set` mutates a JSON file that `status-observe` streams
+//back, and FAKE_DROP_SETS worth of sets vanish the way a lost NON packet does:
+//exit 0, nothing changed, no error anywhere.
+
+const fs = require('node:fs');
+
+const args = process.argv.slice(2);
+const statePath = process.env.FAKE_STATE_FILE;
+const interval = Number(process.env.FAKE_INTERVAL_MS || 20);
+
+const read = () => JSON.parse(fs.readFileSync(statePath, 'utf8'));
+const write = (state) => fs.writeFileSync(statePath, JSON.stringify(state));
+
+if (args.includes('set')) {
+  const state = read();
+  const drops = Number(state.drops || 0);
+
+  //transmitted, never applied
+  if (drops > 0) {
+    state.drops = drops - 1;
+    write(state);
+    process.exit(0);
+  }
+
+  for (const arg of args.slice(args.indexOf('set') + 1)) {
+    const assignment = /^([^=-][^=]*)=(.*)$/.exec(arg);
+
+    if (assignment) {
+      state[assignment[1]] = assignment[2];
+    }
+  }
+
+  write(state);
+  process.exit(0);
+}
+
+if (!args.includes('status-observe')) {
+  process.exit(2);
+}
+
+setInterval(() => {
+  const status = read();
+  delete status.drops;
+
+  process.stdout.write(JSON.stringify(status) + '\n');
+}, interval);

@@ -2,6 +2,8 @@
 
 const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const logger = require('../src/utils/logger');
@@ -28,6 +30,7 @@ const SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl');
 const STREAM_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-stream');
 const SILENT_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-silent');
 const BROKEN_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-broken');
+const STATEFUL_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-stateful');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -339,5 +342,185 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
 
     assert.ok(handler.stderrBuffer.length <= 4 * 1024, 'the stderr capture exceeded its cap');
     assert.ok(handler.stderrBuffer.endsWith("ModuleNotFoundError: No module named 'aioairctrl'"));
+  });
+});
+
+//the logger is a module singleton, so these tests must not capture it at the same time
+describe('write verification', { concurrency: 1 }, () => {
+  //a write is only registered once the command has been sent, so these tests
+  //stand in for the CLI and drive the verification directly
+  const recordingHandler = () => {
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    /** @type {string[][]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args);
+    };
+    return { handler, sent };
+  };
+
+  const status = (extra) => JSON.stringify({ pwr: '0', mode: 'M', cl: false, om: '1', ...extra });
+
+  it('clears a pending write once the device reports the new value', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    await handler.setPurifierActive(true);
+    assert.equal(handler.pendingWrites.size, 1);
+    sent.length = 0;
+
+    await handler.processUpdate(status({ pwr: '1' }));
+
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.deepEqual(sent, [], 'a write the device applied was resent anyway');
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
+  it('resends a write the device answered without applying', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    await handler.setPurifierActive(true);
+    sent.length = 0;
+
+    await handler.processUpdate(status({ pwr: '0' }));
+
+    assert.equal(sent.length, 1, 'a lost write was never resent');
+    assert.ok(sent[0].includes('pwr=1'));
+    assert.equal(handler.pendingWrites.get('pwr').attempts, 1);
+    assert.deepEqual(logs.warn, [], 'a single retry should not bother the user');
+
+    handler.kill(true);
+  });
+
+  it('warns once when the device still disagrees after the retry', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler } = recordingHandler();
+    await handler.setPurifierActive(true);
+
+    await handler.processUpdate(status({ pwr: '0' }));
+    await handler.processUpdate(status({ pwr: '0' }));
+
+    assert.ok(
+      logs.warn.some((line) => line.includes('did not apply pwr=1')),
+      `a write the device never applied was never reported, got ${JSON.stringify(logs.warn)}`
+    );
+    assert.equal(handler.pendingWrites.size, 0);
+
+    //a repeating automation reports once, not on every cycle
+    logs.warn.length = 0;
+    await handler.setPurifierActive(true);
+    await handler.processUpdate(status({ pwr: '0' }));
+    await handler.processUpdate(status({ pwr: '0' }));
+
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
+  it('does not treat a status that predates the write as evidence', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    await handler.setPurifierActive(true);
+    sent.length = 0;
+    //a status the device sent before it could have seen the command
+    handler.pendingWrites.get('pwr').since = Date.now() + 10000;
+
+    await handler.processUpdate(status({ pwr: '0' }));
+
+    assert.deepEqual(sent, [], 'a stale status triggered a resend');
+    assert.equal(handler.pendingWrites.size, 1);
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
+  it('gives up quietly when the device never answers at all', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler } = recordingHandler();
+    //silence means this device is slower than the one the delays were chosen
+    //against, which is not evidence that the command was lost
+    handler.verifyRefreshDelay = 20;
+    handler.verifyWindow = 60;
+
+    await handler.setPurifierActive(true);
+    await delay(150);
+
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
+  it('elicits a reading by re-subscribing, without counting it as a failure', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({ aioairctrlPath: STREAM_SHIM });
+    const purifier = makeService();
+    handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+    handler.stallTimeout = 5000;
+    handler.restartDelay = 10;
+
+    handler.longPoll();
+    await delay(100);
+    const firstPid = handler.airControl.pid;
+
+    handler.requestRefresh();
+    await delay(300);
+
+    assert.notEqual(handler.airControl.pid, firstPid, 'the stream was never re-subscribed');
+    assert.equal(handler.pollFailures, 0, 'a deliberate refresh counted as a failed poll');
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+    await delay(50);
+  });
+
+  it('recovers a dropped write end to end against a stateful device', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const statePath = path.join(os.tmpdir(), `fake-air-${process.pid}-${Date.now()}.json`);
+    //the first set is transmitted and never applied, as a lost NON packet is
+    fs.writeFileSync(statePath, JSON.stringify({ pwr: '0', mode: 'M', cl: false, om: '1', drops: 1 }));
+    process.env.FAKE_STATE_FILE = statePath;
+
+    t.after(() => {
+      delete process.env.FAKE_STATE_FILE;
+      fs.rmSync(statePath, { force: true });
+    });
+
+    const handler = makeHandler({ aioairctrlPath: STATEFUL_SHIM });
+    const purifier = makeService();
+    handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+    handler.stallTimeout = 5000;
+    handler.restartDelay = 10;
+    handler.verifyRefreshDelay = 100;
+    handler.verifyWindow = 400;
+
+    handler.longPoll();
+    await delay(60);
+    await handler.setPurifierActive(true);
+    await delay(400);
+
+    assert.equal(handler.obj.pwr, '1', 'the dropped write was never resent');
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.deepEqual(logs.warn, []);
+    assert.deepEqual(updated(purifier, 'Active').at(-1), ['Active', 1]);
+
+    handler.kill(true);
+    await delay(50);
   });
 });

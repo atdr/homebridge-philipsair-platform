@@ -226,6 +226,12 @@ sudo -u homebridge aioairctrl -H <device-ip> -P 5683 status-observe -J
 
 The device accepted the subscription and then sent nothing for two minutes. Check that `host` and `port` are right, that the purifier is powered on and on the same network, and that nothing else is already talking to it. These purifiers serve **one connection at a time**, so a leftover process (see Upgrading above) or another integration polling the same device will starve the plugin. The plugin keeps retrying and logs `Device is responding again` once status resumes.
 
+### The device did not apply a command
+
+The plugin sent a command, the purifier answered, and its answer still shows the old value. Commands are sent over an unacknowledged protocol, so one that is lost in transit — or that arrives while the device's radio is asleep — produces no error anywhere. The plugin resends it once before reporting this, and the Home app is corrected to whatever the device actually reports, so it never keeps showing a state the device never reached.
+
+An occasional message is normal on a busy or distant network. If it happens every time for one control, the command is probably wrong for your model rather than lost: set `debug` to true, copy the logged `CMD: aioairctrl ...` line, run it yourself, and open an issue with what the device reports afterwards.
+
 ## Disclaimer
 
 All product and company names are trademarks™ or registered® trademarks of their respective holders. Use of them does not imply any affiliation with or endorsement by them.
