@@ -96,11 +96,12 @@ class Handler {
     //cycle for the device to report it, another for the resend, plus margin
     this.verifyWindow = Math.max(2 * this.refreshInterval + VERIFY_WINDOW_MARGIN, VERIFY_WINDOW_MIN);
 
-    const { speeds, keyMaps, valueMaps, extraSetFlags } = modelConfig(this.accessory.context.config);
+    const { speeds, keyMaps, valueMaps, extraSetFlags, unsupported } = modelConfig(this.accessory.context.config);
     this.speeds = speeds;
     this.keyMaps = keyMaps;
     this.valueMaps = valueMaps;
     this.extraSetFlags = extraSetFlags;
+    this.unsupported = new Set(unsupported);
 
     this.binary = this.accessory.context.config.aioairctrlPath || 'aioairctrl';
     this.args = [
@@ -183,6 +184,18 @@ class Handler {
     logger.debug(this.obj, this.accessory.displayName);
   }
 
+  /**
+   * Whether this model has a register for a generic key at all. A key it does
+   * not have cannot be written (the command is transmitted and ignored, or
+   * refused outright) and never appears in a status, so a HomeKit control bound
+   * to it would report a state the device never has. See accessories.models.js.
+   *
+   * @param {string} key
+   */
+  supports(key) {
+    return !this.unsupported.has(key);
+  }
+
   handleCommand(key, value) {
     value = this.valueMaps[key] ? this.valueMaps[key][value] : value;
     key = this.keyMaps[key] || key;
@@ -225,6 +238,11 @@ class Handler {
   }
 
   async setPurifierTargetState(state) {
+    if (!this.supports('mode')) {
+      logger.debug(`This model has no mode register, ignoring purifier mode ${state}`, this.accessory.displayName);
+      return;
+    }
+
     try {
       const values = {
         mode: state ? 'P' : this.accessory.context.config.allergicFunc ? 'A' : 'M',
@@ -249,6 +267,11 @@ class Handler {
   }
 
   async setPurifierLockPhysicalControls(state) {
+    if (!this.supports('cl')) {
+      logger.debug(`This model has no child lock register, ignoring lock ${state}`, this.accessory.displayName);
+      return;
+    }
+
     try {
       const values = {
         cl: state == 1,
@@ -271,7 +294,12 @@ class Handler {
       const speed = Math.ceil(value / this.speedsMinStep());
 
       if (speed > 0) {
-        this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, 0);
+        //MANUAL is not a value this characteristic accepts on a model with no
+        //mode register: accessories.service.js constrains it to AUTO there
+        if (this.supports('mode')) {
+          this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, 0);
+        }
+
         logger.info(`Purifier Rotation Speed: value: ${value}`, this.accessory.displayName);
 
         let cmds = [];
@@ -916,9 +944,23 @@ class Handler {
       this.purifierService
         .updateCharacteristic(this.api.hap.Characteristic.Active, parseInt(this.obj.pwr) ? 1 : 0)
         .updateCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState, parseInt(this.obj.pwr) ? 2 : 0)
-        .updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, this.obj.mode === 'M' ? 0 : 1)
-        .updateCharacteristic(this.api.hap.Characteristic.LockPhysicalControls, this.obj.cl ? 1 : 0)
         .updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, this.rotationSpeed());
+
+      //pushing these from a key the model never reports would push a default,
+      //not a reading: 'mode' absent reads as AUTO and 'cl' absent as unlocked
+      if (this.supports('mode')) {
+        this.purifierService.updateCharacteristic(
+          this.api.hap.Characteristic.TargetAirPurifierState,
+          this.obj.mode === 'M' ? 0 : 1
+        );
+      }
+
+      if (this.supports('cl')) {
+        this.purifierService.updateCharacteristic(
+          this.api.hap.Characteristic.LockPhysicalControls,
+          this.obj.cl ? 1 : 0
+        );
+      }
 
       if (this.airQualityService) {
         //HomeKit AirQuality only accepts 0 (unknown) to 5 (poor)

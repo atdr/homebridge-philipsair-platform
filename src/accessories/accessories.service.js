@@ -35,8 +35,17 @@ class Accessory {
       );
     }
 
-    if (!this.purifierService.testCharacteristic(this.api.hap.Characteristic.LockPhysicalControls)) {
-      this.purifierService.addCharacteristic(this.api.hap.Characteristic.LockPhysicalControls);
+    //a model with no child lock register gets no child lock control: the
+    //characteristic is optional, so it can be left off (and taken off a cached
+    //accessory that has one) rather than reporting a state the device never has
+    if (this.handler.supports('cl')) {
+      if (!this.purifierService.testCharacteristic(this.api.hap.Characteristic.LockPhysicalControls)) {
+        this.purifierService.addCharacteristic(this.api.hap.Characteristic.LockPhysicalControls);
+      }
+    } else if (this.purifierService.testCharacteristic(this.api.hap.Characteristic.LockPhysicalControls)) {
+      this.purifierService.removeCharacteristic(
+        this.purifierService.getCharacteristic(this.api.hap.Characteristic.LockPhysicalControls)
+      );
     }
 
     if (!this.purifierService.testCharacteristic(this.api.hap.Characteristic.RotationSpeed)) {
@@ -58,10 +67,21 @@ class Accessory {
       .onGet(() => (this.handler.obj.mode === 'M' ? 0 : 1))
       .onSet(async (state) => await this.handler.setPurifierTargetState(state));
 
-    this.purifierService
-      .getCharacteristic(this.api.hap.Characteristic.LockPhysicalControls)
-      .onGet(() => (this.handler.obj.cl ? 1 : 0))
-      .onSet(async (state) => await this.handler.setPurifierLockPhysicalControls(state));
+    //TargetAirPurifierState is required on this service and cannot be removed,
+    //so a model with no mode register keeps it pinned to AUTO instead. The Home
+    //app then stops offering an auto/manual switch that could never take effect
+    if (!this.handler.supports('mode')) {
+      this.purifierService.getCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState).setProps({
+        validValues: [this.api.hap.Characteristic.TargetAirPurifierState.AUTO],
+      });
+    }
+
+    if (this.handler.supports('cl')) {
+      this.purifierService
+        .getCharacteristic(this.api.hap.Characteristic.LockPhysicalControls)
+        .onGet(() => (this.handler.obj.cl ? 1 : 0))
+        .onSet(async (state) => await this.handler.setPurifierLockPhysicalControls(state));
+    }
 
     this.purifierService
       .getCharacteristic(this.api.hap.Characteristic.RotationSpeed)

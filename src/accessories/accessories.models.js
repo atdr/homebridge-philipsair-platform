@@ -3,7 +3,8 @@
 //Per-model command mappings. 'speeds' entries are matched in order against the
 //device state to derive the HomeKit rotation speed; 'keyMaps' translate the
 //generic keys to model-specific registers; 'valueMaps' translate values in
-//both directions; 'extraSetFlags' are extra CLI flags for set commands.
+//both directions; 'extraSetFlags' are extra CLI flags for set commands;
+//'unsupported' lists generic keys the model has no register for at all.
 //Models not listed here use the default 'om' based speeds.
 
 const DEFAULT_SPEEDS = [{ om: '1' }, { om: '2' }, { om: 't' }];
@@ -63,6 +64,12 @@ const models = {
       flttotal1: 'D05408',
     },
     extraSetFlags: ['-I'],
+    //this model reports no register for either: not in its status dumps, and
+    //not among the registers mapped above when it was tested. So the plugin
+    //neither sends 'mode=...' / 'cl=...' nor offers the HomeKit controls that
+    //would. The composite speeds may already be how this model expresses mode.
+    //Issue #46 carries the hardware experiment that can overturn this.
+    unsupported: ['mode', 'cl'],
   },
 };
 
@@ -74,6 +81,7 @@ const modelConfig = (deviceConfig) => {
     keyMaps: model.keyMaps || {},
     valueMaps: model.valueMaps || {},
     extraSetFlags: model.extraSetFlags || [],
+    unsupported: model.unsupported || [],
   };
 };
 

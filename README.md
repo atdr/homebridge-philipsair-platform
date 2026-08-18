@@ -168,6 +168,8 @@ For a full config.json, please look at [Example Config](https://github.com/atdr/
 
 1. Use model IDs from the tested devices list below for full compatibility. For AC0850 this field is required for correct speed/key mapping.
 
+Not every device supports every control. The AC0850 reports no auto/manual mode and no child lock, so neither is offered in the Home app for that model; power, fan speed, air quality and the filter status are unaffected.
+
 ## Tested devices
 
 The following devices have been tested with this plugin and confirm that they work without problems:

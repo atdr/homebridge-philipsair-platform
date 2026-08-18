@@ -86,6 +86,53 @@ describe('command construction', () => {
   });
 });
 
+describe('unsupported controls', () => {
+  const recording = (config) => {
+    const handler = makeHandler(config);
+    /** @type {string[][]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args);
+    };
+    handler.purifierService = { updateCharacteristic: () => handler.purifierService };
+    return { handler, sent };
+  };
+
+  it('reports which generic keys a model has no register for', () => {
+    assert.equal(makeHandler({ model: 'AC0850' }).supports('mode'), false);
+    assert.equal(makeHandler({ model: 'AC0850' }).supports('cl'), false);
+    assert.equal(makeHandler({ model: 'AC0850' }).supports('pwr'), true);
+    assert.equal(makeHandler({}).supports('mode'), true);
+    assert.equal(makeHandler({}).supports('cl'), true);
+  });
+
+  it('sends no mode or lock command to a model without those registers', async () => {
+    const { handler, sent } = recording({ model: 'AC0850' });
+
+    await handler.setPurifierTargetState(1);
+    await handler.setPurifierLockPhysicalControls(1);
+
+    assert.deepEqual(sent, [], 'a command was sent for a register the model does not have');
+    assert.equal(handler.pendingWrites.size, 0);
+
+    handler.kill(true);
+  });
+
+  it('still sends both on a model that has them', async () => {
+    const { handler, sent } = recording({});
+
+    await handler.setPurifierTargetState(1);
+    await handler.setPurifierLockPhysicalControls(1);
+
+    assert.deepEqual(
+      sent.map((args) => args[args.length - 1]),
+      ['mode=P', 'cl=true']
+    );
+
+    handler.kill(true);
+  });
+});
+
 describe('set argument construction', () => {
   it('keeps -I for a model whose registers need it', () => {
     const handler = makeHandler({ model: 'AC0850' });
