@@ -4,7 +4,14 @@ const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
 
 const logger = require('../src/utils/logger');
-const { generateConfig, validHost, validPort, validRefreshInterval, hapNumber } = require('../src/utils/utils');
+const {
+  generateConfig,
+  validBinaryPath,
+  validHost,
+  validPort,
+  validRefreshInterval,
+  hapNumber,
+} = require('../src/utils/utils');
 
 //capture warnings so the silent-fallback behavior can be asserted
 const warnings = [];
@@ -40,6 +47,61 @@ describe('generateConfig', () => {
     assert.equal(config.error, false);
     assert.equal(config.extendedError, false);
     assert.deepEqual(config.devices, [{ name: 'Purifier' }]);
+  });
+});
+
+describe('validBinaryPath', () => {
+  it('accepts a bare command and a full path', () => {
+    assert.equal(validBinaryPath('aioairctrl'), 'aioairctrl');
+    assert.equal(validBinaryPath('/home/pi/.local/bin/aioairctrl'), '/home/pi/.local/bin/aioairctrl');
+  });
+
+  it('trims surrounding whitespace', () => {
+    assert.equal(validBinaryPath('  /usr/bin/aioairctrl  '), '/usr/bin/aioairctrl');
+  });
+
+  it('falls back to the PATH lookup when unset', () => {
+    assert.equal(validBinaryPath(undefined), '');
+    assert.equal(validBinaryPath(''), '');
+    assert.equal(validBinaryPath('   '), '');
+  });
+
+  //spaces are legitimate in a real install path and reach execFile verbatim,
+  //since every call site passes an argument array with no shell. Rejecting
+  //them silently swapped a working config for a PATH lookup, and the preflight
+  //then reported 'not installed' about a binary that was there
+  it('accepts paths containing spaces', () => {
+    warnings.length = 0;
+
+    assert.equal(
+      validBinaryPath('/Users/a/Library/Application Support/homebridge/aioairctrl'),
+      '/Users/a/Library/Application Support/homebridge/aioairctrl'
+    );
+    assert.equal(
+      validBinaryPath('C:\\Program Files\\aioairctrl\\aioairctrl.exe'),
+      'C:\\Program Files\\aioairctrl\\aioairctrl.exe'
+    );
+
+    assert.deepEqual(warnings, []);
+  });
+
+  //argv[0] is the one position where a leading '-' could be read as a flag,
+  //and no real path starts with one
+  it('rejects a value that could be read as a flag', () => {
+    warnings.length = 0;
+
+    assert.equal(validBinaryPath('-D'), '');
+    assert.equal(validBinaryPath(42), '');
+
+    assert.equal(warnings.length, 2);
+  });
+
+  it('says which value it rejected, so the config can be fixed', () => {
+    warnings.length = 0;
+    validBinaryPath('-D');
+
+    assert.match(warnings[0], /-D/);
+    assert.match(warnings[0], /PATH/);
   });
 });
 

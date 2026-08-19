@@ -53,6 +53,40 @@ describe('speeds per model', () => {
   });
 });
 
+describe('unrunnable binary reporting', () => {
+  //ENOENT and EACCES reach the same code paths but have nothing in common:
+  //one means install it, the other means it is already installed and the
+  //Homebridge user may not run it. One message for both sends half the
+  //readers after an install that is working fine.
+  it('tells a user with no binary to install it', () => {
+    const handler = makeHandler({});
+    const message = handler.unrunnableBinaryError('ENOENT').message;
+
+    assert.match(message, /not found/);
+    assert.match(message, /pipx install aioairctrl/);
+    assert.match(message, /aioairctrlPath/);
+  });
+
+  it('tells a user with an unexecutable binary about permissions, not installing', () => {
+    const handler = makeHandler({ aioairctrlPath: '/home/pi/.local/bin/aioairctrl' });
+    const message = handler.unrunnableBinaryError('EACCES').message;
+
+    assert.match(message, /could not be executed/);
+    assert.match(message, /ls -l \/home\/pi\/\.local\/bin\/aioairctrl/);
+    assert.doesNotMatch(message, /pipx install/);
+  });
+
+  it('treats EPERM like EACCES', () => {
+    const handler = makeHandler({});
+    assert.match(handler.unrunnableBinaryError('EPERM').message, /could not be executed/);
+  });
+
+  it('names the binary it could not run', () => {
+    const handler = makeHandler({ aioairctrlPath: '/opt/aioairctrl' });
+    assert.match(handler.unrunnableBinaryError('ENOENT').message, /^\/opt\/aioairctrl not found/);
+  });
+});
+
 describe('command construction', () => {
   it('runs aioairctrl from the PATH by default', () => {
     const handler = makeHandler({});

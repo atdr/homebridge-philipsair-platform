@@ -61,6 +61,23 @@ class Logger {
       this.log.info(this.formatMessage(message, accessoryName, 'debug'));
     }
   }
+
+  /**
+   * A fault that stops the plugin working at all, reported whatever the log
+   * flags say. `warn` and `error` are verbosity switches for per-device
+   * operational noise; a missing prerequisite is not verbosity, and a user who
+   * turned `error` off to quieten a chatty device has not asked to be kept in
+   * the dark about an install that cannot work. Goes through `log.error` rather
+   * than the ungated `log.info` so Homebridge still renders it as a fault.
+   *
+   * Reserved for setup faults. Anything recoverable belongs on `warn`/`error`.
+   *
+   * @param {unknown} message
+   * @param {string} [accessoryName]
+   */
+  alert(message, accessoryName) {
+    this.log.error(this.formatMessage(message, accessoryName, 'error'));
+  }
 }
 
 const logger = new Logger();

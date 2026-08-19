@@ -138,7 +138,24 @@ class Handler {
     ].filter((cmd) => cmd);
   }
 
-  missingBinaryError() {
+  /**
+   * Why the binary could not be executed, in the user's terms. ENOENT and
+   * EACCES arrive through the same code paths but have nothing in common:
+   * one means install it, the other means it is already there and the
+   * Homebridge user may not run it. Reporting both as "not found" sends half
+   * the readers after an install that is working.
+   *
+   * @param {string} [code] the errno from the failed spawn
+   * @returns {Error}
+   */
+  unrunnableBinaryError(code) {
+    if (code === 'EACCES' || code === 'EPERM') {
+      return new Error(
+        `${this.binary} exists but could not be executed. Check its ownership and permissions ` +
+          `('ls -l ${this.binary}'), and that the Homebridge user may run it (see README Troubleshooting).`
+      );
+    }
+
     return new Error(
       `${this.binary} not found. Install it with 'pipx install aioairctrl' and make sure the Homebridge user can run it, or set 'aioairctrlPath' in the platform config to its full path (see README).`
     );
@@ -154,7 +171,10 @@ class Handler {
     return new Promise((resolve, reject) => {
       execFile(this.binary, args, (err, stdout, stderr) => {
         if (err) {
-          return reject(err.code === 'ENOENT' ? this.missingBinaryError() : err);
+          const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+          const unrunnable = code === 'ENOENT' || code === 'EACCES' || code === 'EPERM';
+
+          return reject(unrunnable ? this.unrunnableBinaryError(code) : err);
         }
 
         logger.debug(stderr, this.accessory.displayName);
@@ -762,7 +782,8 @@ class Handler {
     });
 
     child.on('error', (/** @type {NodeJS.ErrnoException} */ err) => {
-      const error = err.code === 'ENOENT' ? this.missingBinaryError() : err;
+      const unrunnable = err.code === 'ENOENT' || err.code === 'EACCES' || err.code === 'EPERM';
+      const error = unrunnable ? this.unrunnableBinaryError(err.code) : err;
 
       //'error' also fires on an already-running child, e.g. a kill that failed.
       //only a child that never started is a spawn failure; anything else must
@@ -774,7 +795,13 @@ class Handler {
       //different faults with the same event. calling the second one a failure
       //to run sends the reader after an aioairctrl install that is working
       const kind = spawnFailure ? 'spawn' : 'stop';
-      const summary = spawnFailure ? 'Failed to run polling process' : 'Failed to stop the polling process';
+
+      //the summary has to stand on its own: 'error' carries the remedy, and a
+      //user who set error:false to quieten a chatty device would otherwise be
+      //left with a line that names neither the command nor what to do about it
+      const summary = spawnFailure
+        ? `Failed to run '${this.binary}' — see the startup log for how to fix the install`
+        : 'Failed to stop the polling process';
 
       //only log the first failure of its kind in a retry loop to avoid spamming
       if (this.loggedFailureKind === kind) {

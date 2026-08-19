@@ -63,4 +63,20 @@ describe('logger', () => {
     logger.error(err, 'Purifier');
     assert.equal(sink.errors[1], 'Purifier: boom');
   });
+
+  //install faults are not verbosity: a user who quietened a chatty device has
+  //not asked to be kept in the dark about a plugin that cannot work at all
+  it('reports alerts even when error logging is switched off', () => {
+    logger.configure(sink.log, { error: false });
+    logger.alert('aioairctrl is missing');
+
+    assert.deepEqual(sink.errors, ['aioairctrl is missing']);
+  });
+
+  it('prefixes alerts with the accessory name like every other level', () => {
+    logger.configure(sink.log, {});
+    logger.alert('broken', 'Purifier');
+
+    assert.deepEqual(sink.errors, ['Purifier: broken']);
+  });
 });

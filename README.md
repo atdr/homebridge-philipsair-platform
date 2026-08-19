@@ -214,9 +214,39 @@ See [CONTRIBUTING](https://github.com/atdr/homebridge-philipsair-platform/blob/m
 
 If you have any issues with the plugin then you can run this plugin in debug mode, which will provide some additional information. This might be useful for debugging issues. Just open your config ui and set debug to true!
 
-### aioairctrl not found
+### Cannot run aioairctrl
 
-The plugin could not run the `aioairctrl` executable. Check that it is installed for the user that runs Homebridge (`sudo -u homebridge aioairctrl --help`, adjusting the username to your setup). If the command only works for another user or lives outside the PATH — pipx installs to `~/.local/bin` — set the `aioairctrlPath` platform option to the full path reported by `which aioairctrl`.
+At startup the plugin runs `aioairctrl --help` once to check the CLI works before any device tries to use it. If that fails it reports the cause, what it ran, and how to fix it, then carries on loading — so the accessories still appear, but none of them will work until the install is fixed. The message names one of three causes.
+
+**Not installed, or not on the PATH.** The commonest case. The report includes the PATH it searched, which is usually the answer: pipx installs to `~/.local/bin`, and service accounts frequently do not search it. Install the CLI for the user that runs Homebridge, then confirm it:
+
+```bash
+pipx install aioairctrl
+sudo -u homebridge aioairctrl --help
+```
+
+If the command works for you but not for that user, run `which aioairctrl` and set the `aioairctrlPath` platform option to the full path it prints.
+
+**Found, but not executable.** The file is where the config says it is, and the Homebridge user may not run it. This is ownership or permissions, not a missing install — reinstalling will not help:
+
+```bash
+ls -l /path/from/your/config
+chmod +x /path/from/your/config
+```
+
+If `aioairctrlPath` points at a directory rather than the executable itself, the plugin says so explicitly.
+
+**Starts, but its Python environment is broken.** The command exists and dies immediately; the plugin quotes the CLI's own output. `ModuleNotFoundError: No module named 'aioairctrl'` means the executable survived an install its libraries did not, which happens when the CLI and its dependencies went to different interpreters or users. Reinstall it:
+
+```bash
+pipx reinstall aioairctrl
+```
+
+Note that `aioairctrl` needs Python 3.12 or newer.
+
+> The shell commands above assume a Unix-like host (Linux, macOS, a Raspberry Pi). On Windows the diagnosis is the same, but run the equivalent checks under the account Homebridge runs as.
+>
+> This report is always shown, even with the `error` log option switched off — those options control per-device operational logging, not whether the plugin tells you it cannot work at all.
 
 ### The polling process exited with code N without returning any status
 

@@ -5,13 +5,48 @@ const logger = require('./logger');
 exports.generateConfig = (config) => {
   return {
     name: config.name || 'PhilipsAirPlatform',
-    aioairctrlPath: config.aioairctrlPath || '',
+    aioairctrlPath: exports.validBinaryPath(config.aioairctrlPath),
     debug: config.debug || false,
     warn: config.warn !== false,
     error: config.error !== false,
     extendedError: config.extendedError !== false,
     devices: config.devices || [],
   };
+};
+
+//the aioairctrl executable, either a bare command resolved from PATH or a full
+//path. existence is not checked here — that is the startup preflight's job.
+//
+//only a leading '-' is rejected. every call site passes this as argv[0] of an
+//execFile/spawn argument array with no shell, so it reaches the OS verbatim:
+//spaces are safe, and rejecting them would break real installs on macOS
+//('~/Library/Application Support/...') and Windows ('C:\\Program Files\\...').
+//a leading '-' is still worth refusing, since no real path starts with one and
+//argv[0] is the one position where it could be read as a flag.
+//
+//an empty result means 'fall back to the PATH lookup', the documented default
+exports.validBinaryPath = (path) => {
+  if (path === undefined || path === null || path === '') {
+    return '';
+  }
+
+  if (typeof path !== 'string') {
+    logger.warn(`Invalid aioairctrlPath '${path}' configured, resolving 'aioairctrl' from the PATH instead.`);
+    return '';
+  }
+
+  const trimmed = path.trim();
+
+  if (!trimmed) {
+    return '';
+  }
+
+  if (trimmed.startsWith('-')) {
+    logger.warn(`Invalid aioairctrlPath '${path}' configured, resolving 'aioairctrl' from the PATH instead.`);
+    return '';
+  }
+
+  return trimmed;
 };
 
 //IP address or hostname; resolution is left to the aioairctrl CLI, but

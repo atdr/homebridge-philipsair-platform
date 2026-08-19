@@ -3,6 +3,7 @@
 const logger = require('./utils/logger');
 const { name: PLUGIN_NAME, version } = require('../package.json');
 const { generateConfig } = require('./utils/utils');
+const { checkAioairctrl, describeFailure } = require('./utils/preflight');
 
 //Accessories
 const { AccessoriesService, AccessoriesSetup, AccessoriesHandler } = require('./accessories');
@@ -26,11 +27,39 @@ class PhilipsAirPlatform {
   }
 
   async didFinishLaunching() {
+    //prove the CLI works before any device tries to use it
+    await this.preflight();
+
     //initialize devices
     AccessoriesSetup(this.devices, this.config.devices, this.api.hap.uuid.generate);
 
     //configure accessories
     this.configure();
+  }
+
+  /**
+   * Reports the state of the aioairctrl install once, at startup.
+   *
+   * Without this the first evidence of a missing prerequisite is a per-device
+   * spawn failure, arriving after the plugin has already announced it was
+   * configuring accessories — so the log reads as a working plugin with flaky
+   * devices rather than an install that was never finished. Awaited rather than
+   * backgrounded so the verdict is printed before that per-device noise; the
+   * probe's own timeout bounds how long that can take, and a healthy install
+   * answers in well under a second.
+   *
+   * A failure never stops the plugin loading. The check is advice, not a gate:
+   * an exotic setup that defeats it must not cost the user their accessories.
+   */
+  async preflight() {
+    const check = await checkAioairctrl(this.config.aioairctrlPath);
+
+    if (check.ok) {
+      logger.info(`Using ${check.binary}${check.fromPath ? ' (found on PATH)' : ''}`);
+      return;
+    }
+
+    logger.alert(describeFailure(check));
   }
 
   configure() {
