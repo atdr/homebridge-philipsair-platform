@@ -56,4 +56,61 @@ describe('accessories.models', () => {
     const model = modelConfig({ model: 'AC0850', sleepSpeed: true });
     assert.equal(model.speeds.length, 3);
   });
+
+  describe('normaliseModel', () => {
+    //the label on the device reads 'AC0850/11', and that is what users type
+    it('accepts what is printed on the device, in any case', () => {
+      for (const typed of ['AC0850', 'ac0850', ' AC0850 ', 'AC0850/11', 'ac0850/31', 'AC 0850']) {
+        assert.equal(modelConfig.normaliseModel(typed), 'AC0850', `did not normalise ${JSON.stringify(typed)}`);
+      }
+    });
+
+    it('leaves anything that is not a model ID alone', () => {
+      assert.equal(modelConfig.normaliseModel('Air Purifier'), 'AIRPURIFIER');
+      assert.equal(modelConfig.normaliseModel(undefined), '');
+      assert.equal(modelConfig.normaliseModel(null), '');
+    });
+  });
+
+  describe('resolveModel', () => {
+    it('resolves the model field, suffix and all', () => {
+      assert.deepEqual(modelConfig.resolveModel({ model: 'ac0850/11', name: 'Bedroom' }), {
+        key: 'AC0850',
+        source: 'model',
+        nameSuggests: undefined,
+      });
+    });
+
+    //the reported failure: the ID typed into the Home app label, model untouched
+    it('recovers a model ID left in the device name', () => {
+      assert.deepEqual(modelConfig.resolveModel({ model: 'Air Purifier', name: 'AC0850' }), {
+        key: 'AC0850',
+        source: 'name',
+        nameSuggests: undefined,
+      });
+
+      assert.equal(modelConfig.resolveModel({ name: 'AC0850 bedroom' }).key, 'AC0850');
+    });
+
+    it('reports a name that disagrees with a configured model rather than acting on it', () => {
+      const resolved = modelConfig.resolveModel({ model: 'AC1715', name: 'AC0850 bedroom' });
+
+      assert.equal(resolved.key, 'AC1715');
+      assert.equal(resolved.nameSuggests, 'AC0850');
+    });
+
+    it('never guesses at a model it does not map', () => {
+      assert.equal(modelConfig.resolveModel({ model: 'AC3O36', name: 'Study' }).key, undefined);
+      assert.equal(modelConfig.resolveModel({ model: 'AC2889' }).key, undefined);
+      assert.equal(modelConfig.resolveModel({ name: 'Purifier 2' }).key, undefined);
+      assert.equal(modelConfig.resolveModel({}).key, undefined);
+    });
+
+    it('drives the device with the recovered mapping, not the default one', () => {
+      assert.equal(modelConfig({ name: 'AC0850' }).keyMaps.pwr, 'D03102');
+      assert.equal(modelConfig({ model: 'ac0850/31' }).keyMaps.pwr, 'D03102');
+      //a stamped modelKey wins, since setup resolved and reported it already
+      assert.equal(modelConfig({ model: 'nonsense', modelKey: 'AC1715' }).keyMaps.pwr, 'D03-02');
+    });
+  });
 });

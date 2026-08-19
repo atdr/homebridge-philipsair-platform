@@ -73,8 +73,59 @@ const models = {
   },
 };
 
+//Philips prints the model on the device as 'AC0850/11'; the suffix after the
+//slash is a regional variant and is never part of the mapping key. Users type
+//what they can see, so case, spacing and that suffix all have to survive the
+//trip from the label to the config field.
+const normaliseModel = (value) =>
+  String(value === undefined || value === null ? '' : value)
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/\/.*$/, '');
+
+//A model ID embedded in free text, e.g. a device named 'AC0850 bedroom'. Only
+//an exact match against a mapped model counts: a near miss is a guess, and a
+//guess here silently drives the device with the wrong registers.
+const MODEL_IN_TEXT = /[A-Z]{2,3}\s?\d{3,4}(?:\/\d+)?/gi;
+
+const modelInText = (text) => {
+  const matches = String(text === undefined || text === null ? '' : text).match(MODEL_IN_TEXT) || [];
+
+  return matches.map(normaliseModel).find((candidate) => models[candidate]);
+};
+
+/**
+ * Which mapping drives a device, and what that answer was derived from.
+ *
+ * `source` is 'model' when the model field named it, 'name' when only the
+ * device name did (the commonest configuration mistake: the ID typed into the
+ * Home app label with the model field left alone), and undefined when nothing
+ * matched, which means the default mapping. `nameSuggests` is set when the name
+ * points at a different mapped model than the model field does, i.e. one of the
+ * two was edited and the other was not.
+ *
+ * @param {{ model?: unknown, name?: unknown }} [deviceConfig]
+ */
+const resolveModel = (deviceConfig = {}) => {
+  const configured = normaliseModel(deviceConfig.model);
+  const fromName = modelInText(deviceConfig.name);
+
+  if (models[configured]) {
+    return { key: configured, source: 'model', nameSuggests: fromName === configured ? undefined : fromName };
+  }
+
+  if (fromName) {
+    return { key: fromName, source: 'name', nameSuggests: undefined };
+  }
+
+  return { key: undefined, source: undefined, nameSuggests: undefined };
+};
+
 const modelConfig = (deviceConfig) => {
-  const model = models[deviceConfig.model] || {};
+  //modelKey is stamped on by accessories.setup.js, which resolves once and logs
+  //what it found; resolving again covers a config object built directly
+  const model = models[deviceConfig.modelKey || resolveModel(deviceConfig).key] || {};
 
   return {
     speeds: model.speeds || (deviceConfig.sleepSpeed ? DEFAULT_SLEEP_SPEEDS : DEFAULT_SPEEDS),
@@ -88,5 +139,11 @@ const modelConfig = (deviceConfig) => {
 //Every model listed here must also appear in the config.schema.json model
 //typeahead suggestions (enforced by test/config.schema.test.js).
 modelConfig.mappedModels = Object.keys(models);
+modelConfig.normaliseModel = normaliseModel;
+modelConfig.resolveModel = resolveModel;
+
+//whether a model brings its own speed table, i.e. whether the sleepSpeed
+//option can do anything for it
+modelConfig.hasOwnSpeeds = (key) => Boolean(key && models[key] && models[key].speeds);
 
 module.exports = modelConfig;
