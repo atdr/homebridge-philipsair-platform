@@ -145,3 +145,9 @@ the README example configs consistent with them.
 **`CHANGELOG.md`** — managed by release-please, which prepends generated entries above
 the hand-written v1.x history (one reason commit messages must follow the conventional
 format). Do not edit it by hand and do not restructure the existing entries.
+
+Because it is generated, it is exempt from this repo's formatters: `.prettierignore` lists
+it and `lint:md` passes `--ignore CHANGELOG.md`. Do not remove either. `prepublishOnly`
+runs both gates before every publish, so a formatting rule release-please does not follow
+fails the release itself — that is how the v1.2.0 publish was blocked after its GitHub
+release had already been cut. Guarded by `test/release-workflow.test.js`.

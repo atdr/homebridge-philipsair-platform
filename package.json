@@ -11,7 +11,7 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc",
     "check": "find . -name '*.js' -not -path './node_modules/*' -exec node --check {} ';'",
-    "lint:md": "markdownlint '**/*.md' --dot --ignore node_modules",
+    "lint:md": "markdownlint '**/*.md' --dot --ignore node_modules --ignore CHANGELOG.md",
     "lint:md:fix": "markdownlint '**/*.md' --dot --ignore node_modules --fix",
     "test": "node --test",
     "watch": "npm link && nodemon",
