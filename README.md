@@ -275,10 +275,22 @@ The accessory is there, its tiles respond to taps, and the purifier ignores ever
 
 Philips models encode power, mode and fan speed differently, and the plugin picks the encoding from `model`. When that field is missing, misspelled, or holds a display name rather than an ID, the plugin falls back to a default mapping and sends commands your device has no registers for. Nothing reports an error: commands go out over an unacknowledged protocol and the device simply discards the ones it does not understand.
 
-Check both of these:
+Check all three of these:
 
-1. `model` holds the ID printed on the device, without the regional suffix. `AC0850/11` means `AC0850`. It is not a display name such as `Air Purifier` or `Bedroom`.
-2. The model ID is not sitting in `name` instead. `name` is only the label shown in the Home app; it has no effect on how the device is driven.
+1. `model` holds the ID printed on the device, without the regional suffix. `AC0850/11` means `AC0850`. It is not a display name such as `Air Purifier` or `Bedroom`. Case and stray spaces do not matter, and the suffix is ignored.
+2. The model ID is not sitting in `name` instead. `name` is only the label shown in the Home app. If the plugin finds a model ID it recognises there while `model` names nothing it recognises, it uses it anyway and warns, so the device works while the config is still wrong:
+
+   ```text
+   AC0850: "AC0850" in the device name looks like a model ID, and no model is configured. Using the AC0850 command set. Move it to the model field to silence this.
+   ```
+
+3. The log names the command set every device starts with. This line is the one to look for:
+
+   ```text
+   Bedroom: Using the AC0850 command set.
+   ```
+
+   A device that instead reports `No tested mapping for model "..."` is running on the default mapping. That is expected for a model outside the tested list, and a bug in your config if your model is on it.
 
 If the model is right and the controls still do nothing, set `debug` to true, copy a logged status line, and open an issue with it.
 
