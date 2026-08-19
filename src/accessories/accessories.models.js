@@ -165,16 +165,22 @@ const GENERIC_KEYS = new Set([
 //both register dialects: 'D03-02' (AC1715 style) and 'D03102' (AC0850 style)
 const REGISTER_KEY = /^D\d{2}-?\d{2,3}$/;
 
+//Status fields that carry the model itself. `D01S05` is observed: a full
+//AC0850/31 dump reports `"D01S05":"AC0850/31"` alongside `D01S03` and `D01S04`,
+//which hold user-settable names. `type` and `modelid` are the legacy-dialect
+//candidates and remain unconfirmed; a field a device does not send is inert.
+//
+//This is an allowlist rather than a scan of every string value, and that is the
+//point: `D01S03` is whatever the owner typed into the Philips app, so a device
+//named 'AC1715' by its owner would otherwise be identified as one.
+const MODEL_FIELDS = ['D01S05', 'type', 'modelid'];
+
 /**
  * Which model a device's own status says it is.
  *
  * Two signals, strongest first. A device that names itself settles the
- * question, and no field name is assumed for that: no dump from a
- * self-identifying model is recorded in this repo, so any string value that is
- * exactly a model this plugin maps counts, wherever it sits. Otherwise the
- * registers are the fingerprint, which is the only signal the AC0850 and AC1715
- * offer at all: their status dumps carry no name, type or model field of any
- * kind, only D-registers.
+ * question. Otherwise the registers are the fingerprint, which is what a model
+ * reporting none of MODEL_FIELDS leaves to go on.
  *
  * @param {Record<string, unknown>} status
  * @returns {{ key: string | undefined, certainty: 'reported' | 'fingerprint' | undefined }}
@@ -182,13 +188,11 @@ const REGISTER_KEY = /^D\d{2}-?\d{2,3}$/;
 const identifyModel = (status) => {
   const entries = Object.entries(status || {});
 
-  for (const [, value] of entries) {
-    if (typeof value === 'string') {
-      const candidate = normaliseModel(value);
+  for (const field of MODEL_FIELDS) {
+    const candidate = normaliseModel((status || {})[field]);
 
-      if (models[candidate]) {
-        return { key: candidate, certainty: 'reported' };
-      }
+    if (models[candidate]) {
+      return { key: candidate, certainty: 'reported' };
     }
   }
 

@@ -138,14 +138,35 @@ describe('accessories.models', () => {
       });
     });
 
-    //no field name is assumed: no dump from a self-identifying model is
-    //recorded here, so any value that is exactly a mapped model counts
-    it('takes a device at its word when it names itself, wherever it says so', () => {
-      assert.deepEqual(modelConfig.identifyModel({ pwr: '1', om: '2', type: 'AC3036' }), {
-        key: 'AC3036',
-        certainty: 'reported',
-      });
+    //a real AC0850/31, untranslated, captured 2026-08-19 on firmware 0.1.3
+    const selfIdentifying = {
+      D01102: 5,
+      D01S03: 'Bedroom',
+      D01S04: 'Pluto',
+      D01S05: 'AC0850/31',
+      D01S12: '0.1.3',
+      WifiVersion: 'AWS_Philips_AIR_Combo@86',
+      StatusType: 'status',
+      D03102: 1,
+      D0310A: 2,
+      D0310C: 0,
+      D03120: 1,
+      D03221: 1,
+      D0540E: 224,
+      D05408: 4800,
+    };
+
+    it('takes a device at its word when it names itself', () => {
+      assert.deepEqual(modelConfig.identifyModel(selfIdentifying), { key: 'AC0850', certainty: 'reported' });
       assert.equal(modelConfig.identifyModel({ pwr: '1', om: '2', modelid: 'AC1715/10' }).key, 'AC1715');
+    });
+
+    //D01S03 and D01S04 are whatever the owner typed into the Philips app, and
+    //they sit in the same status as the model. Reading a model out of them
+    //would identify a device by the name its owner happened to give it
+    it('reads the model only from a field that carries a model', () => {
+      assert.equal(modelConfig.identifyModel({ ...selfIdentifying, D01S03: 'AC1715' }).key, 'AC0850');
+      assert.equal(modelConfig.identifyModel({ D01S03: 'AC1715', Runtime: 1, rssi: -42 }).key, undefined);
     });
 
     it('identifies nothing from a status that names no model this plugin maps', () => {
