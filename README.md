@@ -221,7 +221,7 @@ For a full config.json, please look at [Example Config](https://github.com/atdr/
 2. The plugin never rediscovers the device, so a DHCP address that changes when the lease renews breaks a working config. Set a reservation on your router, or use a hostname your network resolves reliably.
 3. The ID printed on the device, without the regional suffix: `AC0850/11` means `AC0850`. This is what selects the speed and register mapping, so a wrong or missing value is what leaves a device visible in the Home app with controls that do nothing. Models outside the tested list fall back to a default mapping, which suits many purifiers but is not guaranteed to drive yours. The field is required in the config UI; a config written before it became required still loads and falls back to the default mapping.
 4. Faults that stop the plugin working at all, such as an `aioairctrl` it cannot run, are always reported, whatever this is set to.
-5. Ignored for models that have their own speed mapping (see the tested devices list); those use the right speeds automatically.
+5. Ignored for models that have their own speed mapping (see the tested devices list); those use the right speeds automatically, and the plugin warns when the option cannot do anything.
 
 Not every device supports every control. The AC0850 reports no auto/manual mode and no child lock, so neither is offered in the Home app for that model; power, fan speed, air quality and the filter status are unaffected.
 
