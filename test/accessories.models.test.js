@@ -113,4 +113,56 @@ describe('accessories.models', () => {
       assert.equal(modelConfig({ model: 'nonsense', modelKey: 'AC1715' }).keyMaps.pwr, 'D03-02');
     });
   });
+
+  describe('identifyModel', () => {
+    //a real AC0850/31 dump, from the register inventory on issue #46
+    const ac0850Status = {
+      D01102: 5,
+      D03102: 0,
+      D0310A: 2,
+      D0310C: 0,
+      D0310D: 0,
+      D03120: 1,
+      D03221: 11,
+      D0312A: 1,
+      D0312C: 4,
+      D05408: 4800,
+      D0540E: 251,
+    };
+
+    it('fingerprints a model from the registers it reports', () => {
+      assert.deepEqual(modelConfig.identifyModel(ac0850Status), { key: 'AC0850', certainty: 'fingerprint' });
+      assert.deepEqual(modelConfig.identifyModel({ 'D03-02': 'ON', 'D03-13': 'Turbo', 'D03-32': 9 }), {
+        key: 'AC1715',
+        certainty: 'fingerprint',
+      });
+    });
+
+    //no field name is assumed: no dump from a self-identifying model is
+    //recorded here, so any value that is exactly a mapped model counts
+    it('takes a device at its word when it names itself, wherever it says so', () => {
+      assert.deepEqual(modelConfig.identifyModel({ pwr: '1', om: '2', type: 'AC3036' }), {
+        key: 'AC3036',
+        certainty: 'reported',
+      });
+      assert.equal(modelConfig.identifyModel({ pwr: '1', om: '2', modelid: 'AC1715/10' }).key, 'AC1715');
+    });
+
+    it('identifies nothing from a status that names no model this plugin maps', () => {
+      //AC3829 self-identifies, but has no mapping to switch to
+      assert.equal(modelConfig.identifyModel({ pwr: '1', om: '2', type: 'AC3829' }).key, undefined);
+      assert.equal(modelConfig.identifyModel({ pwr: '1' }).key, undefined);
+      assert.equal(modelConfig.identifyModel({}).key, undefined);
+    });
+
+    it('knows whether a mapping can read a status at all', () => {
+      assert.equal(modelConfig.readsStatus(ac0850Status, {}), false);
+      assert.equal(modelConfig.readsStatus(ac0850Status, modelConfig({ model: 'AC0850' }).keyMaps), true);
+      assert.equal(modelConfig.readsStatus({ pwr: '1', om: '2' }, {}), true);
+
+      assert.equal(modelConfig.looksLikeRegisters(ac0850Status), true);
+      assert.equal(modelConfig.looksLikeRegisters({ 'D03-02': 'ON' }), true);
+      assert.equal(modelConfig.looksLikeRegisters({ pwr: '1', om: '2' }), false);
+    });
+  });
 });

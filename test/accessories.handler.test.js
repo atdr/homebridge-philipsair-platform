@@ -11,6 +11,16 @@ logger.configure({ info: noop, warn: noop, error: noop }, {});
 
 const fakeApi = { hap: { Service: {}, Characteristic: {} } };
 
+// capture what one call logs, then put the silence back
+const capture = () => {
+  const info = [];
+  const warn = [];
+
+  logger.configure({ info: (message) => info.push(message), warn: (message) => warn.push(message), error: noop }, {});
+
+  return { info, warn, restore: () => logger.configure({ info: noop, warn: noop, error: noop }, {}) };
+};
+
 const makeHandler = (config) =>
   new Handler(fakeApi, {
     displayName: config.name || 'Test Purifier',
@@ -340,5 +350,101 @@ describe('rotationSpeed', () => {
     handler.obj = { D0310A: 2, D0310C: 18 };
     handler.handleResponse(handler.obj);
     assert.equal(handler.rotationSpeed(), 100);
+  });
+});
+
+describe('model mapping check', () => {
+  //a real AC0850/31 dump, from the register inventory on issue #46
+  const ac0850Status = () => ({
+    D01102: 5,
+    D03102: 0,
+    D0310A: 2,
+    D0310C: 0,
+    D03120: 1,
+    D03221: 11,
+    D05408: 4800,
+    D0540E: 251,
+  });
+
+  it('reports a device whose registers belong to another model, once', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'Air Purifier' });
+    const { warn, restore } = capture();
+
+    handler.handleResponse(ac0850Status());
+    handler.handleResponse(ac0850Status());
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.ok(warn[0].includes('match the AC0850 mapping'));
+    assert.ok(warn[0].includes('set to AC0850'));
+    assert.equal(handler.accessory.context.detectedModel, 'AC0850');
+  });
+
+  it('says nothing when the configured model reads the device', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' });
+    const { warn, restore } = capture();
+
+    handler.handleResponse(ac0850Status());
+    restore();
+
+    assert.deepEqual(warn, []);
+    assert.equal(handler.accessory.context.detectedModel, undefined);
+  });
+
+  it('waits for a status substantial enough to judge', () => {
+    const handler = makeHandler({ name: 'Bedroom' });
+    const { warn, restore } = capture();
+
+    handler.handleResponse({ D03102: 0, D0310A: 2 });
+    assert.deepEqual(warn, []);
+
+    handler.handleResponse(ac0850Status());
+    restore();
+
+    assert.equal(warn.length, 1);
+  });
+
+  it('takes a device at its word when it names itself', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' });
+    const { warn, restore } = capture();
+
+    handler.handleResponse({ pwr: '1', om: '2', type: 'AC3036' });
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.ok(warn[0].includes('reports itself as AC3036'));
+    assert.equal(handler.accessory.context.detectedModel, 'AC3036');
+  });
+
+  it('asks for an issue when the registers match nothing it knows', () => {
+    const handler = makeHandler({ name: 'Bedroom' });
+    const { warn, restore } = capture();
+
+    handler.handleResponse({ 'D09-01': 1, 'D09-02': 2, 'D09-03': 3 });
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.ok(warn[0].includes('no model mapping in this plugin knows'));
+  });
+
+  it('adopts a model detected on an earlier run while the config names none', () => {
+    const { info, restore } = capture();
+    const handler = new Handler(fakeApi, {
+      displayName: 'Bedroom',
+      context: { config: { host: '192.168.1.142', port: 5683 }, detectedModel: 'AC0850' },
+    });
+    restore();
+
+    assert.equal(handler.keyMaps.pwr, 'D03102');
+    assert.ok(info.some((message) => message.includes('detected from this device')));
+  });
+
+  it('leaves a configured model alone, whatever was detected before', () => {
+    const handler = new Handler(fakeApi, {
+      displayName: 'Bedroom',
+      context: { config: { host: '192.168.1.142', port: 5683, model: 'AC1715' }, detectedModel: 'AC0850' },
+    });
+
+    assert.equal(handler.keyMaps.pwr, 'D03-02');
   });
 });

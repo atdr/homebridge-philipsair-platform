@@ -292,6 +292,20 @@ Check all three of these:
 
    A device that instead reports `No tested mapping for model "..."` is running on the default mapping. That is expected for a model outside the tested list, and a bug in your config if your model is on it.
 
+The plugin also checks the config against the device itself. The first status a device sends is compared with the mapping in force, and one that answers in registers the mapping cannot read is reported:
+
+```text
+Bedroom: This device reports registers this model mapping does not know (D01102, D03102, D0310A, D0310C), and they match the AC0850 mapping. Its controls will not work until the model is set to AC0850 in the plugin config. Until then the AC0850 command set will be used from the next restart.
+```
+
+It remembers what it identified, so a device with no usable model configured picks up the right mapping by itself from the next restart, and says so each time it starts:
+
+```text
+Bedroom: No model is configured. Using the AC0850 command set, detected from this device's own status on an earlier run.
+```
+
+That is a fallback, not a fix. Setting `model` correctly is what makes the plugin get the device right on its first run, including which services it offers in the Home app.
+
 If the model is right and the controls still do nothing, set `debug` to true, copy a logged status line, and open an issue with it.
 
 ### Cannot run aioairctrl
