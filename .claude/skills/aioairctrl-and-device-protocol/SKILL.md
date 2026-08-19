@@ -289,21 +289,38 @@ Defined in `src/accessories/accessories.models.js` (pure data; see
    **required** for this dialect (README note 1). It no longer has to be typed
    perfectly: `resolveModel` normalises case, spacing and the `/NN` regional
    suffix printed on the device, and falls back to a model ID left in the device
-   name. Failing all that, `identifyModel` recognises this dialect from the
-   registers themselves on the first status and adopts it from the next restart
-   (`Handler.checkModelMapping`). Note what makes that possible here: the AC0850
-   and AC1715 dumps carry **no name, type or model field of any kind**, so the
-   registers are the only signal, and identification is by fingerprint rather
-   than by asking. It also lists `mode` and `cl` as
-   `unsupported`: no register for either appears in its status dumps or its key maps, so
-   the plugin neither sends those commands nor exposes the HomeKit controls bound to them.
-   Believed, not proven — issue #46 carries the status-diff experiment that settles it.
-   A **baseline register inventory** is now attached to that issue: 89 status payloads from
-   one unit on firmware `0.1.3`, off versus on, showing the complete set of 27 registers it
-   reports. That closes the candidate list for `mode`/`cl` to the 16 unmapped constants, and
-   shows `D0310D` tracking power alongside `D03102`. It **identifies neither key**, because
-   the unit never changed mode or lock state during the capture, so anything encoding them
-   would read as constant. The experiment still needs someone at the physical unit.
+   name. Failing all that, `identifyModel` reads the model out of the status
+   itself on the first reading and adopts it from the next restart
+   (`Handler.checkModelMapping`).
+
+   > ⚠️ **Correction, 2026-08-19.** This file previously said the AC0850 reports
+   > no name, type or model field of any kind. That came from the dump on issue
+   > #46, which was **partial**. A full untranslated status from an AC0850/31 on
+   > firmware `0.1.3` reports the model directly:
+   >
+   > ```json
+   > {"D01102":5,"D01S03":"Bedroom","D01S04":"Pluto","D01S05":"AC0850/31",
+   >  "D01S12":"0.1.3","ProductId":"89be7eb8...","DeviceId":"82487fb3...",
+   >  "Runtime":1948236132,"rssi":-42,"WifiVersion":"AWS_Philips_AIR_Combo@86",
+   >  "StatusType":"status","ConnectType":"Online","D0310A":2,"D0310C":0, ...}
+   > ```
+   >
+   > So `D01S05` is the model, `D01S12` the firmware, and **`D01S03`/`D01S04`
+   > are owner-settable names** from the Philips app. That last point is why
+   > `identifyModel` reads an allowlist of model-bearing fields rather than
+   > scanning every string value: a device its owner named `AC1715` in the app
+   > would otherwise identify as one. Issue #46's candidate set for `mode`/`cl`
+   > is also narrower than that dump suggested, since several of its unknowns
+   > are now named. It also lists `mode` and `cl` as
+   > `unsupported`: no register for either appears in its status dumps or its key maps, so
+   > the plugin neither sends those commands nor exposes the HomeKit controls bound to them.
+   > Believed, not proven — issue #46 carries the status-diff experiment that settles it.
+   > A **baseline register inventory** is now attached to that issue: 89 status payloads from
+   > one unit on firmware `0.1.3`, off versus on, showing the complete set of 27 registers it
+   > reports. That closes the candidate list for `mode`/`cl` to the 16 unmapped constants, and
+   > shows `D0310D` tracking power alongside `D03102`. It **identifies neither key**, because
+   > the unit never changed mode or lock state during the capture, so anything encoding them
+   > would read as constant. The experiment still needs someone at the physical unit.
 
 A fourth field, **`unsupported`**, is a per-model list of generic keys the device has no
 register for at all. `Handler.supports(key)` reads it, and it gates three things: the `set*`
