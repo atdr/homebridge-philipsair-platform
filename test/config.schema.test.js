@@ -91,6 +91,20 @@ describe('config.schema', () => {
     );
   });
 
+  //A default of 'Air Purifier' is what taught users the field was a display
+  //label: the box arrived pre-filled with a generic name, so someone who had
+  //already typed 'AC0850' into Name had no reason to touch it. There must be
+  //nothing to pre-fill, and the hint must be a model the plugin actually maps.
+  it('offers no default model and hints with a real model ID', () => {
+    const model = schema.schema.properties.devices.items.properties.model;
+
+    assert.equal(model.default, undefined, 'devices[].model must not pre-fill a value; it is not a display label');
+    assert.ok(
+      mappedModels.includes(model.placeholder),
+      `devices[].model placeholder '${model.placeholder}' is not a model mapped in accessories.models.js`
+    );
+  });
+
   //Asserting the header contains the words it was written with would only
   //restate the schema. What is worth guarding is that the instructions stay
   //true of how the plugin actually behaves, and stay in step with the README:
