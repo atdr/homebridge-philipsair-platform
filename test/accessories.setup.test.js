@@ -150,4 +150,31 @@ describe('accessories.setup', () => {
     assert.equal(device.modelKey, 'AC1715');
     assert.ok(warn.some((message) => message.includes('mentions AC0850, but the model is set to AC1715')));
   });
+
+  it('says when the sleep speed option cannot do anything for the model', async () => {
+    const { warn, restore } = capture();
+
+    await Setup(
+      deviceMap,
+      [
+        { active: true, name: 'Bedroom', model: 'AC0850', host: '10.0.1.16', sleepSpeed: true },
+        { active: true, name: 'Study', model: 'AC3829', host: '10.0.1.17', sleepSpeed: true },
+      ],
+      uuid.generate
+    );
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.ok(warn[0].includes('Bedroom: The sleep speed option does nothing for the AC0850'));
+  });
+
+  it('leaves a trace when a device is skipped for being inactive', async () => {
+    const { info, restore } = capture();
+
+    await Setup(deviceMap, [{ active: false, name: 'Bedroom', host: '10.0.1.16' }], uuid.generate);
+    restore();
+
+    assert.equal(deviceMap.size, 0);
+    assert.ok(info.some((message) => message.includes('Bedroom: Not active in the config')));
+  });
 });
