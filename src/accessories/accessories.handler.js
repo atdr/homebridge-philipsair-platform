@@ -6,6 +6,7 @@ const logger = require('../utils/logger');
 const { hapNumber } = require('../utils/utils');
 const { DEFAULT_BINARY } = require('../utils/preflight');
 const modelConfig = require('./accessories.models');
+const { resolveModel, identifyModel, readsStatus, looksLikeRegisters } = modelConfig;
 
 //status lines are small JSON objects; anything beyond this is a misbehaving
 //device or CLI streaming data without newlines
@@ -122,7 +123,28 @@ class Handler {
     //cycle for the device to report it, another for the resend, plus margin
     this.verifyWindow = Math.max(2 * this.refreshInterval + VERIFY_WINDOW_MARGIN, VERIFY_WINDOW_MIN);
 
-    const { speeds, keyMaps, valueMaps, extraSetFlags, unsupported } = modelConfig(this.accessory.context.config);
+    const config = this.accessory.context.config;
+
+    //modelKey is stamped on by accessories.setup.js, which resolves it once and
+    //reports what it found; resolving again covers a config built directly
+    this.modelKey = config.modelKey || resolveModel(config).key;
+    this.mappingChecked = false;
+
+    //a model this device identified itself as on an earlier run, adopted only
+    //where nothing in the config names one. It cannot be applied mid-stream:
+    //`unsupported` decides which HomeKit services accessories.service.js
+    //builds, and that happens once, immediately after this constructor
+    if (!this.modelKey && this.accessory.context.detectedModel) {
+      this.modelKey = this.accessory.context.detectedModel;
+      config.modelKey = this.modelKey;
+      logger.info(
+        `No model is configured. Using the ${this.modelKey} command set, ` +
+          "detected from this device's own status on an earlier run.",
+        this.accessory.displayName
+      );
+    }
+
+    const { speeds, keyMaps, valueMaps, extraSetFlags, unsupported } = modelConfig(config);
     this.speeds = speeds;
     this.keyMaps = keyMaps;
     this.valueMaps = valueMaps;
@@ -219,7 +241,73 @@ class Handler {
     return [...this.args, 'set', ...flags, ...cmds];
   }
 
+  /**
+   * Checks the mapping in force against what the device actually reports, once
+   * per start, on the first status substantial enough to judge.
+   *
+   * A wrong model is invisible from the plugin's side: the commands are
+   * transmitted, the device discards the ones it has no register for, and
+   * nothing errors. The device's own status is the one piece of evidence that
+   * settles it, and it arrives on the stream anyway. A separate probe is not an
+   * option, since these purifiers serve one connection at a time.
+   *
+   * What is found is recorded on the accessory context rather than acted on
+   * here, and picked up by the constructor on the next start. See there for why.
+   *
+   * @param {Record<string, unknown>} status
+   */
+  checkModelMapping(status) {
+    if (this.mappingChecked) {
+      return;
+    }
+
+    //devices report only what they have, so a short push is not evidence
+    if (Object.keys(status).length < 3) {
+      return;
+    }
+
+    this.mappingChecked = true;
+
+    const { key, certainty } = identifyModel(status);
+    const readable = readsStatus(status, this.keyMaps);
+
+    if (key && key !== this.modelKey) {
+      //a partial register overlap is not evidence against a mapping that is
+      //demonstrably reading this device; a device naming itself is
+      if (certainty === 'fingerprint' && readable) {
+        return;
+      }
+
+      this.accessory.context.detectedModel = key;
+
+      logger.warn(
+        (certainty === 'reported'
+          ? `This device reports itself as ${key}, which is not the model configured for it. `
+          : `This device reports registers this model mapping does not know (${Object.keys(status)
+              .slice(0, 4)
+              .join(', ')}), and they match the ${key} mapping. `) +
+          `Its controls will not work until the model is set to ${key} in the plugin config. ` +
+          `Until then the ${key} command set will be used from the next restart.`,
+        this.accessory.displayName
+      );
+
+      return;
+    }
+
+    if (!readable && looksLikeRegisters(status)) {
+      logger.warn(
+        `This device reports registers no model mapping in this plugin knows (${Object.keys(status)
+          .slice(0, 4)
+          .join(', ')}), so its controls will not work. ` +
+          'Please open an issue with a debug log so the model can be added.',
+        this.accessory.displayName
+      );
+    }
+  }
+
   handleResponse(json) {
+    this.checkModelMapping(json);
+
     this.obj = json;
 
     Object.entries(this.keyMaps).forEach(([key, mappedKey]) => {
