@@ -9,6 +9,14 @@ const nodePath = require('path');
 //enough that a wedged binary cannot hold up accessory setup
 const PROBE_TIMEOUT = 5 * 1000;
 
+//the command run when 'aioairctrlPath' is unset, resolved from PATH
+const DEFAULT_BINARY = 'aioairctrl';
+
+//what the preflight actually runs. Needs no device, no network and no -H, and
+//is the command the docs tell users to run by hand -- config.schema.test.js
+//holds the UI copy to this, so the two cannot drift apart
+const PROBE_ARGS = ['--help'];
+
 //how much of the CLI's own output is kept for the report. a broken Python
 //environment says why in its traceback, and that is the whole diagnosis
 const MAX_DETAIL = 2 * 1024;
@@ -53,7 +61,7 @@ const tail = (value) =>
  * @returns {Promise<PreflightResult>}
  */
 async function checkAioairctrl(binary) {
-  const command = binary || 'aioairctrl';
+  const command = binary || DEFAULT_BINARY;
 
   //an explicit path must not be mistaken for a PATH lookup, or the report
   //claims the command is 'not on the PATH' about a config that named a file.
@@ -109,7 +117,7 @@ async function checkAioairctrl(binary) {
     //on a value it will not accept. letting that escape would turn a bad config
     //value into an unhandled rejection inside didFinishLaunching
     try {
-      execFile(command, ['--help'], { timeout: PROBE_TIMEOUT }, (err, stdout, stderr) => {
+      execFile(command, PROBE_ARGS, { timeout: PROBE_TIMEOUT }, (err, stdout, stderr) => {
         if (!err) {
           return resolve(result('ok'));
         }
@@ -153,7 +161,7 @@ async function checkAioairctrl(binary) {
 function describeFailure(check) {
   const lines = [
     `Cannot run '${check.binary}', which this plugin needs to talk to your devices. No device will work until this is fixed.`,
-    `  Tried: ${check.binary} --help`,
+    `  Tried: ${check.binary} ${PROBE_ARGS.join(' ')}`,
   ];
 
   if (check.fromPath) {
@@ -194,8 +202,8 @@ function describeFailure(check) {
   //nothing on Windows, and a wrong instruction is worse than none
   lines.push(
     process.platform === 'win32'
-      ? `  Reproduce it yourself, as the account Homebridge runs under:  ${check.binary} --help`
-      : `  Reproduce it yourself:  sudo -u <homebridge-user> ${check.binary} --help`
+      ? `  Reproduce it yourself, as the account Homebridge runs under:  ${check.binary} ${PROBE_ARGS.join(' ')}`
+      : `  Reproduce it yourself:  sudo -u <homebridge-user> ${check.binary} ${PROBE_ARGS.join(' ')}`
   );
   lines.push(
     '  Full instructions: README "Cannot run aioairctrl" — https://github.com/atdr/homebridge-philipsair-platform#troubleshooting'
@@ -204,4 +212,4 @@ function describeFailure(check) {
   return lines.join('\n');
 }
 
-module.exports = { checkAioairctrl, describeFailure, PROBE_TIMEOUT };
+module.exports = { checkAioairctrl, describeFailure, PROBE_TIMEOUT, PROBE_ARGS, DEFAULT_BINARY };
