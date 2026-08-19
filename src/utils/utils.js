@@ -15,11 +15,16 @@ exports.generateConfig = (config) => {
 };
 
 //the aioairctrl executable, either a bare command resolved from PATH or a full
-//path. existence is not checked here — that is the startup preflight's job —
-//but the same shapes validHost rejects are rejected for the same reason: this
-//value becomes argv[0] of a child process, and a leading '-' or embedded
-//whitespace turns it into flags or extra arguments. an empty result means
-//'fall back to the PATH lookup', which is the documented default
+//path. existence is not checked here — that is the startup preflight's job.
+//
+//only a leading '-' is rejected. every call site passes this as argv[0] of an
+//execFile/spawn argument array with no shell, so it reaches the OS verbatim:
+//spaces are safe, and rejecting them would break real installs on macOS
+//('~/Library/Application Support/...') and Windows ('C:\\Program Files\\...').
+//a leading '-' is still worth refusing, since no real path starts with one and
+//argv[0] is the one position where it could be read as a flag.
+//
+//an empty result means 'fall back to the PATH lookup', the documented default
 exports.validBinaryPath = (path) => {
   if (path === undefined || path === null || path === '') {
     return '';
@@ -36,7 +41,7 @@ exports.validBinaryPath = (path) => {
     return '';
   }
 
-  if (trimmed.startsWith('-') || /\s/.test(trimmed)) {
+  if (trimmed.startsWith('-')) {
     logger.warn(`Invalid aioairctrlPath '${path}' configured, resolving 'aioairctrl' from the PATH instead.`);
     return '';
   }

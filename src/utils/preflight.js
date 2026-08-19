@@ -3,6 +3,7 @@
 const { execFile } = require('child_process');
 const fs = require('fs');
 const fsp = require('fs/promises');
+const nodePath = require('path');
 
 //long enough for a cold Python interpreter to start on a Raspberry Pi, short
 //enough that a wedged binary cannot hold up accessory setup
@@ -13,7 +14,7 @@ const PROBE_TIMEOUT = 5 * 1000;
 const MAX_DETAIL = 2 * 1024;
 
 /**
- * @typedef {'ok' | 'not-found' | 'not-executable' | 'failed'} PreflightKind
+ * @typedef {'ok' | 'not-found' | 'not-executable' | 'failed' | 'unknown'} PreflightKind
  * @typedef {object} PreflightResult
  * @property {boolean} ok
  * @property {PreflightKind} kind
@@ -53,7 +54,17 @@ const tail = (value) =>
  */
 async function checkAioairctrl(binary) {
   const command = binary || 'aioairctrl';
-  const fromPath = !command.includes('/');
+
+  //an explicit path must not be mistaken for a PATH lookup, or the report
+  //claims the command is 'not on the PATH' about a config that named a file.
+  //'/' alone misses Windows paths; the drive-letter test catches one pasted
+  //into a config read on any host, where a backslash would just be a filename
+  const fromPath = !(
+    command.includes('/') ||
+    nodePath.isAbsolute(command) ||
+    command.includes(nodePath.sep) ||
+    nodePath.win32.isAbsolute(command)
+  );
 
   /**
    * @param {PreflightKind} kind
@@ -81,7 +92,15 @@ async function checkAioairctrl(binary) {
         return result('not-found', 'No such file or directory.');
       }
 
-      return result('not-executable', code === 'EACCES' ? 'The file exists but is not executable.' : tail(err));
+      if (code === 'EACCES' || code === 'EPERM') {
+        return result('not-executable', 'The file exists but is not executable.');
+      }
+
+      //ENOTDIR, ELOOP and friends are neither missing nor a permissions
+      //problem. Guessing one of those gives a confidently wrong Cause and a
+      //useless Fix, in the one message whose whole job is to be readable by
+      //someone who will not go and read the source
+      return result('unknown', tail(err));
     }
   }
 
@@ -160,6 +179,10 @@ function describeFailure(check) {
     lines.push('  Cause: the file is there, but the Homebridge user may not execute it.');
     lines.push(`  Fix: check ownership and permissions:  ls -l ${check.binary}`);
     lines.push(`  and make it executable if it is not:  chmod +x ${check.binary}`);
+  } else if (check.kind === 'unknown') {
+    lines.push('  Cause: the path could not be checked. The error above is what the system reported.');
+    lines.push(`  Fix: confirm the 'aioairctrlPath' setting names the aioairctrl program itself,`);
+    lines.push('  and that every directory leading to it exists and is readable.');
   } else {
     lines.push('  Cause: aioairctrl starts but its Python environment is broken.');
     lines.push('  A "ModuleNotFoundError" above means the command survived an install its libraries did not.');
@@ -167,7 +190,13 @@ function describeFailure(check) {
     lines.push('  (aioairctrl needs Python 3.12 or newer.)');
   }
 
-  lines.push(`  Reproduce it yourself:  sudo -u <homebridge-user> ${check.binary} --help`);
+  //the remedies above are Unix shell commands; 'sudo -u' in particular means
+  //nothing on Windows, and a wrong instruction is worse than none
+  lines.push(
+    process.platform === 'win32'
+      ? `  Reproduce it yourself, as the account Homebridge runs under:  ${check.binary} --help`
+      : `  Reproduce it yourself:  sudo -u <homebridge-user> ${check.binary} --help`
+  );
   lines.push(
     '  Full instructions: README "Cannot run aioairctrl" — https://github.com/atdr/homebridge-philipsair-platform#troubleshooting'
   );

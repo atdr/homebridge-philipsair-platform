@@ -244,6 +244,8 @@ pipx reinstall aioairctrl
 
 Note that `aioairctrl` needs Python 3.12 or newer.
 
+> The shell commands above assume a Unix-like host (Linux, macOS, a Raspberry Pi). On Windows the diagnosis is the same, but run the equivalent checks under the account Homebridge runs as.
+>
 > This report is always shown, even with the `error` log option switched off — those options control per-device operational logging, not whether the plugin tells you it cannot work at all.
 
 ### The polling process exited with code N without returning any status

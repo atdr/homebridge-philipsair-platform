@@ -66,16 +66,34 @@ describe('validBinaryPath', () => {
     assert.equal(validBinaryPath('   '), '');
   });
 
-  //this value becomes argv[0] of a child process, so the shapes validHost
-  //rejects are rejected here for the same reason
-  it('rejects values that could be read as flags or extra arguments', () => {
+  //spaces are legitimate in a real install path and reach execFile verbatim,
+  //since every call site passes an argument array with no shell. Rejecting
+  //them silently swapped a working config for a PATH lookup, and the preflight
+  //then reported 'not installed' about a binary that was there
+  it('accepts paths containing spaces', () => {
+    warnings.length = 0;
+
+    assert.equal(
+      validBinaryPath('/Users/a/Library/Application Support/homebridge/aioairctrl'),
+      '/Users/a/Library/Application Support/homebridge/aioairctrl'
+    );
+    assert.equal(
+      validBinaryPath('C:\\Program Files\\aioairctrl\\aioairctrl.exe'),
+      'C:\\Program Files\\aioairctrl\\aioairctrl.exe'
+    );
+
+    assert.deepEqual(warnings, []);
+  });
+
+  //argv[0] is the one position where a leading '-' could be read as a flag,
+  //and no real path starts with one
+  it('rejects a value that could be read as a flag', () => {
     warnings.length = 0;
 
     assert.equal(validBinaryPath('-D'), '');
-    assert.equal(validBinaryPath('/usr/bin/aioairctrl --debug'), '');
     assert.equal(validBinaryPath(42), '');
 
-    assert.equal(warnings.length, 3);
+    assert.equal(warnings.length, 2);
   });
 
   it('says which value it rejected, so the config can be fixed', () => {
