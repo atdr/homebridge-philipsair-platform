@@ -98,6 +98,28 @@ that reach a user's install) and reports the full tree with `continue-on-error`,
 development advisory annotates the run without failing it. Dependabot alerts remain the
 signal of record for the development tree. `test/ci-workflow.test.js` guards the split.
 
+### Confirm the full check set ran before merging
+
+Workflow runs here can sit in **`action_required`** until someone approves them. A run in
+that state produces **no check runs at all**, so `gh pr checks` reports only the checks
+that did run and exits 0 — a PR whose CI has never started is indistinguishable from one
+with only CodeQL configured. Waiting for "nothing pending" therefore proves nothing.
+
+This is not hypothetical: it is how the v1.2.0 release failed. CI on the release PR sat in
+`action_required`, was read as three green checks, and the PR was merged — four minutes
+after the approved run had actually gone red.
+
+Before merging, confirm the Node 20.x/22.x/24.x jobs are present in `gh pr checks` (not
+merely that nothing is pending), and check for a blocked run:
+
+```bash
+gh run list --branch "$(gh pr view <n> --json headRefName --jq .headRefName)" \
+  --json conclusion,workflowName --jq '.[] | select(.conclusion=="action_required")'
+```
+
+Re-read the checks immediately before merging. Approval can land, and a run can go red,
+between an earlier check and the merge.
+
 ## Logging
 
 All runtime log output must go through the singleton logger in `src/utils/logger.js`.
