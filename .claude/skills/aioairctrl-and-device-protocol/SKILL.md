@@ -286,7 +286,15 @@ Defined in `src/accessories/accessories.models.js` (pure data; see
 3. **AC0850-style**: wire keys are dash-less registers (`pwr` → `D03102`), values are
    numeric, every `set` asks for `-I` (`extraSetFlags`). Speeds are composite register
    pairs (`{ D0310A: 2, D0310C: 17|0|18 }`). The exact model ID in config is
-   **required** for this dialect (README note 1). It also lists `mode` and `cl` as
+   **required** for this dialect (README note 1). It no longer has to be typed
+   perfectly: `resolveModel` normalises case, spacing and the `/NN` regional
+   suffix printed on the device, and falls back to a model ID left in the device
+   name. Failing all that, `identifyModel` recognises this dialect from the
+   registers themselves on the first status and adopts it from the next restart
+   (`Handler.checkModelMapping`). Note what makes that possible here: the AC0850
+   and AC1715 dumps carry **no name, type or model field of any kind**, so the
+   registers are the only signal, and identification is by fingerprint rather
+   than by asking. It also lists `mode` and `cl` as
    `unsupported`: no register for either appears in its status dumps or its key maps, so
    the plugin neither sends those commands nor exposes the HomeKit controls bound to them.
    Believed, not proven — issue #46 carries the status-diff experiment that settles it.
