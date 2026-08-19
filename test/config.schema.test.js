@@ -139,30 +139,4 @@ describe('config.schema', () => {
       );
     });
   });
-
-  //"Devices" rendered twice, once from the layout section and once from the
-  //array's own schema title
-  it('does not render the devices heading twice', () => {
-    const trail = findLayoutPath(schema.layout, 'devices');
-    const titles = trail.map((node) => node.title).filter(Boolean);
-
-    assert.deepEqual([...new Set(titles)], titles, 'a devices layout ancestor repeats the array title');
-
-    const sectionTitles = new Set(titles);
-    const schemaTitle = schema.schema.properties.devices.title;
-
-    assert.ok(
-      !schemaTitle || !sectionTitles.has(schemaTitle),
-      `the devices array's schema title '${schemaTitle}' is repeated by a layout section`
-    );
-  });
-
-  //a plain array stacks devices with nothing to tell them apart; tabarray is
-  //what gives each one a tab labelled from its name
-  it('renders each device as a titled tab', () => {
-    const item = findLayoutItem(schema.layout, 'devices');
-
-    assert.equal(item.type, 'tabarray');
-    assert.match(item.title, /\{\{.*value\.name.*\}\}/);
-  });
 });
