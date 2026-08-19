@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.2.0...v1.2.1) (2026-08-19)
+
+
+### Continuous Integration
+
+* exempt the generated changelog from markdownlint ([#59](https://github.com/atdr/homebridge-philipsair-platform/issues/59)) ([0313fcc](https://github.com/atdr/homebridge-philipsair-platform/commit/0313fcc6bdf95e4bf32a0644f643eeee82e42852))
+
 ## [1.2.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.1.0...v1.2.0) (2026-08-19)
 
 
