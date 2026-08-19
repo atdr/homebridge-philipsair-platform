@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { describe, it } = require('node:test');
 
+const { DEFAULT_BINARY, PROBE_ARGS } = require('../src/utils/preflight');
+
 const { mappedModels } = require('../src/accessories/accessories.models');
 
 const schema = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.schema.json'), 'utf8'));
@@ -89,12 +91,53 @@ describe('config.schema', () => {
     );
   });
 
-  //the prerequisite users kept missing in v1.1.0: it is only stated in the
-  //README, which the config UI never shows them
-  it('states the aioairctrl prerequisite in the config UI header', () => {
-    assert.match(schema.headerDisplay, /aioairctrl/);
-    assert.match(schema.headerDisplay, /pipx install aioairctrl/);
-    assert.match(schema.headerDisplay, /Homebridge/);
+  //Asserting the header contains the words it was written with would only
+  //restate the schema. What is worth guarding is that the instructions stay
+  //true of how the plugin actually behaves, and stay in step with the README:
+  //copy in two places, describing code in a third, is what drifts.
+  describe('config UI header instructions', () => {
+    const header = schema.headerDisplay;
+
+    it('names the executable the plugin actually runs by default', () => {
+      assert.match(
+        header,
+        new RegExp(`\\b${DEFAULT_BINARY}\\b`),
+        `the header must name '${DEFAULT_BINARY}', the command the plugin runs when aioairctrlPath is unset`
+      );
+    });
+
+    //the header tells users to verify their install by hand; if that command
+    //is not the one the preflight runs, the plugin and the user can disagree
+    //about whether the install works
+    it('tells users to verify with the command the preflight actually probes with', () => {
+      const probe = `${DEFAULT_BINARY} ${PROBE_ARGS.join(' ')}`;
+
+      assert.ok(
+        header.includes(probe),
+        `the header must tell users to run '${probe}', which is what src/utils/preflight.js runs`
+      );
+    });
+
+    //the header ends by telling users to fill in a named field; if that title
+    //is renamed the instruction points at a field that no longer exists
+    it('refers to the aioairctrlPath field by its real title', () => {
+      const title = schema.schema.properties.aioairctrlPath.title;
+
+      assert.ok(header.includes(title), `the header must name the '${title}' field by its actual title`);
+    });
+
+    //two places tell users how to install the CLI. The README is the doc of
+    //record, so the UI must not recommend something different
+    it('recommends the same install command as the README', () => {
+      const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+      const install = readme.match(/^pipx install \S+$/m);
+
+      assert.ok(install, 'no pipx install command found in the README');
+      assert.ok(
+        header.includes(install[0]),
+        `the README installs with '${install[0]}' but the config UI header recommends something else`
+      );
+    });
   });
 
   //"Devices" rendered twice, once from the layout section and once from the

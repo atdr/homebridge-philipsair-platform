@@ -4,6 +4,7 @@ const { execFile, spawn } = require('child_process');
 
 const logger = require('../utils/logger');
 const { hapNumber } = require('../utils/utils');
+const { DEFAULT_BINARY } = require('../utils/preflight');
 const modelConfig = require('./accessories.models');
 
 //status lines are small JSON objects; anything beyond this is a misbehaving
@@ -128,7 +129,7 @@ class Handler {
     this.extraSetFlags = extraSetFlags;
     this.unsupported = new Set(unsupported);
 
-    this.binary = this.accessory.context.config.aioairctrlPath || 'aioairctrl';
+    this.binary = this.accessory.context.config.aioairctrlPath || DEFAULT_BINARY;
     this.args = [
       '-H',
       this.accessory.context.config.host,
