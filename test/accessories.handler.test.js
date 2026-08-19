@@ -405,15 +405,16 @@ describe('model mapping check', () => {
   });
 
   it('takes a device at its word when it names itself', () => {
-    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' });
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC1715' });
     const { warn, restore } = capture();
 
-    handler.handleResponse({ pwr: '1', om: '2', type: 'AC3036' });
+    //the model field a real AC0850/31 reports, alongside its owner-set name
+    handler.handleResponse({ D01S03: 'Bedroom', D01S05: 'AC0850/31', D01102: 5, D03102: 1 });
     restore();
 
     assert.equal(warn.length, 1);
-    assert.ok(warn[0].includes('reports itself as AC3036'));
-    assert.equal(handler.accessory.context.detectedModel, 'AC3036');
+    assert.ok(warn[0].includes('reports itself as AC0850'));
+    assert.equal(handler.accessory.context.detectedModel, 'AC0850');
   });
 
   it('asks for an issue when the registers match nothing it knows', () => {
