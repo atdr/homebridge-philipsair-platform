@@ -139,4 +139,31 @@ describe('config.schema', () => {
       );
     });
   });
+
+  //Observed in a live Homebridge UI on 1.2.0-beta.6: headerDisplay renders
+  //markdown, but a property's description does not -- backticks in one showed
+  //up verbatim as `aioairctrl`. The two fields look interchangeable in the
+  //JSON, so nothing but this stops the mistake being made again.
+  it('does not put markdown in property descriptions, which render verbatim', () => {
+    const offenders = [];
+
+    const walk = (properties, where) => {
+      for (const [key, value] of Object.entries(properties)) {
+        if (/[`*]|\]\(/.test(value.description ?? '')) {
+          offenders.push(`${where}.${key}`);
+        }
+        if (value.type === 'array') {
+          walk(value.items.properties, `${where}.${key}[]`);
+        }
+      }
+    };
+
+    walk(schema.schema.properties, 'schema');
+
+    assert.deepEqual(
+      offenders,
+      [],
+      `these descriptions contain markdown, which the config UI shows literally: ${offenders.join(', ')}`
+    );
+  });
 });

@@ -17,7 +17,7 @@
         "title": "aioairctrl Path",
         "type": "string",
         "placeholder": "aioairctrl",
-        "description": "Only needed if `aioairctrl` is not on the PATH of the user running Homebridge. Run `which aioairctrl` as that user and paste the full path here, e.g. /home/pi/.local/bin/aioairctrl. Leave empty to look it up on the PATH."
+        "description": "Only needed if aioairctrl is not on the PATH of the user running Homebridge. Run 'which aioairctrl' as that user and paste the full path here, e.g. /home/pi/.local/bin/aioairctrl. Leave empty to look it up on the PATH."
       },
       "debug": {
         "title": "Debug Log",
