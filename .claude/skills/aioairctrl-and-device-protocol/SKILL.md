@@ -101,6 +101,30 @@ much further that goes.
 > stall timer has two regimes: see the off-state item below. Both halves are verified on
 > hardware, the refresh on 1.2.0-beta.4 and the two regimes on 1.2.0-beta.5.
 
+**[AC0850] On a stream left alone it pushes every ~9 s; re-subscribing is what costs.** Measured
+over a full debug night on **v1.2.1**, 2026-08-19 20:04 to 2026-08-20 13:00, purifier on
+throughout (device-reported `pwr=1` from 21:59:39 to 10:55:57), 1165 readings:
+
+| gap from one reading to the next | n   | median    | p90    | max    |
+| -------------------------------- | --- | --------- | ------ | ------ |
+| subscription left alone          | 991 | **9 s**   | 42 s   | 60 s   |
+| after a refresh kill             | 145 | **140 s** | 294 s  | 834 s  |
+| after a stall kill               | 28  | **529 s** | 1602 s | 2220 s |
+
+The 60 s ceiling on the first row is `armRefreshTimeout` firing, not the device falling silent, so
+**how long a live subscription stays quiet on this model is still unmeasured**: the plugin never
+lets one live long enough to find out. What is measured is the cost of teardown. A replacement
+subscription waits 140 s at the median to be answered, and the median burst is **3 readings before
+the refresh kills the stream**. Every long silence in the night follows a kill, and none occurs on
+a stream left untouched, which is the strongest support so far for the orphaned-observer theory
+below.
+
+> ⚠️ **Correction.** The ~51 s and 10-30 s cadences above were both sampled while streams were
+> being torn down on a timer, so they mix the device's own cadence with re-subscription cost. On an
+> untouched stream it is ~9 s. The design consequence runs opposite to what #38 and #44 assumed:
+> **the expensive operation on this model is re-subscribing, not waiting**, so a refresh sized
+> below the device's quiet period makes HomeKit staler rather than fresher. Tracked as issue #71.
+
 **[AC0850] Switched off, it answers only intermittently, and 25 minute silences are normal.**
 Measured 2026-08-18 against 1.2.0-beta.4. Homebridge was stopped so nothing could kill a
 subscription and no client competed, the purifier was switched off, then left 10 minutes to
@@ -204,7 +228,9 @@ notification it was waiting for (the device answered a `set` 83 s later; the ref
 83 s figure above is also real.** Measured 2026-08-18: `set -I D03102=0` at 21:12:28 produced a
 status **within the same second**, carrying the new value and `"StatusType":"control"` where
 every periodic push says `"status"`. That is the device acknowledging a control action, and it
-is three orders of magnitude faster than the 83 s a beta.3 write waited for. **Do not replace
+is three orders of magnitude faster than the 83 s a beta.3 write waited for. Seven further writes
+on v1.2.1 over the night of 2026-08-19 were all echoed **within 1 s**, so the immediate echo is
+the common case rather than the exception. **Do not replace
 one number with the other**: write-to-notification latency on this model spans at least
 0-83 s, which is exactly why verification must ride the stream rather than run on a schedule
 sized from any single measurement. The `control` marker is a usable signal if a future change
