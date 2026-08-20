@@ -9,7 +9,13 @@ const Handler = require('../src/accessories/accessories.handler');
 const noop = () => {};
 logger.configure({ info: noop, warn: noop, error: noop }, {});
 
-const fakeApi = { hap: { Service: {}, Characteristic: {} } };
+//accessories written back to Homebridge's cache, which is how a detected model
+//survives a restart that is not a clean shutdown
+const persisted = [];
+const fakeApi = {
+  hap: { Service: {}, Characteristic: {} },
+  updatePlatformAccessories: (accessories) => persisted.push(...accessories),
+};
 
 // capture what one call logs, then put the silence back
 const capture = () => {
@@ -378,6 +384,8 @@ describe('model mapping check', () => {
     assert.ok(warn[0].includes('match the AC0850 mapping'));
     assert.ok(warn[0].includes('set to AC0850'));
     assert.equal(handler.accessory.context.detectedModel, 'AC0850');
+    //without this the finding is only flushed on a clean shutdown
+    assert.ok(persisted.includes(handler.accessory));
   });
 
   it('says nothing when the configured model reads the device', () => {
