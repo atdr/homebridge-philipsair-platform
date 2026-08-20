@@ -2,12 +2,17 @@
 
 const { validHost, validPort, validRefreshInterval } = require('../utils/utils');
 
+//what HomeKit shows as the model when the field is empty. It is a placeholder,
+//not a model ID, so anything that reads `model` to decide something has to be
+//able to tell it apart from a value the user actually typed
+const DEFAULT_MODEL = 'Air Purifier';
+
 const Config = (deviceConfig) => {
   return {
     active: deviceConfig.active || false,
     name: deviceConfig.name,
     manufacturer: deviceConfig.manufacturer || 'Philips',
-    model: deviceConfig.model || 'Air Purifier',
+    model: deviceConfig.model || DEFAULT_MODEL,
     serialNumber: deviceConfig.serialNumber || '000000',
     host: validHost(deviceConfig.host),
     port: validPort(deviceConfig.port),
@@ -23,5 +28,7 @@ const Config = (deviceConfig) => {
     hepaFilter: deviceConfig.hepaFilter || false,
   };
 };
+
+Config.DEFAULT_MODEL = DEFAULT_MODEL;
 
 module.exports = Config;
