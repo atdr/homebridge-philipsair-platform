@@ -1001,9 +1001,15 @@ class Handler {
    * @param {number | null} code
    */
   reportPollFailure(code) {
-    //a stall means the subscription was accepted and nothing ever arrived,
-    //which is already conclusive; an exit could still be a one-off
-    const escalate = this.stalled || this.pollFailures >= FAILURE_ESCALATION_THRESHOLD;
+    //a stall on a device that has never answered is already conclusive: the
+    //subscription was accepted and nothing ever arrived, so it may be unplugged,
+    //renumbered or on another network, and the first stall is the whole
+    //diagnosis (#48). A device that *has* answered and then went quiet is a
+    //different claim, and one that recovers on its own: 21 of them in a night on
+    //an AC0850, every one self-recovered, all reported with the same "check that
+    //the purifier is powered on" alarm as an unplugged one (#62). That waits for
+    //the threshold like any other no-data close.
+    const escalate = (this.stalled && !this.everAnswered()) || this.pollFailures >= FAILURE_ESCALATION_THRESHOLD;
     const kind = this.stalled ? 'stall' : 'exit';
 
     const summary = this.stalled
@@ -1107,6 +1113,17 @@ class Handler {
         this.accessory.displayName
       );
     }
+  }
+
+  /**
+   * Whether the device has ever answered. `this.obj` is assigned only from a
+   * device status in `handleResponse`, never optimistically from a write, so an
+   * empty one says the plugin has never heard from this device at all. It is
+   * deliberately not `receivedData`, which is reset on every restart: what was
+   * once known outlives the stream that reported it.
+   */
+  everAnswered() {
+    return Object.keys(this.obj).length > 0;
   }
 
   /**

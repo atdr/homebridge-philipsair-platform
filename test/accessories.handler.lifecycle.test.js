@@ -601,6 +601,31 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     await delay(50);
   });
 
+  it('waits for the threshold when a device that has answered goes quiet', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2' }));
+
+    //21 of these in one night on an AC0850, every one self-recovering: a single
+    //dropped subscription is not the same claim as a purifier that is unplugged
+    handler.stalled = true;
+    handler.pollFailures = 1;
+    handler.reportPollFailure(null);
+
+    assert.deepEqual(logs.warn, [], 'a single self-recovering stall reached the user');
+
+    handler.pollFailures = 3;
+    handler.reportPollFailure(null);
+
+    assert.ok(
+      logs.warn.some((line) => line.includes('No status received from the device')),
+      `a stall that kept repeating stayed quiet, got ${JSON.stringify(logs.warn)}`
+    );
+  });
+
   it('reports recovery once status arrives again', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
