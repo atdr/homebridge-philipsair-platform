@@ -45,10 +45,11 @@ const SPAWN_ERROR_RESTART_DELAY = 30 * 1000;
 const MAX_STDERR_CAPTURE = 4 * 1024;
 
 //Python logging's default record format, 'LEVEL:logger.name:message'. with
-//'debug' enabled the plugin passes -D and aioairctrl writes its whole debug log
-//to stderr, so the stream carries progress as well as faults: 'syncing' is not
-//a diagnosis and must never be reported as one. records at WARNING and above
-//are kept, since those are the CLI reporting a problem in its own words
+//'cliDebug' enabled the plugin passes -D and aioairctrl writes its whole debug
+//log to stderr, so the stream carries progress as well as faults: 'syncing' is
+//not a diagnosis and must never be reported as one. records at WARNING and
+//above are kept, since those are the CLI reporting a problem in its own words,
+//and those arrive without -D
 const CLI_PROGRESS_LINE = /^(DEBUG|INFO):[^\s:]*:/;
 
 //consecutive polls returning nothing before the plugin escalates from a debug
@@ -160,7 +161,7 @@ class Handler {
       this.accessory.context.config.host,
       '-P',
       String(this.accessory.context.config.port),
-      this.accessory.context.config.debug ? '-D' : '',
+      this.accessory.context.config.cliDebug ? '-D' : '',
     ].filter((cmd) => cmd);
   }
 
