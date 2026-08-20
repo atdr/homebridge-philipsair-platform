@@ -120,6 +120,18 @@ describe('accessories.setup', () => {
     assert.deepEqual(warn, []);
   });
 
+  //the placeholder Config substitutes for an empty model field is not something
+  //the user typed, so it must not be quoted back at them as though it were
+  it('distinguishes an empty model field from a model it has no mapping for', async () => {
+    const { info, restore } = capture();
+
+    await Setup(deviceMap, [{ active: true, name: 'Bedroom', host: '192.168.1.142' }], uuid.generate);
+    restore();
+
+    assert.ok(info.some((message) => message.includes('Bedroom: No model is configured, using the default')));
+    assert.ok(!info.some((message) => message.includes('Air Purifier')));
+  });
+
   //the reported failure: 'I made sure it was named AC0850 in the plugin'
   it('adopts a model ID left in the device name and says where it came from', async () => {
     const { info, warn, restore } = capture();

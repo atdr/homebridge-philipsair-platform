@@ -38,6 +38,16 @@ const announceModel = (device) => {
 
   if (key) {
     logger.info(`Using the ${key} command set.`, device.name);
+  } else if (device.model === Config.DEFAULT_MODEL) {
+    //`model` is never empty by the time it gets here: Config substitutes a
+    //placeholder for HomeKit to display. Quoting that back at a user who left
+    //the field alone reads as though they had typed it, in exactly the case
+    //this message exists to help with
+    logger.info(
+      'No model is configured, using the default command set. ' +
+        'If the controls do not work, set the model to the ID printed on your device.',
+      device.name
+    );
   } else {
     logger.info(
       `No tested mapping for model "${device.model}", using the default command set. ` +

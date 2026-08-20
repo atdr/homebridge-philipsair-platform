@@ -290,7 +290,7 @@ Check all three of these:
    Bedroom: Using the AC0850 command set.
    ```
 
-   A device that instead reports `No tested mapping for model "..."` is running on the default mapping. That is expected for a model outside the tested list, and a bug in your config if your model is on it.
+   A device that instead reports `No tested mapping for model "..."`, or `No model is configured`, is running on the default mapping. That is expected for a model outside the tested list, and a bug in your config if your model is on it.
 
 If the model is right and the controls still do nothing, set `debug` to true, copy a logged status line, and open an issue with it.
 
