@@ -136,6 +136,97 @@ const modelConfig = (deviceConfig) => {
   };
 };
 
+//The generic vocabulary handleResponse translates every dialect into. A status
+//carrying none of these and none of the configured model's own registers is a
+//status the mapping in force cannot read at all.
+const GENERIC_KEYS = new Set([
+  'pwr',
+  'om',
+  'mode',
+  'cl',
+  'aqil',
+  'uil',
+  'func',
+  'rhset',
+  'wl',
+  'iaql',
+  'pm25',
+  'rh',
+  'temp',
+  'wicksts',
+  'fltsts0',
+  'fltsts1',
+  'fltsts2',
+  'flttotal0',
+  'flttotal1',
+  'flttotal2',
+]);
+
+//both register dialects: 'D03-02' (AC1715 style) and 'D03102' (AC0850 style)
+const REGISTER_KEY = /^D\d{2}-?\d{2,3}$/;
+
+//Status fields that carry the model itself. `D01S05` is observed: a full
+//AC0850/31 dump reports `"D01S05":"AC0850/31"` alongside `D01S03` and `D01S04`,
+//which hold user-settable names. `type` and `modelid` are the legacy-dialect
+//candidates and remain unconfirmed; a field a device does not send is inert.
+//
+//This is an allowlist rather than a scan of every string value, and that is the
+//point: `D01S03` is whatever the owner typed into the Philips app, so a device
+//named 'AC1715' by its owner would otherwise be identified as one.
+const MODEL_FIELDS = ['D01S05', 'type', 'modelid'];
+
+/**
+ * Which model a device's own status says it is.
+ *
+ * Two signals, strongest first. A device that names itself settles the
+ * question. Otherwise the registers are the fingerprint, which is what a model
+ * reporting none of MODEL_FIELDS leaves to go on.
+ *
+ * @param {Record<string, unknown>} status
+ * @returns {{ key: string | undefined, certainty: 'reported' | 'fingerprint' | undefined }}
+ */
+const identifyModel = (status) => {
+  const entries = Object.entries(status || {});
+
+  for (const field of MODEL_FIELDS) {
+    const candidate = normaliseModel((status || {})[field]);
+
+    if (models[candidate]) {
+      return { key: candidate, certainty: 'reported' };
+    }
+  }
+
+  const keys = entries.map(([key]) => key);
+  let best;
+  let bestScore = 0;
+
+  for (const [key, model] of Object.entries(models)) {
+    const score = Object.values(model.keyMaps || {}).filter((register) => keys.includes(register)).length;
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = key;
+    }
+  }
+
+  return { key: best, certainty: best ? 'fingerprint' : undefined };
+};
+
+/**
+ * Whether a mapping can read anything at all out of a status: at least one key
+ * is either one of that model's registers or already a generic key.
+ *
+ * @param {Record<string, unknown>} status
+ * @param {Record<string, string>} keyMaps
+ */
+const readsStatus = (status, keyMaps) => {
+  const mapped = new Set(Object.values(keyMaps || {}));
+
+  return Object.keys(status || {}).some((key) => mapped.has(key) || GENERIC_KEYS.has(key));
+};
+
+const looksLikeRegisters = (status) => Object.keys(status || {}).some((key) => REGISTER_KEY.test(key));
+
 //Every model listed here must also appear in the config.schema.json model
 //typeahead suggestions (enforced by test/config.schema.test.js).
 modelConfig.mappedModels = Object.keys(models);
@@ -145,5 +236,9 @@ modelConfig.resolveModel = resolveModel;
 //whether a model brings its own speed table, i.e. whether the sleepSpeed
 //option can do anything for it
 modelConfig.hasOwnSpeeds = (key) => Boolean(key && models[key] && models[key].speeds);
+
+modelConfig.identifyModel = identifyModel;
+modelConfig.readsStatus = readsStatus;
+modelConfig.looksLikeRegisters = looksLikeRegisters;
 
 module.exports = modelConfig;
