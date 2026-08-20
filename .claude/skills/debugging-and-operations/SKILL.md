@@ -44,6 +44,11 @@ re-armed by every status line in `processUpdate`:
 
 - `armRefreshTimeout` (`refreshInterval`, default 60 s, per-device config, `0` disables) asks the
   device for a fresh reading by killing the stream so the `close` handler re-subscribes after 5 s.
+  Since #71 the configured value is a **floor**, not a cadence: `adaptRefresh` times each
+  re-subscription (`refreshKilledAt` to the next reading) and doubles `refreshFactor` whenever one
+  cost more than the wait it replaced, halving it back toward 1 when one is answered inside half
+  the wait. `refreshDelay()` is what is actually armed, capped at `stallTimeout`, at which point
+  the refresh is dormant and the stall detector is the only teardown.
   A fresh subscription is what prompts an idle purifier to answer. It is armed **only** from
   `processUpdate`, so a subscription that has never been answered is never killed by it.
 - `armStallTimeout` is the fault detector, and only fires when the device has said nothing for far
@@ -60,12 +65,14 @@ burst is **3 readings before the refresh kills the stream**. Over that night the
 times and one PID rarely persisted. Spawn failures retry after 30 s and log only once
 (`failureLogged`).
 
-That churn also fixes what a stall means today. `armStallTimeout` is armed in `longPoll` at spawn,
-not from the last reading, so with the refresh cutting in at 60 s and the restart taking 5 s,
-**every one of the night's 50 stalls on the AC0850 fired at exactly 365 s since the last
-reading**, with no variance (60 + 5 + 300). The on-state stall is therefore measuring "this subscription has not been
-answered yet", not "the device has gone silent". Issue #71 covers the refresh; #62 covers the
-warning that rides on it.
+That churn is also what a stall used to mean. Before #71 `armStallTimeout` was armed in `longPoll`
+at spawn, not from the last reading, so with the refresh cutting in at 60 s and the restart taking
+5 s, **every one of the night's 50 stalls on the AC0850 fired at exactly 365 s since the last
+reading**, with no variance (60 + 5 + 300): the on-state stall was measuring "this subscription has
+not been answered yet", not "the device has gone silent". It now arms from `lastReadingAt`, which
+survives the stream that produced it, with a floor of `refreshDelay()` so a replacement
+subscription still gets time to answer a deadline that is already past. A device that has **never**
+answered has no reading to measure from and still gets the full timeout, which is #48's case.
 
 > Reading logs from v1.2.0-beta.3 or earlier? `STALL_TIMEOUT` was 120 s there and there was no
 > refresh, so an idle purifier was torn down every ~125 s **with a warning each time** (issue #38).
