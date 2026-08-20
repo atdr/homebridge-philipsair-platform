@@ -154,6 +154,42 @@ describe('config.schema', () => {
     });
   });
 
+  //An array layout's items are its element templates: @ng-formworks/core
+  //treats every entry that does not resolve to a dataPointer under
+  //<array>/- as another element of the array. A keyless node -- a help or
+  //message block, say -- therefore renders as an extra device tab, shifts
+  //every real device onto the wrong data index, and inflates listItems, so
+  //buildFormGroupTemplate materialises a phantom device that saving writes
+  //back to config.json. Keyless decoration has to be nested inside a keyed
+  //child, or hung outside the array entirely.
+  it('puts nothing keyless directly inside an array layout, which would count as a device', () => {
+    const offenders = [];
+
+    const walk = (node, insideArray) => {
+      if (Array.isArray(node)) {
+        for (const child of node) {
+          walk(child, insideArray);
+        }
+        return;
+      }
+      if (!node || typeof node !== 'object') {
+        return;
+      }
+      if (insideArray && node.key === undefined) {
+        offenders.push(node.type ?? JSON.stringify(node));
+      }
+      walk(node.items, typeof node.type === 'string' && node.type.endsWith('array'));
+    };
+
+    walk(schema.layout, false);
+
+    assert.deepEqual(
+      offenders,
+      [],
+      `these layout nodes sit straight inside an array and have no key, so each renders as an array element: ${offenders.join(', ')}`
+    );
+  });
+
   //Observed in a live Homebridge UI on 1.2.0-beta.6: headerDisplay renders
   //markdown, but a property's description does not -- backticks in one showed
   //up verbatim as `aioairctrl`. The two fields look interchangeable in the
