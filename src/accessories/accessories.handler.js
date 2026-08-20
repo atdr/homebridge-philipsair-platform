@@ -279,6 +279,10 @@ class Handler {
       }
 
       this.accessory.context.detectedModel = key;
+      //accessory.context is otherwise only written out when Homebridge shuts
+      //down cleanly, so a power cut or an OOM kill between here and then loses
+      //the finding and the next start repeats this run rather than adopting it
+      this.api.updatePlatformAccessories([this.accessory]);
 
       logger.warn(
         (certainty === 'reported'
