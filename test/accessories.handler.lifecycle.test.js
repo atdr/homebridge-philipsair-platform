@@ -120,6 +120,123 @@ describe('processUpdate', () => {
   });
 });
 
+describe('adaptive refresh', () => {
+  const status = JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2' });
+
+  //the refresh is a trade: a fresh subscription elicits a reading, and on some
+  //devices it costs far more than waiting for one. these drive the price
+  //directly rather than through wall-clock timing, which CI cannot hold steady
+  const priced = (handler, cost) => {
+    handler.purifierService = makeService();
+    handler.refreshKilledAt = Date.now() - cost;
+
+    return handler.processUpdate(status);
+  };
+
+  it('backs off when re-subscribing costs more than the wait it replaced', async () => {
+    const handler = makeHandler({ refreshInterval: 60 });
+
+    await priced(handler, 140 * 1000);
+
+    assert.equal(handler.refreshFactor, 2);
+    assert.equal(handler.refreshDelay(), 120 * 1000);
+  });
+
+  it('comes back down when a refresh is answered promptly', async () => {
+    const handler = makeHandler({ refreshInterval: 60 });
+    handler.refreshFactor = 4;
+
+    await priced(handler, 5 * 1000);
+
+    assert.equal(handler.refreshFactor, 2);
+  });
+
+  it('never lets the refresh outlast the fault detector', async () => {
+    const handler = makeHandler({ refreshInterval: 60 });
+    handler.refreshFactor = 4;
+
+    await priced(handler, 600 * 1000);
+
+    assert.equal(handler.refreshDelay(), handler.stallTimeout);
+  });
+
+  it('holds the configured interval as a floor', async () => {
+    const handler = makeHandler({ refreshInterval: 60 });
+
+    await priced(handler, 1000);
+
+    assert.equal(handler.refreshFactor, 1);
+    assert.equal(handler.refreshDelay(), 60 * 1000);
+  });
+
+  it('prices nothing when no refresh killed the stream', async () => {
+    const handler = makeHandler({ refreshInterval: 60 });
+    handler.purifierService = makeService();
+
+    await handler.processUpdate(status);
+
+    assert.equal(handler.refreshFactor, 1);
+    assert.equal(handler.refreshKilledAt, null);
+  });
+
+  it('leaves the adaptation alone when the refresh is switched off', async () => {
+    const handler = makeHandler({ refreshInterval: 0 });
+
+    await priced(handler, 600 * 1000);
+
+    assert.equal(handler.refreshFactor, 1);
+    assert.equal(handler.refreshDelay(), 0);
+  });
+});
+
+describe('stall deadline', () => {
+  it('measures the stall from the last reading, not from the process', async () => {
+    //production ratios in miniature: the refresh cuts in well inside the stall
+    //timeout, which is what made every stall fire at 60 + 5 + 300 rather than 300
+    const handler = makeHandler({ refreshInterval: 1 });
+    handler.purifierService = makeService();
+    handler.stallTimeout = 5000;
+
+    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2' }));
+    //four fifths of the way through the timeout already, as a refresh teardown
+    //and its restart delay leave a replacement subscription
+    handler.lastReadingAt = Date.now() - 4000;
+
+    assert.ok(
+      Math.abs(handler.stallDelay() - 1000) <= 50,
+      `waited ${handler.stallDelay()}ms, which is not the 1000ms left of the timeout`
+    );
+  });
+
+  it('gives a replacement subscription time to answer a past-due deadline', () => {
+    const handler = makeHandler({ refreshInterval: 1 });
+    handler.stallTimeout = 5000;
+    //silent for far longer than the timeout already: without a floor the
+    //deadline is past, and every respawn is killed before it can answer
+    handler.lastReadingAt = Date.now() - 600 * 1000;
+
+    assert.equal(handler.stallDelay(), handler.refreshDelay());
+  });
+
+  it('gives a device that has never answered the full timeout', () => {
+    const handler = makeHandler({});
+    handler.stallTimeout = 5000;
+
+    assert.equal(handler.lastReadingAt, null);
+    assert.equal(handler.stallDelay(), handler.stallTimeout);
+  });
+
+  it('keeps the off-state backstop on its own timeout', async () => {
+    const handler = makeHandler({ refreshInterval: 1 });
+    handler.purifierService = makeService();
+    handler.offStallTimeout = 9000;
+
+    await handler.processUpdate(JSON.stringify({ pwr: '0', mode: 'P', cl: false, om: '2' }));
+
+    assert.ok(Math.abs(handler.stallDelay() - handler.offStallTimeout) <= 50);
+  });
+});
+
 describe('handleStdoutChunk', () => {
   it('buffers partial lines and processes complete ones', async () => {
     const handler = makeHandler({});
