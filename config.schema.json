@@ -62,7 +62,8 @@
               "title": "Name",
               "type": "string",
               "required": true,
-              "description": "Set the device name for display in the Home app."
+              "placeholder": "Air Purifier",
+              "description": "Your own label for this device in the Home app, for example Air Purifier. It does not tell the plugin what kind of device this is. The Model field does that."
             },
             "manufacturer": {
               "title": "Manufacturer",
@@ -74,9 +75,9 @@
             "model": {
               "title": "Model",
               "type": "string",
-              "placeholder": "Air Purifier",
-              "default": "Air Purifier",
-              "description": "Determines how the plugin controls this device, not just what the Home app displays. If your device is in the suggestions, pick the exact ID \u2014 those models need it for correct fan speeds and controls. Any other value works, using default settings that suit most purifiers. See the tested devices list in the README.",
+              "required": true,
+              "placeholder": "AC0850",
+              "description": "The model ID printed on your device, for example AC0850. Ignore any /11 or /31 suffix. This selects the commands the plugin sends, so a missing or wrong model is the usual reason a device appears in the Home app but none of its buttons work. Models in the suggestions have a tested mapping. Anything else falls back to a default mapping, which may not drive your device correctly.",
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               }
@@ -93,7 +94,7 @@
               "type": "string",
               "required": true,
               "placeholder": "10.0.1.16",
-              "description": "IP address or hostname of your device, e.g. 10.0.1.16 or purifier.local.",
+              "description": "IP address or hostname of your device, e.g. 10.0.1.16 or purifier.local. Give the device a fixed address before you enter it here, usually a DHCP reservation on your router. If the address changes later the plugin can no longer reach it, and the accessory stops responding until you correct this field.",
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               }
@@ -195,13 +196,26 @@
           "orderable": false,
           "items": [
             "devices[].active",
-            "devices[].name",
+            {
+              "key": "devices[]",
+              "type": "section",
+              "condition": {
+                "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
+              },
+              "items": [
+                {
+                  "type": "help",
+                  "helpvalue": "<div class=\"help-block\"><b>Model</b> selects the commands this plugin sends, so it has to be the ID printed on your device, such as AC0850. <b>Name</b> is only your label for it in the Home app.</div>"
+                }
+              ]
+            },
             {
               "key": "devices[].model",
               "typeahead": {
                 "source": ["AC0850", "AC1715", "AC3036", "AC3829"]
               }
             },
+            "devices[].name",
             "devices[].host",
             {
               "key": "devices[].port",
