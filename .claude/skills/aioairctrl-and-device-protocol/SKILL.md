@@ -205,7 +205,10 @@ explanation alive (see the single-connection item below) without coming close to
 lifetime accidentally worked as a ~65 s poll loop, and why raising `STALL_TIMEOUT` alone
 makes idle staleness worse rather than better. The deliberate periodic refresh in
 `armRefreshTimeout` is the fix, and the 60 s default is that accidental v1.1.0 behaviour made
-explicit rather than a number derived from these measurements.
+explicit rather than a number derived from these measurements. Since #71 it is only the **floor**:
+the elicited reading is not free, and `adaptRefresh` backs the interval off wherever a
+re-subscription costs more than the wait it replaced, so the trade is made per device rather than
+per constant.
 
 **The refresh timer is armed only from `processUpdate`, never from `longPoll`,** and any change
 to it must keep that property: the interval then measures the time since a _reading_, so a

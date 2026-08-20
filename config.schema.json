@@ -122,7 +122,7 @@
               "minimum": 0,
               "maximum": 3600,
               "placeholder": 60,
-              "description": "Seconds after a reading before the plugin asks the device for another one, by re-subscribing. Raise it if your device reports on its own often enough; set it to 0 to switch the refresh off and rely entirely on the device. Values below 15 are treated as 15.",
+              "description": "Shortest time the plugin waits after a reading before asking the device for another one, by re-subscribing. It waits longer than this on a device where re-subscribing turns out to cost more than waiting does, which it learns as it goes. Raise it if your device reports on its own often enough; set it to 0 to switch the refresh off and rely entirely on the device. Values below 15 are treated as 15.",
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               }

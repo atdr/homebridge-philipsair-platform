@@ -105,6 +105,18 @@ class Handler {
     this.pendingWrites = new Map();
     this.verifyTimeout = null;
     this.refreshTimeout = null;
+    //when the last refresh killed the stream, so the reading that answers the
+    //replacement subscription can be priced. null once that price is known
+    /** @type {number | null} */
+    this.refreshKilledAt = null;
+    //what the refresh has learned this device's re-subscription is worth, as a
+    //multiple of the configured interval. see adaptRefresh
+    this.refreshFactor = 1;
+    //when the stream last produced a line, which outlives the stream that
+    //produced it: the stall deadline is measured from a *reading*, and every
+    //stall after a teardown is judged on a stream that has answered nothing yet
+    /** @type {number | null} */
+    this.lastReadingAt = null;
     //whether an unapplied write has already been warned about, so an automation
     //that keeps failing reports once rather than on every cycle
     this.loggedWriteFailure = false;
@@ -837,6 +849,7 @@ class Handler {
 
     logger.debug('Requesting a fresh reading from the device', this.accessory.displayName);
     this.refreshing = true;
+    this.refreshKilledAt = Date.now();
     this.airControl.kill();
   }
 
@@ -1035,7 +1048,65 @@ class Handler {
     this.refreshTimeout = setTimeout(() => {
       this.refreshTimeout = null;
       this.requestRefresh();
-    }, this.refreshInterval);
+    }, this.refreshDelay());
+  }
+
+  /**
+   * How long the plugin currently waits after a reading before re-subscribing.
+   * The configured interval is a floor; `refreshFactor` is what this device's
+   * own behaviour has added to it.
+   */
+  refreshDelay() {
+    return this.refreshInterval * this.refreshFactor;
+  }
+
+  /**
+   * Prices the last refresh and adjusts how eager the next one is.
+   *
+   * Re-subscribing is a trade: it elicits a reading, and on some models it costs
+   * far more than waiting for the device to push one. An AC0850 answers an
+   * untouched stream every ~9 s but takes 140 s at the median to answer a
+   * replacement subscription, so a refresh sized below its quiet period made
+   * HomeKit *staler* (issue #71). Rather than replace one constant read off one
+   * purifier with another, the interval follows what re-subscribing actually
+   * costs here:
+   *
+   * - cost more than the wait it replaced -> back off, up to the point where the
+   *   refresh is dormant and the stall detector is the only teardown
+   * - answered promptly -> come back down toward the configured interval, so a
+   *   device that once dozed is not punished for it forever
+   *
+   * @param {number} receivedAt
+   */
+  adaptRefresh(receivedAt) {
+    const killedAt = this.refreshKilledAt;
+
+    this.refreshKilledAt = null;
+
+    if (!killedAt || !this.refreshInterval) {
+      return;
+    }
+
+    const cost = receivedAt - killedAt;
+    const delay = this.refreshDelay();
+    //a refresh can never wait longer than the fault detector, since past that
+    //point the stall timeout tears the stream down anyway
+    const maxFactor = Math.max(1, this.stallTimeout / this.refreshInterval);
+    const before = this.refreshFactor;
+
+    if (cost > delay) {
+      this.refreshFactor = Math.min(this.refreshFactor * 2, maxFactor);
+    } else if (cost <= delay / 2) {
+      this.refreshFactor = Math.max(this.refreshFactor / 2, 1);
+    }
+
+    if (this.refreshFactor !== before) {
+      logger.debug(
+        `Re-subscribing took ${Math.round(cost / 1000)}s against a ${Math.round(delay / 1000)}s wait, ` +
+          `asking for a fresh reading after ${Math.round(this.refreshDelay() / 1000)}s from now on`,
+        this.accessory.displayName
+      );
+    }
   }
 
   /**
@@ -1057,6 +1128,28 @@ class Handler {
   }
 
   /**
+   * How long the stall detector waits, measured from the last *reading* rather
+   * than from the process now running.
+   *
+   * Armed at spawn it measured "this subscription has not been answered yet",
+   * which with a refresh cutting in at 60 s made every stall fire at 365 s
+   * rather than the 300 s the constant claims (issue #71). A device that has
+   * never answered has no reading to measure from, and that is precisely the
+   * case the warning exists for (#48), so it still gets the full timeout.
+   *
+   * The floor is what stops a deadline that is already past from killing every
+   * replacement subscription before it can answer: a fresh stream gets at least
+   * as long as the refresh is currently willing to wait for a reading.
+   */
+  stallDelay() {
+    const timeout = this.deviceKnownOff() ? this.offStallTimeout : this.stallTimeout;
+    const elapsed = this.lastReadingAt ? Date.now() - this.lastReadingAt : 0;
+    const grace = this.refreshInterval ? Math.min(this.refreshDelay(), timeout) : timeout;
+
+    return Math.max(timeout - elapsed, grace);
+  }
+
+  /**
    * Restarts the observe stream when the device goes quiet for far longer than
    * a refresh cycle can account for. Re-armed by every status line, so this is
    * a fault detector rather than a poll: the refresh above is what keeps an
@@ -1072,19 +1165,25 @@ class Handler {
     clearTimeout(this.processTimeout);
 
     const off = this.deviceKnownOff();
-    const timeout = off ? this.offStallTimeout : this.stallTimeout;
+    const delay = this.stallDelay();
 
     this.processTimeout = setTimeout(() => {
       if (this.airControl) {
+        const silence = this.lastReadingAt ? Date.now() - this.lastReadingAt : delay;
+
         logger.debug(
-          `No status received for ${Math.round(timeout / 1000)}s${off ? ' while the device is off' : ''}, restarting the polling process`,
+          `No status received for ${Math.round(silence / 1000)}s${off ? ' while the device is off' : ''}, restarting the polling process`,
           this.accessory.displayName
         );
         this.stalled = true;
         this.stalledWhileOff = off;
+        //a refresh whose replacement subscription was never answered cost more
+        //than any wait would have, which is the strongest evidence there is
+        //that this device is not worth re-subscribing to so eagerly
+        this.adaptRefresh(Date.now());
         this.airControl.kill();
       }
-    }, timeout);
+    }, delay);
   }
 
   handleStdoutChunk(data) {
@@ -1120,7 +1219,11 @@ class Handler {
   async processUpdate(line) {
     const receivedAt = Date.now();
 
-    //a line arriving proves the stream is alive, whether or not it parses
+    //a line arriving proves the stream is alive, whether or not it parses, so
+    //both the stall deadline and the price of the last refresh date from here
+    this.lastReadingAt = receivedAt;
+    this.adaptRefresh(receivedAt);
+
     if (this.airControl && !this.shutdown) {
       this.armStallTimeout();
       this.armRefreshTimeout();
