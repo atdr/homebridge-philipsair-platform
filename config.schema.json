@@ -24,6 +24,14 @@
         "type": "boolean",
         "description": "Logs every device status and command. Switch this on before reporting a problem, and off again afterwards \u2014 it is very noisy."
       },
+      "cliDebug": {
+        "title": "aioairctrl Debug Log",
+        "description": "Adds aioairctrl's own debug log to the plugin's. Only useful when diagnosing the command itself rather than a device, and it is roughly four times the volume, so an overnight run may be truncated before you can read it.",
+        "type": "boolean",
+        "condition": {
+          "functionBody": "try { return model.debug } catch(e){ return false }"
+        }
+      },
       "warn": {
         "title": "Warn Log",
         "type": "boolean",
@@ -178,7 +186,7 @@
       "expandable": true,
       "expanded": false,
       "type": "section",
-      "items": ["debug", "warn", "error", "extendedError"]
+      "items": ["debug", "cliDebug", "warn", "error", "extendedError"]
     },
     {
       "title": "Devices",

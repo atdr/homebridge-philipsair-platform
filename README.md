@@ -122,6 +122,7 @@ Anything with a parent PID of `1` is a leftover, so `kill` it; rebooting clears 
       "name": "PhilipsAirPlatform",
       "aioairctrlPath": "",
       "debug": false,
+      "cliDebug": false,
       "warn": true,
       "error": true,
       "extendedError": true,
@@ -158,6 +159,7 @@ Anything with a parent PID of `1` is a leftover, so `kill` it; rebooting clears 
       "name": "PhilipsAirPlatform",
       "aioairctrlPath": "",
       "debug": false,
+      "cliDebug": false,
       "warn": true,
       "error": true,
       "extendedError": true,
@@ -191,6 +193,7 @@ Anything with a parent PID of `1` is a leftover, so `kill` it; rebooting clears 
 | name              | For logging purposes.                                                | `"PhilipsAirPlatform"` | No       |
 | aioairctrlPath    | Full path to the `aioairctrl` executable, if not on PATH.            | _(PATH lookup)_        | No       |
 | debug             | Logs every device status and command. Very noisy.                    | `false`                | No       |
+| cliDebug          | Adds aioairctrl's own debug log to the plugin's. *6                  | `false`                | No       |
 | warn              | Reports problems the plugin recovered from.                          | `true`                 | No       |
 | error             | Reports the underlying error behind a problem. *4                    | `true`                 | No       |
 | extendedError     | Enables additional output (detailed error) in the log.               | `true`                 | No       |
@@ -222,6 +225,7 @@ For a full config.json, please look at [Example Config](https://github.com/atdr/
 3. The ID printed on the device, without the regional suffix: `AC0850/11` means `AC0850`. This is what selects the speed and register mapping, so a wrong or missing value is what leaves a device visible in the Home app with controls that do nothing. Models outside the tested list fall back to a default mapping, which suits many purifiers but is not guaranteed to drive yours. The field is required in the config UI; a config written before it became required still loads and falls back to the default mapping.
 4. Faults that stop the plugin working at all, such as an `aioairctrl` it cannot run, are always reported, whatever this is set to.
 5. Ignored for models that have their own speed mapping (see the tested devices list); those use the right speeds automatically, and the plugin warns when the option cannot do anything.
+6. Only has an effect while `debug` is on, and it is the noisier half of the two: on a tested AC0850 the CLI's own records were about three quarters of the log. Turn it on when the problem is `aioairctrl` itself, such as a Python install that never finishes a sync, and leave it off when the problem is a device.
 
 Not every device supports every control. The AC0850 reports no auto/manual mode and no child lock, so neither is offered in the Home app for that model; power, fan speed, air quality and the filter status are unaffected.
 
@@ -346,7 +350,7 @@ Note that `aioairctrl` needs Python 3.12 or newer.
 
 ### The polling process exited with code N without returning any status
 
-`aioairctrl` was found and started, but died three times in a row without producing anything. The plugin logs the command's own error output on the next line, minus the progress messages the CLI writes when `debug` is enabled (those stay in the debug log). A Python traceback such as `ModuleNotFoundError: No module named 'aioairctrl'` means the executable exists but the Python environment behind it is incomplete, which happens when the CLI and its dependencies were installed for a different interpreter or user. Reinstall it as described under Installation, then confirm it runs for the Homebridge user:
+`aioairctrl` was found and started, but died three times in a row without producing anything. The plugin logs the command's own error output on the next line, minus the progress messages the CLI writes when `cliDebug` is enabled (those stay in the debug log). A Python traceback such as `ModuleNotFoundError: No module named 'aioairctrl'` means the executable exists but the Python environment behind it is incomplete, which happens when the CLI and its dependencies were installed for a different interpreter or user. Reinstall it as described under Installation, then confirm it runs for the Homebridge user:
 
 ```bash
 sudo -u homebridge aioairctrl -H <device-ip> -P 5683 status-observe -J

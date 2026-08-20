@@ -114,14 +114,26 @@ describe('command construction', () => {
     assert.equal(handler.binary, '/home/pi/.local/bin/aioairctrl');
   });
 
-  it('builds the base arguments from host, port and debug', () => {
-    const handler = makeHandler({ debug: true });
+  it('builds the base arguments from host, port and cliDebug', () => {
+    const handler = makeHandler({ cliDebug: true });
     assert.deepEqual(handler.args, ['-H', '192.168.1.142', '-P', '5683', '-D']);
   });
 
-  it('omits the debug flag when disabled', () => {
+  it('omits the CLI debug flag when disabled', () => {
     const handler = makeHandler({});
     assert.ok(!handler.args.includes('-D'));
+  });
+
+  it("does not pass -D for the plugin's own debug option", () => {
+    //the two were one switch until #63: aioairctrl's log is four times the
+    //volume of the plugin's, and a user debugging a device is not debugging the CLI
+    const handler = makeHandler({ debug: true });
+    assert.ok(!handler.args.includes('-D'));
+  });
+
+  it('passes -D once when both debug options are on', () => {
+    const handler = makeHandler({ debug: true, cliDebug: true });
+    assert.deepEqual(handler.args, ['-H', '192.168.1.142', '-P', '5683', '-D']);
   });
 
   it('maps keys and values through the model maps', () => {

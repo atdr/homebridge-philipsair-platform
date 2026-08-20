@@ -35,7 +35,9 @@ Built in the `Handler` constructor and methods of
 - `<binary>` is `accessory.context.config.aioairctrlPath` or the literal `aioairctrl`
   resolved from PATH (`this.binary`).
 - `-H` host, `-P` port (always passed, stringified), `-D` only when the platform
-  `debug` option is on. Confirm base args:
+  `cliDebug` option is on. It is deliberately **not** the plugin's own `debug`: the CLI's
+  records were 73 % of a 430 KB/hour log on an AC0850, which is what pushed an overnight
+  debug run past `hb-service`'s truncation (issue #63). Confirm base args:
   `node --test --test-name-pattern 'builds the base arguments' test/accessories.handler.test.js`.
 - `set` accepts multiple `key=value` pairs in one invocation (used by
   `setPurifierRotationSpeed` for composite speed entries).

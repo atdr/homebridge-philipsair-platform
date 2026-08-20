@@ -24,6 +24,7 @@ describe('generateConfig', () => {
       name: 'PhilipsAirPlatform',
       aioairctrlPath: '',
       debug: false,
+      cliDebug: false,
       warn: true,
       error: true,
       extendedError: true,
