@@ -137,8 +137,11 @@ class Handler {
     if (!this.modelKey && this.accessory.context.detectedModel) {
       this.modelKey = this.accessory.context.detectedModel;
       config.modelKey = this.modelKey;
+      //not "no model is configured": this branch is also taken when a model is
+      //configured that no mapping covers, and accessories.setup.js has already
+      //reported which of the two it was
       logger.info(
-        `No model is configured. Using the ${this.modelKey} command set, ` +
+        `Using the ${this.modelKey} command set instead of the default, ` +
           "detected from this device's own status on an earlier run.",
         this.accessory.displayName
       );

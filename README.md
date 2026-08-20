@@ -301,8 +301,10 @@ Bedroom: This device reports registers this model mapping does not know (D01102,
 It remembers what it identified, so a device with no usable model configured picks up the right mapping by itself from the next restart, and says so each time it starts:
 
 ```text
-Bedroom: No model is configured. Using the AC0850 command set, detected from this device's own status on an earlier run.
+Bedroom: Using the AC0850 command set instead of the default, detected from this device's own status on an earlier run.
 ```
+
+Expect the Home app to change at the restart that adopts a model. A mapping knows which controls a model has no register for, so tiles the previous run offered can disappear. That is the plugin matching what the device can actually do, not a fault.
 
 That is a fallback, not a fix. Setting `model` correctly is what makes the plugin get the device right on its first run, including which services it offers in the Home app.
 
