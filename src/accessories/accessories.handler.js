@@ -811,6 +811,9 @@ class Handler {
       return;
     }
 
+    //commands already resent in this pass, since one can answer several keys
+    const resent = new Set();
+
     for (const [key, pending] of [...this.pendingWrites]) {
       //a status already in flight when the write was sent cannot have observed
       //it. the resolution is coarse, and the cost of getting it wrong is one
@@ -842,7 +845,10 @@ class Handler {
           this.accessory.displayName
         );
 
-        this.resendWrite(key, pending);
+        if (!resent.has(pending.args.join(' '))) {
+          resent.add(pending.args.join(' '));
+          this.resendWrite(pending.args);
+        }
         continue;
       }
 
@@ -856,27 +862,54 @@ class Handler {
   }
 
   /**
-   * Puts a write back on the wire, leaving it pending.
+   * Puts a command back on the wire, leaving the writes it carries pending.
    *
-   * Not awaited: the answer to a `set` arrives as another status line, not as
-   * an exit code, and this runs from paths that cannot block on it. Nothing the
-   * device sent before the resend is on the wire is evidence about it, so the
-   * horizon moves out until the command has actually been transmitted.
+   * Keyed on the command rather than on the key it set, because one `set` can
+   * carry several: an AC0850 speed is `D0310A` and `D0310C` together, recorded
+   * as two pending writes sharing one argv. Resending per key would fire that
+   * one command once per key, and #77 saw a scene write lost under exactly that
+   * shape, two `set` processes racing at a device that serves one connection.
    *
-   * @param {string} key
-   * @param {{ args: string[], since: number }} pending
+   * Callers do not await the send itself: the answer arrives as another status
+   * line, not as an exit code. Nothing the device sent before the command is
+   * back on the wire is evidence about it, so the horizon moves out until it
+   * has been transmitted, for every write the command carries.
+   *
+   * @param {string[]} args the command to resend
+   * @returns {Promise<void>} settles when the command has been sent
    */
-  resendWrite(key, pending) {
-    pending.since = Infinity;
+  resendWrite(args) {
+    const command = args.join(' ');
+    const covered = [...this.pendingWrites].filter(([, pending]) => pending.args.join(' ') === command);
 
-    this.sendCMD(pending.args)
+    covered.forEach(([, pending]) => {
+      pending.since = Infinity;
+    });
+
+    return this.sendCMD(args)
       .then(() => {
-        pending.since = Date.now();
+        const sentAt = Date.now();
+
+        covered.forEach(([, pending]) => {
+          pending.since = sentAt;
+        });
       })
       .catch((err) => {
-        this.pendingWrites.delete(key);
+        covered.forEach(([key]) => this.pendingWrites.delete(key));
         logger.error(err, this.accessory.displayName);
       });
+  }
+
+  /**
+   * Sends a sweep's worth of resends one at a time. Firing them together would
+   * be the very race that recovery is here to undo.
+   *
+   * @param {string[][]} commands
+   */
+  async resendInTurn(commands) {
+    for (const args of commands) {
+      await this.resendWrite(args);
+    }
   }
 
   /**
@@ -886,6 +919,9 @@ class Handler {
    */
   expirePendingWrites() {
     const now = Date.now();
+    /** @type {string[][]} */
+    const resend = [];
+    const queued = new Set();
 
     for (const [key, pending] of [...this.pendingWrites]) {
       //one unprompted resend on the way, at the window a responsive device
@@ -901,7 +937,10 @@ class Handler {
           this.accessory.displayName
         );
 
-        this.resendWrite(key, pending);
+        if (!queued.has(pending.args.join(' '))) {
+          queued.add(pending.args.join(' '));
+          resend.push(pending.args);
+        }
         continue;
       }
 
@@ -916,6 +955,10 @@ class Handler {
       this.pendingWrites.delete(key);
       this.reportWriteExpiry(key, pending);
       this.revertOptimisticUpdate(key);
+    }
+
+    if (resend.length) {
+      this.resendInTurn(resend);
     }
   }
 
