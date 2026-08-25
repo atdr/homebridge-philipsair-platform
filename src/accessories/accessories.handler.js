@@ -110,7 +110,10 @@ class Handler {
     this.loggedParseFailure = false;
     //writes waiting for the device to confirm them, keyed by the generic status
     //key each one sets. see recordWrite
-    /** @type {Map<string, { expected: unknown, args: string[], attempts: number, since: number, recordedAt: number }>} */
+    /**
+     * @type {Map<string, { expected: unknown, args: string[], attempts: number,
+     *   since: number, recordedAt: number, knownOff: boolean, window: number }>}
+     */
     this.pendingWrites = new Map();
     this.verifyTimeout = null;
     this.refreshTimeout = null;
@@ -689,6 +692,20 @@ class Handler {
   recordWrite(args, expectations) {
     const since = Date.now();
 
+    //how long silence proves nothing depends on which regime the device is in,
+    //and the plugin already models both: verifyWindow is derived from how fast a
+    //*responsive* device answers, while a device reporting itself off may say
+    //nothing for offStallTimeout without anything being wrong. Judging a write
+    //to a sleeping device by the responsive window discarded it long before the
+    //evidence arrived (issue #77). The regime is read once, here: a device that
+    //wakes up is resolved by reconcilePendingWrites on the status that proves
+    //it, so nothing needs to reconsider this later.
+    //
+    //max() rather than offStallTimeout alone, so a long configured
+    //refreshInterval cannot make the off-state window the *shorter* of the two
+    const knownOff = this.deviceKnownOff();
+    const window = knownOff ? Math.max(this.offStallTimeout, this.verifyWindow) : this.verifyWindow;
+
     for (const [key, expected] of Object.entries(expectations)) {
       //a key the device has never mentioned can never confirm anything, so an
       //expectation on it would only buy a resend and a report of a failure that
@@ -701,7 +718,7 @@ class Handler {
         continue;
       }
 
-      this.pendingWrites.set(key, { expected, args, attempts: 0, since, recordedAt: since });
+      this.pendingWrites.set(key, { expected, args, attempts: 0, since, recordedAt: since, knownOff, window });
     }
 
     this.armVerifyTimeout();
@@ -719,8 +736,9 @@ class Handler {
     }
 
     //the earliest deadline still outstanding, so a sweep triggered by an
-    //unrelated status does not push an older write's expiry out by a window
-    const oldest = Math.min(...[...this.pendingWrites.values()].map((pending) => pending.recordedAt));
+    //unrelated status does not push an older write's expiry out by a window.
+    //each write carries its own window, so this cannot be one shared deadline
+    const due = Math.min(...[...this.pendingWrites.values()].map((pending) => this.nextVerifyDeadline(pending)));
 
     this.verifyTimeout = setTimeout(
       () => {
@@ -728,8 +746,19 @@ class Handler {
         this.expirePendingWrites();
         this.armVerifyTimeout();
       },
-      Math.max(oldest + this.verifyWindow - Date.now(), 0)
+      Math.max(due - Date.now(), 0)
     );
+  }
+
+  /**
+   * When the sweep next has something to do about a write. Kept next to
+   * armVerifyTimeout so the timer and expirePendingWrites cannot disagree about
+   * when a write is due.
+   *
+   * @param {{ recordedAt: number, window: number }} pending
+   */
+  nextVerifyDeadline(pending) {
+    return pending.recordedAt + pending.window;
   }
 
   /**
@@ -828,12 +857,12 @@ class Handler {
       //each write owns its deadline: the timer is re-armed by every status, and
       //a device that keeps talking about other keys would otherwise hold a
       //pending write open indefinitely
-      if (now - pending.recordedAt < this.verifyWindow) {
+      if (now - pending.recordedAt < pending.window) {
         continue;
       }
 
       logger.debug(
-        `No status covering ${key}=${pending.expected} arrived within ${Math.round(this.verifyWindow / 1000)}s`,
+        `No status covering ${key}=${pending.expected} arrived within ${Math.round(pending.window / 1000)}s`,
         this.accessory.displayName
       );
 

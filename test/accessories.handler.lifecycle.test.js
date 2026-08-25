@@ -999,6 +999,73 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.kill(true);
   });
 
+  it('measures a write to a sleeping device against the off-state backstop', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler } = recordingHandler();
+    //the device has said it is off, so silence from it is the expected answer
+    //rather than evidence. #77: an AC0850 answered nothing for eleven minutes
+    //and then contradicted the write, long after the responsive window closed
+    await handler.processUpdate(status({ pwr: '0' }));
+    handler.verifyWindow = 60;
+    handler.offStallTimeout = 100000;
+
+    await handler.setPurifierActive(true);
+    await delay(150);
+
+    assert.equal(handler.pendingWrites.size, 1, 'a wake-up write was discarded on the responsive window');
+    assert.equal(handler.pendingWrites.get('pwr').window, 100000);
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
+  it('keeps the responsive window for a write to a device that was answering', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler } = recordingHandler();
+    //the wider window follows the regime the device is in, not the write: a
+    //device that was talking is still expected to answer within a refresh cycle
+    await handler.processUpdate(status({ pwr: '1' }));
+    handler.verifyWindow = 60;
+    handler.offStallTimeout = 100000;
+
+    await handler.setPurifierActive(false);
+    await delay(150);
+
+    assert.equal(handler.pendingWrites.size, 0, 'a write to a responsive device outlived its window');
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
+  it('resends when the device contradicts a wake-up long after the responsive window', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    await handler.processUpdate(status({ pwr: '0' }));
+    handler.verifyWindow = 60;
+    handler.offStallTimeout = 100000;
+
+    await handler.setPurifierActive(true);
+    sent.length = 0;
+
+    //the write is still pending when the evidence finally lands, so the retry
+    //path that already worked gets to act on it. this is the whole of #77
+    await delay(150);
+    await handler.processUpdate(status({ pwr: '0' }));
+
+    assert.equal(sent.length, 1, 'the write the device contradicted was never resent');
+    assert.ok(sent[0].includes('pwr=1'));
+    assert.equal(handler.pendingWrites.get('pwr').attempts, 1);
+    assert.deepEqual(logs.warn, [], 'a single retry should not bother the user');
+
+    handler.kill(true);
+  });
+
   it('expires a pending write on its own deadline, not on the last status', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
