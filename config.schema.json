@@ -63,7 +63,7 @@
               "type": "string",
               "required": true,
               "placeholder": "Air Purifier",
-              "description": "Your own label for this device in the Home app, for example Air Purifier. It does not tell the plugin what kind of device this is. The Model field does that."
+              "description": "Your own label for this device in the Home app. It does not tell the plugin what the device is; the Model field does that."
             },
             "manufacturer": {
               "title": "Manufacturer",
@@ -77,7 +77,7 @@
               "type": "string",
               "required": true,
               "placeholder": "AC0850",
-              "description": "The model ID printed on your device, for example AC0850. Ignore any /11 or /31 suffix. This selects the commands the plugin sends, so a missing or wrong model is the usual reason a device appears in the Home app but none of its buttons work. Models in the suggestions have a tested mapping. Anything else falls back to a default mapping, which may not drive your device correctly.",
+              "description": "The model ID printed on your device. Ignore any /11 or /31 suffix. It selects the commands the plugin sends, so a missing or wrong model is the usual reason the Home app controls do nothing. Suggested models are tested; anything else uses a default mapping that may not fit.",
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               }
@@ -94,7 +94,7 @@
               "type": "string",
               "required": true,
               "placeholder": "10.0.1.16",
-              "description": "IP address or hostname of your device, e.g. 10.0.1.16 or purifier.local. Give the device a fixed address before you enter it here, usually a DHCP reservation on your router. If the address changes later the plugin can no longer reach it, and the accessory stops responding until you correct this field.",
+              "description": "IP address or hostname of your device. Give it a fixed address first, usually a DHCP reservation on your router: if the address changes, the plugin can no longer reach the device.",
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               }
