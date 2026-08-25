@@ -1041,6 +1041,50 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.kill(true);
   });
 
+  it('resends a wake-up once unprompted, without spending the retry budget', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    await handler.processUpdate(status({ pwr: '0' }));
+    handler.verifyWindow = 60;
+    handler.offStallTimeout = 100000;
+
+    await handler.setPurifierActive(true);
+    sent.length = 0;
+
+    await delay(150);
+
+    assert.deepEqual(sent.length, 1, 'a wake-up nothing answered was never resent');
+    assert.ok(sent[0].includes('pwr=1'));
+    //the retry the device's own answer will ask for must still be available
+    assert.equal(handler.pendingWrites.get('pwr').attempts, 0);
+    assert.equal(handler.pendingWrites.get('pwr').blindResent, true);
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
+  it('resends a wake-up unprompted only once, however long the silence lasts', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    await handler.processUpdate(status({ pwr: '0' }));
+    handler.verifyWindow = 40;
+    handler.offStallTimeout = 100000;
+
+    await handler.setPurifierActive(true);
+    sent.length = 0;
+
+    await delay(300);
+
+    assert.equal(sent.length, 1, 'the unprompted resend repeated on every sweep');
+    assert.deepEqual(logs.warn, [], 'a write still inside its window was reported');
+
+    handler.kill(true);
+  });
+
   it('resends when the device contradicts a wake-up long after the responsive window', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
@@ -1056,10 +1100,12 @@ describe('write verification', { concurrency: 1 }, () => {
     //the write is still pending when the evidence finally lands, so the retry
     //path that already worked gets to act on it. this is the whole of #77
     await delay(150);
+    //the unprompted resend has already gone by now. charging it to `attempts`
+    //would leave nothing for this, the one moment the device is known to listen
     await handler.processUpdate(status({ pwr: '0' }));
 
-    assert.equal(sent.length, 1, 'the write the device contradicted was never resent');
-    assert.ok(sent[0].includes('pwr=1'));
+    assert.equal(sent.length, 2, 'the write the device contradicted was never resent');
+    assert.ok(sent.every((args) => args.includes('pwr=1')));
     assert.equal(handler.pendingWrites.get('pwr').attempts, 1);
     assert.deepEqual(logs.warn, [], 'a single retry should not bother the user');
 
