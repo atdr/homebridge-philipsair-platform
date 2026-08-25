@@ -879,10 +879,9 @@ class Handler {
   }
 
   /**
-   * Drops writes the device never spoke to. Deliberately quiet: silence past
-   * the window means this device answers more slowly than the one the delays
-   * were chosen against, and reporting that as a lost command would turn every
-   * unmeasured model into a warning loop.
+   * Drops writes the device never spoke to, and resends a wake-up once on the
+   * way. What silence means depends on which device it came from, so see
+   * reportWriteExpiry for which of these is worth telling the user about.
    */
   expirePendingWrites() {
     const now = Date.now();
@@ -913,13 +912,56 @@ class Handler {
         continue;
       }
 
+      this.pendingWrites.delete(key);
+      this.reportWriteExpiry(key, pending);
+    }
+  }
+
+  /**
+   * Reports a write that ran out of window without the device ever speaking to
+   * it. The two silences this can be are not the same thing.
+   *
+   * From a device that was answering, silence past the window means this model
+   * answers more slowly than the one the delays were chosen against. That is a
+   * freshness problem rather than a lost command, and reporting it would turn
+   * every unmeasured model into a warning loop, so it stays at debug.
+   *
+   * From a device the plugin knew was off, it is the opposite. The command was
+   * the thing that should have woken it, so success and failure look identical
+   * from the outside, and the plugin has now asked twice across the whole
+   * backstop the stall detector allows and heard nothing back. A silent drop
+   * there is how an arrive-home automation fails with nothing in the log
+   * (issue #77).
+   *
+   * Latched on the same flag as reportWriteFailure, since an automation that
+   * keeps failing should report once rather than on every cycle.
+   *
+   * @param {string} key
+   * @param {{ expected: unknown, attempts: number, knownOff: boolean, blindResent: boolean, window: number }} pending
+   */
+  reportWriteExpiry(key, pending) {
+    const waited = Math.round(pending.window / 1000);
+
+    if (!pending.knownOff) {
       logger.debug(
-        `No status covering ${key}=${pending.expected} arrived within ${Math.round(pending.window / 1000)}s`,
+        `No status covering ${key}=${pending.expected} arrived within ${waited}s`,
         this.accessory.displayName
       );
-
-      this.pendingWrites.delete(key);
+      return;
     }
+
+    const sends = 1 + pending.attempts + (pending.blindResent ? 1 : 0);
+    const summary =
+      `The device never answered ${key}=${pending.expected} in ${waited}s while switched off, ` +
+      `after ${sends} attempts. The command was most likely lost; see README Troubleshooting.`;
+
+    if (this.loggedWriteFailure) {
+      logger.debug(summary, this.accessory.displayName);
+      return;
+    }
+
+    this.loggedWriteFailure = true;
+    logger.warn(summary, this.accessory.displayName);
   }
 
   /**
