@@ -117,6 +117,11 @@ class Handler {
     //stall after a teardown is judged on a stream that has answered nothing yet
     /** @type {number | null} */
     this.lastReadingAt = null;
+    //when the stall detector last tore the stream down. a stall that has been
+    //acted on is spent, so the next deadline runs from here rather than from a
+    //reading that may now be hours old. see stallDelay
+    /** @type {number | null} */
+    this.lastStallAt = null;
     //whether an unapplied write has already been warned about, so an automation
     //that keeps failing reports once rather than on every cycle
     this.loggedWriteFailure = false;
@@ -1139,11 +1144,21 @@ class Handler {
    *
    * The floor is what stops a deadline that is already past from killing every
    * replacement subscription before it can answer: a fresh stream gets at least
-   * as long as the refresh is currently willing to wait for a reading.
+   * as long as the refresh is currently willing to wait for a reading. That is
+   * for a deadline overrun by something *other* than a stall, such as a refresh
+   * whose replacement was slow to be answered.
+   *
+   * A stall that has already been acted on is spent, so the clock runs from the
+   * teardown as much as from the last reading. Measured from the reading alone
+   * the deadline stays permanently past on a device that is not answering, so
+   * every later arm falls through to the floor: that is how the 30 min
+   * off-state backstop degraded into a teardown every 5 min, six times the rate
+   * the constant claims, for as long as the purifier stayed switched off.
    */
   stallDelay() {
     const timeout = this.deviceKnownOff() ? this.offStallTimeout : this.stallTimeout;
-    const elapsed = this.lastReadingAt ? Date.now() - this.lastReadingAt : 0;
+    const since = Math.max(this.lastReadingAt || 0, this.lastStallAt || 0);
+    const elapsed = since ? Date.now() - since : 0;
     const grace = this.refreshInterval ? Math.min(this.refreshDelay(), timeout) : timeout;
 
     return Math.max(timeout - elapsed, grace);
@@ -1177,6 +1192,7 @@ class Handler {
         );
         this.stalled = true;
         this.stalledWhileOff = off;
+        this.lastStallAt = Date.now();
         //a refresh whose replacement subscription was never answered cost more
         //than any wait would have, which is the strongest evidence there is
         //that this device is not worth re-subscribing to so eagerly

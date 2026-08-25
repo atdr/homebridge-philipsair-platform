@@ -235,6 +235,46 @@ describe('stall deadline', () => {
 
     assert.ok(Math.abs(handler.stallDelay() - handler.offStallTimeout) <= 50);
   });
+
+  it('keeps the off-state backstop on its own timeout after it has fired', async () => {
+    //the arm that was never covered. measured from the reading alone the
+    //deadline stays past for as long as the device stays quiet, so every arm
+    //after the first fell through to the refresh floor: on a live AC0850 that
+    //turned the 30 min backstop into a teardown every 5 min, 472 of them over
+    //three nights with the purifier switched off
+    const handler = makeHandler({ refreshInterval: 1 });
+    handler.purifierService = makeService();
+    handler.offStallTimeout = 9000;
+
+    await handler.processUpdate(JSON.stringify({ pwr: '0', mode: 'P', cl: false, om: '2' }));
+
+    const firedAt = Date.now();
+    handler.lastReadingAt = firedAt - handler.offStallTimeout;
+    handler.lastStallAt = firedAt;
+
+    assert.ok(
+      handler.stallDelay() > handler.refreshDelay(),
+      `waited ${handler.stallDelay()}ms, which is the ${handler.refreshDelay()}ms refresh floor rather than the backstop`
+    );
+    assert.ok(Math.abs(handler.stallDelay() - handler.offStallTimeout) <= 50);
+  });
+
+  it('records the teardown so the next deadline can run from it', async () => {
+    const handler = makeHandler({ refreshInterval: 0 });
+    handler.purifierService = makeService();
+    handler.stallTimeout = 20;
+    //the teardown only needs something to kill, so this stands in for the child
+    handler.airControl = /** @type {any} */ ({ kill: () => true });
+
+    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2' }));
+    assert.equal(handler.lastStallAt, null);
+
+    handler.armStallTimeout();
+    await delay(100);
+
+    assert.ok(handler.lastStallAt, 'the stall teardown left no mark for the next deadline to run from');
+    assert.ok(handler.lastStallAt >= handler.lastReadingAt);
+  });
 });
 
 describe('handleStdoutChunk', () => {
