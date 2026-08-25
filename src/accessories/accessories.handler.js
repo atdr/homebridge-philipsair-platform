@@ -112,7 +112,8 @@ class Handler {
     //key each one sets. see recordWrite
     /**
      * @type {Map<string, { expected: unknown, args: string[], attempts: number,
-     *   since: number, recordedAt: number, knownOff: boolean, window: number }>}
+     *   since: number, recordedAt: number, knownOff: boolean, window: number,
+     *   blindResent: boolean }>}
      */
     this.pendingWrites = new Map();
     this.verifyTimeout = null;
@@ -718,7 +719,16 @@ class Handler {
         continue;
       }
 
-      this.pendingWrites.set(key, { expected, args, attempts: 0, since, recordedAt: since, knownOff, window });
+      this.pendingWrites.set(key, {
+        expected,
+        args,
+        attempts: 0,
+        since,
+        recordedAt: since,
+        knownOff,
+        window,
+        blindResent: false,
+      });
     }
 
     this.armVerifyTimeout();
@@ -751,14 +761,38 @@ class Handler {
   }
 
   /**
+   * Whether a write is still owed its one unprompted resend.
+   *
+   * Deliberately *not* charged to `attempts`. That budget belongs to the resend
+   * the device's own answer asks for, and with one retry to spend, charging a
+   * blind resend to it would leave `reconcilePendingWrites` with nothing left
+   * at the one moment the device had proved it was listening: a correct warning
+   * and no second attempt, which is worse than not resending blind at all.
+   *
+   * Only for a write to a device already known to be off, where the command is
+   * the thing that should wake it and success and failure look identical. A
+   * responsive device that has gone quiet is a freshness problem, and doubling
+   * every write on every unmeasured model would not fix it.
+   *
+   * The window comparison is what keeps the two deadlines distinct: a
+   * refreshInterval long enough to push verifyWindow past offStallTimeout
+   * leaves no room before the give-up, so there is no unprompted resend to make.
+   *
+   * @param {{ knownOff: boolean, blindResent: boolean, window: number }} pending
+   */
+  blindEligible(pending) {
+    return pending.knownOff && !pending.blindResent && pending.window > this.verifyWindow;
+  }
+
+  /**
    * When the sweep next has something to do about a write. Kept next to
    * armVerifyTimeout so the timer and expirePendingWrites cannot disagree about
    * when a write is due.
    *
-   * @param {{ recordedAt: number, window: number }} pending
+   * @param {{ recordedAt: number, knownOff: boolean, blindResent: boolean, window: number }} pending
    */
   nextVerifyDeadline(pending) {
-    return pending.recordedAt + pending.window;
+    return pending.recordedAt + (this.blindEligible(pending) ? this.verifyWindow : pending.window);
   }
 
   /**
@@ -853,10 +887,28 @@ class Handler {
   expirePendingWrites() {
     const now = Date.now();
 
-    for (const [key, pending] of this.pendingWrites) {
+    for (const [key, pending] of [...this.pendingWrites]) {
+      //one unprompted resend on the way, at the window a responsive device
+      //would have answered by. A `set` is a single unacknowledged packet, and
+      //resending one costs a beep the device makes anyway; a wake-up command
+      //that was simply dropped has nothing else that will ever notice
+      if (this.blindEligible(pending) && now - pending.recordedAt >= this.verifyWindow) {
+        //flagged before the send, so nothing re-entrant can fire it twice
+        pending.blindResent = true;
+
+        logger.debug(
+          `Nothing has answered ${key}=${pending.expected} while the device is off, resending it`,
+          this.accessory.displayName
+        );
+
+        this.resendWrite(key, pending);
+        continue;
+      }
+
       //each write owns its deadline: the timer is re-armed by every status, and
       //a device that keeps talking about other keys would otherwise hold a
-      //pending write open indefinitely
+      //pending write open indefinitely. the resend above does not move it, so
+      //the give-up stays anchored to the original command
       if (now - pending.recordedAt < pending.window) {
         continue;
       }
