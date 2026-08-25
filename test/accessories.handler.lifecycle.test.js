@@ -125,12 +125,22 @@ describe('adaptive refresh', () => {
 
   //the refresh is a trade: a fresh subscription elicits a reading, and on some
   //devices it costs far more than waiting for one. these drive the price
-  //directly rather than through wall-clock timing, which CI cannot hold steady
+  //directly rather than through wall-clock timing, which CI cannot hold steady.
+  //the price is the gap between the kill and the reading, so both ends have to
+  //come off one frozen clock: processUpdate stamps its own Date.now(), and the
+  //millisecond a loaded runner spends reaching it lands in the cost otherwise
   const priced = (handler, cost) => {
     handler.purifierService = makeService();
-    handler.refreshKilledAt = Date.now() - cost;
 
-    return handler.processUpdate(status);
+    const now = Date.now();
+    const realNow = Date.now;
+
+    Date.now = () => now;
+    handler.refreshKilledAt = now - cost;
+
+    return handler.processUpdate(status).finally(() => {
+      Date.now = realNow;
+    });
   };
 
   it('moves the wait toward what a refresh measured to cost', async () => {
