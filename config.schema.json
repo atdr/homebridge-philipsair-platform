@@ -197,19 +197,6 @@
           "items": [
             "devices[].active",
             {
-              "key": "devices[]",
-              "type": "section",
-              "condition": {
-                "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
-              },
-              "items": [
-                {
-                  "type": "help",
-                  "helpvalue": "<div class=\"help-block\"><b>Model</b> selects the commands this plugin sends, so it has to be the ID printed on your device, such as AC0850. <b>Name</b> is only your label for it in the Home app.</div>"
-                }
-              ]
-            },
-            {
               "key": "devices[].model",
               "typeahead": {
                 "source": ["AC0850", "AC1715", "AC3036", "AC3829"]
