@@ -1142,6 +1142,54 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.kill(true);
   });
 
+  it('puts HomeKit back to the last reading when a wake-up is given up on', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const { handler } = recordingHandler();
+    await handler.processUpdate(status({ pwr: '0' }));
+    handler.verifyWindow = 40;
+    handler.offStallTimeout = 120;
+
+    await handler.setPurifierActive(true);
+    //the optimistic update HomeKit is given while the write is still live
+    assert.deepEqual(updated(handler.purifierService, 'CurrentAirPurifierState').at(-1), [
+      'CurrentAirPurifierState',
+      2,
+    ]);
+
+    await delay(300);
+
+    //#77: the Home app kept reporting PURIFYING_AIR for a purifier the plugin
+    //knew was off, and stayed wrong until a real status happened to arrive
+    assert.deepEqual(updated(handler.purifierService, 'Active').at(-1), ['Active', 0]);
+    assert.deepEqual(updated(handler.purifierService, 'CurrentAirPurifierState').at(-1), [
+      'CurrentAirPurifierState',
+      0,
+    ]);
+
+    handler.kill(true);
+  });
+
+  it('leaves HomeKit alone for a device that has never answered', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const { handler } = recordingHandler();
+    handler.verifyWindow = 40;
+
+    await handler.setPurifierActive(true);
+    handler.purifierService.updates.length = 0;
+
+    await delay(300);
+
+    //there is no reading to revert to, so publishing one would be a guess
+    assert.deepEqual(handler.purifierService.updates, []);
+    assert.equal(handler.pendingWrites.size, 0);
+
+    handler.kill(true);
+  });
+
   it('expires a pending write on its own deadline, not on the last status', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
