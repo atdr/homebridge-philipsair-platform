@@ -1112,6 +1112,36 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.kill(true);
   });
 
+  it('reports a wake-up the device never answered', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler } = recordingHandler();
+    await handler.processUpdate(status({ pwr: '0' }));
+    handler.verifyWindow = 40;
+    handler.offStallTimeout = 120;
+
+    await handler.setPurifierActive(true);
+    await delay(300);
+
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.ok(
+      logs.warn.some((line) => line.includes('never answered pwr=1')),
+      `a dropped wake-up was discarded in silence, got ${JSON.stringify(logs.warn)}`
+    );
+    //asked once, then once more unprompted, before it was given up on
+    assert.ok(logs.warn.some((line) => line.includes('after 2 attempts')));
+
+    //a repeating automation reports once, not on every cycle
+    logs.warn.length = 0;
+    await handler.setPurifierActive(true);
+    await delay(300);
+
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
   it('expires a pending write on its own deadline, not on the last status', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
