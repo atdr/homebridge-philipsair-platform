@@ -378,6 +378,15 @@ class Handler {
     return `${key}=${value}`;
   }
 
+  /**
+   * The HomeKit threshold for the humidity target the device reports. The
+   * conditions guarding it differ between the status push and the setters, but
+   * this ladder is identical everywhere it is used, so it lives in one place.
+   */
+  humidityThreshold() {
+    return { 40: 25, 50: 50, 60: 75, 70: 100 }[this.obj.rhset] || 0;
+  }
+
   speedsMinStep() {
     return 100 / this.speeds.length;
   }
@@ -512,15 +521,7 @@ class Handler {
       if (this.obj.func == 'PH' && water_level == 100) {
         state_ph = 1;
 
-        if (this.obj.rhset == 40) {
-          speed_humidity = 25;
-        } else if (this.obj.rhset == 50) {
-          speed_humidity = 50;
-        } else if (this.obj.rhset == 60) {
-          speed_humidity = 75;
-        } else if (this.obj.rhset == 70) {
-          speed_humidity = 100;
-        }
+        speed_humidity = this.humidityThreshold();
       }
 
       this.humidifierService.updateCharacteristic(this.api.hap.Characteristic.TargetHumidifierDehumidifierState, 1);
@@ -914,6 +915,70 @@ class Handler {
 
       this.pendingWrites.delete(key);
       this.reportWriteExpiry(key, pending);
+      this.revertOptimisticUpdate(key);
+    }
+  }
+
+  /**
+   * Puts HomeKit back to what the plugin believes, for a write that has been
+   * given up on.
+   *
+   * The setters update characteristics before the command is even on the wire,
+   * because HomeKit expects an answer promptly and the device cannot give one.
+   * That is fine while the write is still live, and wrong once it is not: the
+   * Home app was left reporting PURIFYING_AIR for a purifier the plugin knew
+   * was off, and stayed wrong until a real status happened to arrive, which for
+   * an off device can be the better part of an hour (issue #77).
+   *
+   * `this.obj` is only ever assigned from a device status, so this publishes a
+   * reading rather than a guess, and a device that has never answered has no
+   * reading to publish. Every value here is the same expression processUpdate
+   * pushes, so a reverted characteristic and a status-driven one agree.
+   *
+   * Only reached from expirePendingWrites. The other way a write is given up,
+   * retries exhausted in reconcilePendingWrites, needs nothing: it runs from
+   * processUpdate, and the status push immediately after it corrects HomeKit
+   * from the very status that proved the write lost.
+   *
+   * @param {string} key the generic key whose write was abandoned
+   */
+  revertOptimisticUpdate(key) {
+    if (!this.everAnswered()) {
+      return;
+    }
+
+    const Characteristic = this.api.hap.Characteristic;
+    const on = !!parseInt(this.obj.pwr);
+
+    if (this.purifierService) {
+      if (key === 'pwr') {
+        this.purifierService
+          .updateCharacteristic(Characteristic.Active, on ? 1 : 0)
+          .updateCharacteristic(Characteristic.CurrentAirPurifierState, on ? 2 : 0);
+      }
+
+      if (key === 'mode' && this.supports('mode')) {
+        this.purifierService.updateCharacteristic(Characteristic.TargetAirPurifierState, this.obj.mode === 'M' ? 0 : 1);
+      }
+
+      //the speed is spread across whichever keys the model maps it to, so ask
+      //the model rather than naming them here
+      if (this.speeds.some((speedConfig) => key in speedConfig)) {
+        this.purifierService.updateCharacteristic(Characteristic.RotationSpeed, this.rotationSpeed());
+      }
+    }
+
+    if (this.humidifierService && (key === 'func' || key === 'rhset')) {
+      const watered = !(this.obj.func == 'PH' && this.obj.wl == 0);
+      const humidifying = on && this.obj.func === 'PH';
+
+      this.humidifierService
+        .updateCharacteristic(Characteristic.Active, humidifying ? 1 : 0)
+        .updateCharacteristic(Characteristic.CurrentHumidifierDehumidifierState, humidifying ? 2 : 0)
+        .updateCharacteristic(
+          Characteristic.RelativeHumidityHumidifierThreshold,
+          humidifying && watered ? this.humidityThreshold() : 0
+        );
     }
   }
 
@@ -1532,15 +1597,7 @@ class Handler {
 
         if (this.obj.pwr == '1') {
           if (this.obj.func == 'PH' && water_level == 100) {
-            if (this.obj.rhset == 40) {
-              speed_humidity = 25;
-            } else if (this.obj.rhset == 50) {
-              speed_humidity = 50;
-            } else if (this.obj.rhset == 60) {
-              speed_humidity = 75;
-            } else if (this.obj.rhset == 70) {
-              speed_humidity = 100;
-            }
+            speed_humidity = this.humidityThreshold();
           }
         }
 
