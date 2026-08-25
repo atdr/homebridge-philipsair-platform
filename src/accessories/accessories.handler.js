@@ -770,10 +770,17 @@ class Handler {
    * at the one moment the device had proved it was listening: a correct warning
    * and no second attempt, which is worse than not resending blind at all.
    *
-   * Only for a write to a device already known to be off, where the command is
-   * the thing that should wake it and success and failure look identical. A
-   * responsive device that has gone quiet is a freshness problem, and doubling
-   * every write on every unmeasured model would not fix it.
+   * Only for a write to a device already known to be off, where silence is
+   * worth acting on. Measurement on an AC0850 settled what that silence means:
+   * a wake-up that lands is answered fast, once in a single second by a device
+   * that had said nothing for 53 minutes, because turning a purifier on wakes
+   * it and it starts talking. So a wake-up still unanswered a window later was
+   * very likely never received, which is the case a resend can actually fix.
+   *
+   * A responsive device that has gone quiet is a different problem: it has
+   * already been answering, so silence there is freshness rather than a lost
+   * command, and doubling every write on every unmeasured model would not fix
+   * it.
    *
    * The window comparison is what keeps the two deadlines distinct: a
    * refreshInterval long enough to push verifyWindow past offStallTimeout
@@ -1034,12 +1041,13 @@ class Handler {
    * freshness problem rather than a lost command, and reporting it would turn
    * every unmeasured model into a warning loop, so it stays at debug.
    *
-   * From a device the plugin knew was off, it is the opposite. The command was
-   * the thing that should have woken it, so success and failure look identical
-   * from the outside, and the plugin has now asked twice across the whole
-   * backstop the stall detector allows and heard nothing back. A silent drop
-   * there is how an arrive-home automation fails with nothing in the log
-   * (issue #77).
+   * From a device the plugin knew was off, it is the opposite. A wake-up that
+   * lands is answered quickly, even by a device that had been quiet for the
+   * best part of an hour, so silence here is not the device being slow. The
+   * plugin has asked twice across the whole backstop the stall detector allows
+   * and heard nothing back at all, which on the evidence means the command
+   * never arrived. A silent drop there is how an arrive-home automation fails
+   * with nothing in the log (issue #77).
    *
    * Latched on the same flag as reportWriteFailure, since an automation that
    * keeps failing should report once rather than on every cycle.
