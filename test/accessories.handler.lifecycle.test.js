@@ -1190,6 +1190,50 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.kill(true);
   });
 
+  it('resends one command per command, not once per key it carries', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({ model: 'AC0850' });
+    handler.purifierService = makeService();
+    /** @type {string[]} */
+    const sent = [];
+    let inFlight = 0;
+    let overlapped = 0;
+    handler.sendCMD = async (args) => {
+      inFlight += 1;
+      overlapped = Math.max(overlapped, inFlight);
+      await delay(20);
+      inFlight -= 1;
+      sent.push(args.join(' '));
+    };
+
+    await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 17 }));
+    assert.equal(handler.deviceKnownOff(), true);
+
+    handler.verifyWindow = 50;
+    handler.offStallTimeout = 100000;
+
+    //the scene #77 was observed under: power and speed set together
+    await handler.setPurifierActive(true);
+    await handler.setPurifierRotationSpeed(50);
+    assert.deepEqual([...handler.pendingWrites.keys()], ['pwr', 'D0310A', 'D0310C']);
+    sent.length = 0;
+
+    await delay(250);
+
+    //an AC0850 speed is D0310A and D0310C in one command, so resending per key
+    //would fire that same command twice
+    assert.deepEqual(sent, [
+      '-H 192.168.1.142 -P 5683 set -I D03102=1',
+      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=0',
+    ]);
+    //these purifiers serve one connection, and the plugin already holds one
+    assert.equal(overlapped, 1, 'resends raced each other at a single-connection device');
+
+    handler.kill(true);
+  });
+
   it('expires a pending write on its own deadline, not on the last status', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
