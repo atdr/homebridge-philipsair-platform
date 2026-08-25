@@ -195,7 +195,7 @@ Anything with a parent PID of `1` is a leftover, so `kill` it; rebooting clears 
 | error             | Reports the underlying error behind a problem. *4                    | `true`                 | No       |
 | extendedError     | Enables additional output (detailed error) in the log.               | `true`                 | No       |
 | **devices**       | Array of Philips air purifiers.                                      |                        | Yes      |
-| - active          | Set `true` to expose the device. Inactive ones are skipped.          | `false`                | No       |
+| - active          | Set `false` to skip this device without deleting it.                 | `true`                 | No       |
 | - name            | Your own label for the device in the Home app. Not the model ID. *1  |                        | Yes      |
 | - **host**        | IP address or hostname of your device. Give it a fixed address. *2   |                        | Yes      |
 | - port            | Port of your device.                                                 | `5683`                 | No       |

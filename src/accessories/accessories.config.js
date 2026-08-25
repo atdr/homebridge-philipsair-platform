@@ -4,7 +4,12 @@ const { validHost, validPort, validRefreshInterval } = require('../utils/utils')
 
 const Config = (deviceConfig) => {
   return {
-    active: deviceConfig.active || false,
+    //enabled unless it says otherwise, the same idiom the platform log flags
+    //use. The config UI writes this key on every device it saves, so the only
+    //config that reaches here without one was written by hand, where a device
+    //someone listed and never activated is far more likely an oversight than an
+    //intent
+    active: deviceConfig.active !== false,
     name: deviceConfig.name,
     manufacturer: deviceConfig.manufacturer || 'Philips',
     model: deviceConfig.model || 'Air Purifier',
