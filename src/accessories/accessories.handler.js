@@ -33,6 +33,15 @@ const OFF_STALL_TIMEOUT = 30 * 60 * 1000;
 //its own faster than this never triggers it
 const REFRESH_INTERVAL = 60 * 1000;
 
+//how fast the estimate of what re-subscribing costs follows the last refresh,
+//as the weight given to a new reading. deliberately asymmetric: a refresh that
+//cost more than expected is evidence, while one answered cheaply may be luck,
+//and #71 established that on this hardware the expensive mistake is being too
+//eager. So the estimate rises quickly and falls slowly, settling above the mean
+//rather than on it, which errs toward leaving a working stream alone
+const REFRESH_COST_RISE = 0.5;
+const REFRESH_COST_FALL = 0.125;
+
 //delay before respawning a stream that ended
 const RESTART_DELAY = 5 * 1000;
 
@@ -109,9 +118,11 @@ class Handler {
     //replacement subscription can be priced. null once that price is known
     /** @type {number | null} */
     this.refreshKilledAt = null;
-    //what the refresh has learned this device's re-subscription is worth, as a
-    //multiple of the configured interval. see adaptRefresh
-    this.refreshFactor = 1;
+    //what the refresh has learned re-subscribing to this device costs, in ms.
+    //null until a refresh has been priced, when the configured interval stands
+    //in: it is what the plugin waits having measured nothing. see adaptRefresh
+    /** @type {number | null} */
+    this.refreshCost = null;
     //when the stream last produced a line, which outlives the stream that
     //produced it: the stall deadline is measured from a *reading*, and every
     //stall after a teardown is judged on a stream that has answered nothing yet
@@ -1057,12 +1068,20 @@ class Handler {
   }
 
   /**
-   * How long the plugin currently waits after a reading before re-subscribing.
-   * The configured interval is a floor; `refreshFactor` is what this device's
-   * own behaviour has added to it.
+   * How long the plugin currently waits after a reading before re-subscribing:
+   * what a refresh is measured to cost on this device, held between the
+   * configured interval as a floor and the stall timeout as a ceiling. Past the
+   * ceiling the fault detector tears the stream down anyway, so a refresh that
+   * waited longer could never fire.
    */
   refreshDelay() {
-    return this.refreshInterval * this.refreshFactor;
+    if (!this.refreshInterval) {
+      return 0;
+    }
+
+    const cost = this.refreshCost === null ? this.refreshInterval : this.refreshCost;
+
+    return Math.min(Math.max(cost, this.refreshInterval), this.stallTimeout);
   }
 
   /**
@@ -1076,10 +1095,20 @@ class Handler {
    * purifier with another, the interval follows what re-subscribing actually
    * costs here:
    *
-   * - cost more than the wait it replaced -> back off, up to the point where the
-   *   refresh is dormant and the stall detector is the only teardown
-   * - answered promptly -> come back down toward the configured interval, so a
-   *   device that once dozed is not punished for it forever
+   * The estimate is a smoothed average of what refreshes have actually cost,
+   * and the wait is set to it directly. An earlier rule doubled and halved a
+   * multiplier instead, comparing each cost against the current wait: back off
+   * above it, come down at or below half of it. That cannot settle. A fixed
+   * point needs the cost distribution to fall inside a deadband one octave wide,
+   * and this hardware's is bimodal, so the multiplier flipped indefinitely -- 88
+   * changes over 4.5 days on a live AC0850, a median of 19 minutes apart, 43 of
+   * them the same 60s/120s pair. Half of that oscillation sat at the configured
+   * floor, which is the eagerness #71 exists to avoid.
+   *
+   * Averaging the cost removes the deadband, so a bimodal signal produces one
+   * wait between its modes rather than a flip across them. It settles into a
+   * band rather than onto a point, since the input keeps moving, but the band is
+   * a fraction of the octave the multiplier swung through.
    *
    * @param {number} receivedAt
    */
@@ -1092,23 +1121,25 @@ class Handler {
       return;
     }
 
-    const cost = receivedAt - killedAt;
+    //a refresh that outran the fault detector says the same thing as one that
+    //merely reached it, and clamping keeps a single outlier -- 1725s was
+    //measured -- from sitting in the average for a dozen refreshes afterwards
+    const cost = Math.min(receivedAt - killedAt, this.stallTimeout);
+    const before = this.refreshDelay();
+    const estimate = this.refreshCost === null ? this.refreshInterval : this.refreshCost;
+    const weight = cost > estimate ? REFRESH_COST_RISE : REFRESH_COST_FALL;
+
+    this.refreshCost = estimate + weight * (cost - estimate);
+
     const delay = this.refreshDelay();
-    //a refresh can never wait longer than the fault detector, since past that
-    //point the stall timeout tears the stream down anyway
-    const maxFactor = Math.max(1, this.stallTimeout / this.refreshInterval);
-    const before = this.refreshFactor;
 
-    if (cost > delay) {
-      this.refreshFactor = Math.min(this.refreshFactor * 2, maxFactor);
-    } else if (cost <= delay / 2) {
-      this.refreshFactor = Math.max(this.refreshFactor / 2, 1);
-    }
-
-    if (this.refreshFactor !== before) {
+    //every refresh moves the estimate, so logging each one would be noisier than
+    //the rule it replaced. only a wait that moved enough to change behaviour is
+    //worth a line
+    if (Math.abs(delay - before) >= before / 5) {
       logger.debug(
-        `Re-subscribing took ${Math.round(cost / 1000)}s against a ${Math.round(delay / 1000)}s wait, ` +
-          `asking for a fresh reading after ${Math.round(this.refreshDelay() / 1000)}s from now on`,
+        `Re-subscribing took ${Math.round(cost / 1000)}s against a ${Math.round(before / 1000)}s wait, ` +
+          `asking for a fresh reading after ${Math.round(delay / 1000)}s from now on`,
         this.accessory.displayName
       );
     }

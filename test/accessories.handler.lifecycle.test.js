@@ -133,31 +133,46 @@ describe('adaptive refresh', () => {
     return handler.processUpdate(status);
   };
 
-  it('backs off when re-subscribing costs more than the wait it replaced', async () => {
+  it('moves the wait toward what a refresh measured to cost', async () => {
     const handler = makeHandler({ refreshInterval: 60 });
 
+    //from the configured interval as the prior, half the way to the measurement
     await priced(handler, 140 * 1000);
 
-    assert.equal(handler.refreshFactor, 2);
-    assert.equal(handler.refreshDelay(), 120 * 1000);
+    assert.equal(handler.refreshDelay(), 100 * 1000);
   });
 
-  it('comes back down when a refresh is answered promptly', async () => {
-    const handler = makeHandler({ refreshInterval: 60 });
-    handler.refreshFactor = 4;
+  it('trusts an expensive refresh more than a cheap one', async () => {
+    //#71's lesson is that the expensive mistake is being too eager, so an equal
+    //gap in each direction must not move the wait equally
+    const dearer = makeHandler({ refreshInterval: 60 });
+    const cheaper = makeHandler({ refreshInterval: 60 });
+    dearer.refreshCost = 200 * 1000;
+    cheaper.refreshCost = 200 * 1000;
 
-    await priced(handler, 5 * 1000);
+    await priced(dearer, 280 * 1000);
+    await priced(cheaper, 120 * 1000);
 
-    assert.equal(handler.refreshFactor, 2);
+    const rise = dearer.refreshDelay() - 200 * 1000;
+    const fall = 200 * 1000 - cheaper.refreshDelay();
+
+    assert.ok(rise > fall, `a ${rise}ms rise did not outweigh a ${fall}ms fall over the same gap`);
   });
 
   it('never lets the refresh outlast the fault detector', async () => {
     const handler = makeHandler({ refreshInterval: 60 });
-    handler.refreshFactor = 4;
 
-    await priced(handler, 600 * 1000);
+    for (let i = 0; i < 20; i += 1) {
+      await priced(handler, 600 * 1000);
+      assert.ok(
+        handler.refreshDelay() <= handler.stallTimeout,
+        `waited ${handler.refreshDelay()}ms, past the ${handler.stallTimeout}ms the fault detector allows`
+      );
+    }
 
-    assert.equal(handler.refreshDelay(), handler.stallTimeout);
+    //the average approaches the ceiling rather than landing on it, which is the
+    //point: the clamp is the guarantee, not the arithmetic
+    assert.ok(handler.refreshDelay() > handler.stallTimeout * 0.99);
   });
 
   it('holds the configured interval as a floor', async () => {
@@ -165,7 +180,6 @@ describe('adaptive refresh', () => {
 
     await priced(handler, 1000);
 
-    assert.equal(handler.refreshFactor, 1);
     assert.equal(handler.refreshDelay(), 60 * 1000);
   });
 
@@ -175,7 +189,7 @@ describe('adaptive refresh', () => {
 
     await handler.processUpdate(status);
 
-    assert.equal(handler.refreshFactor, 1);
+    assert.equal(handler.refreshCost, null);
     assert.equal(handler.refreshKilledAt, null);
   });
 
@@ -184,8 +198,29 @@ describe('adaptive refresh', () => {
 
     await priced(handler, 600 * 1000);
 
-    assert.equal(handler.refreshFactor, 1);
+    assert.equal(handler.refreshCost, null);
     assert.equal(handler.refreshDelay(), 0);
+  });
+
+  it('settles on a bimodal cost instead of flipping across it', async () => {
+    //the regression this rule exists for. comparing each cost against the
+    //current wait cannot settle when the costs straddle it: on a live AC0850
+    //the old multiplier changed 88 times over 4.5 days, 43 of them the same
+    //60s/120s pair, so half the time it sat at the floor #71 rules out
+    const handler = makeHandler({ refreshInterval: 60 });
+    const seen = [];
+
+    for (let i = 0; i < 40; i += 1) {
+      await priced(handler, (i % 2 ? 10 : 200) * 1000);
+      seen.push(handler.refreshDelay());
+    }
+
+    const settled = seen.slice(-10);
+    const low = Math.min(...settled);
+    const high = Math.max(...settled);
+
+    assert.ok(high / low < 1.25, `the wait still swings between ${low}ms and ${high}ms`);
+    assert.ok(low > handler.refreshInterval, `the wait fell back to the ${handler.refreshInterval}ms floor`);
   });
 });
 
