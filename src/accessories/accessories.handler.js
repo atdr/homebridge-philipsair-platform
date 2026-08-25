@@ -772,25 +772,13 @@ class Handler {
 
       if (pending.attempts < this.maxWriteRetries) {
         pending.attempts += 1;
-        //nothing is evidence about the resend until the resend is on the wire:
-        //status the device sent in the meantime describes the state before it
-        pending.since = Infinity;
 
         logger.debug(
           `Device reports ${key}=${this.obj[key]}, resending ${key}=${pending.expected}`,
           this.accessory.displayName
         );
 
-        //not awaited: this runs while a status line is being processed, and the
-        //answer to it arrives as another status line, not as an exit code
-        this.sendCMD(pending.args)
-          .then(() => {
-            pending.since = Date.now();
-          })
-          .catch((err) => {
-            this.pendingWrites.delete(key);
-            logger.error(err, this.accessory.displayName);
-          });
+        this.resendWrite(key, pending);
         continue;
       }
 
@@ -801,6 +789,30 @@ class Handler {
     clearTimeout(this.verifyTimeout);
     this.verifyTimeout = null;
     this.armVerifyTimeout();
+  }
+
+  /**
+   * Puts a write back on the wire, leaving it pending.
+   *
+   * Not awaited: the answer to a `set` arrives as another status line, not as
+   * an exit code, and this runs from paths that cannot block on it. Nothing the
+   * device sent before the resend is on the wire is evidence about it, so the
+   * horizon moves out until the command has actually been transmitted.
+   *
+   * @param {string} key
+   * @param {{ args: string[], since: number }} pending
+   */
+  resendWrite(key, pending) {
+    pending.since = Infinity;
+
+    this.sendCMD(pending.args)
+      .then(() => {
+        pending.since = Date.now();
+      })
+      .catch((err) => {
+        this.pendingWrites.delete(key);
+        logger.error(err, this.accessory.displayName);
+      });
   }
 
   /**
