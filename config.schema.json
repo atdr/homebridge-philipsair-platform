@@ -78,10 +78,7 @@
               "type": "string",
               "required": true,
               "placeholder": "AC0850",
-              "description": "The model ID printed on your device. Ignore any /11 or /31 suffix. It selects the commands the plugin sends, so a missing or wrong model is the usual reason the Home app controls do nothing. Suggested models are tested; anything else uses a default mapping that may not fit.",
-              "condition": {
-                "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
-              }
+              "description": "The model ID printed on your device. Ignore any /11 or /31 suffix. It selects the commands the plugin sends, so a missing or wrong model is the usual reason the Home app controls do nothing. Suggested models are tested; anything else uses a default mapping that may not fit."
             },
             "serialNumber": {
               "title": "Serial Number",

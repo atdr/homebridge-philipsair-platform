@@ -105,6 +105,21 @@ describe('config.schema', () => {
     );
   });
 
+  //Name and Model are the pair this schema exists to tell apart, so they have
+  //to render together. A condition on model takes it off screen for a device
+  //that is not active, leaving a tab that asks only for a name, which is the
+  //confusion this whole change set is about.
+  it('shows the model field alongside the name, whatever the device says', () => {
+    const properties = schema.schema.properties.devices.items.properties;
+
+    assert.equal(properties.name.condition, undefined, 'devices[].name must not be conditional');
+    assert.equal(
+      properties.model.condition,
+      undefined,
+      'devices[].model must not be conditional; it is the field that selects the speed and register maps'
+    );
+  });
+
   //Asserting the header contains the words it was written with would only
   //restate the schema. What is worth guarding is that the instructions stay
   //true of how the plugin actually behaves, and stay in step with the README:
