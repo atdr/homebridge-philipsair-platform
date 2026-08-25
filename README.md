@@ -366,9 +366,15 @@ These purifiers report spontaneously only while their values are changing, so a 
 
 ### The device did not apply a command
 
-The plugin sent a command, the purifier answered, and its answer still shows the old value. Commands are sent over an unacknowledged protocol, so one that is lost in transit — or that arrives while the device's radio is asleep — produces no error anywhere. The plugin resends it once before reporting this, and the Home app is corrected to whatever the device actually reports, so it never keeps showing a state the device never reached.
+The plugin sent a command, the purifier answered, and its answer still shows the old value. Commands are sent over an unacknowledged protocol, so one that is lost in transit — or that arrives while the device's radio is asleep — produces no error anywhere. The plugin resends it once before reporting this, and the Home app is corrected from the same status that proved the command lost.
 
 An occasional message is normal on a busy or distant network. If it happens every time for one control, the command is probably wrong for your model rather than lost: set `debug` to true, copy the logged `CMD: aioairctrl ...` line, run it yourself, and open an issue with what the device reports afterwards.
+
+### The device never answered a command sent while it was off
+
+A command sent to a purifier that has reported itself switched **off** cannot confirm itself: the device whose reply would prove it arrived is the one that is asleep, so a command that worked and a command that vanished look identical. The plugin therefore judges such a write against the same long silence it already tolerates from an off device, rather than the few minutes it expects from one that was talking, and sends the command a second time along the way. If the device wakes at any point and is still off, the ordinary resend above takes over. This message appears only when nothing at all has been heard for the whole of that window, and the Home app is put back to the last state the device actually reported.
+
+The usual cause is a command lost in transit, which is unremarkable once in a while on a busy or distant network. Repeatedly, and for one device only, points at signal strength or an address problem, so check where the purifier stands and what address it currently has. Turning a purifier off almost never produces this, because a running device answers quickly enough to contradict a lost command. It is the arrive-home automation that turns one **on** that this exists for.
 
 ### aioairctrl rejected the command
 
