@@ -1223,10 +1223,11 @@ describe('write verification', { concurrency: 1 }, () => {
     await delay(250);
 
     //an AC0850 speed is D0310A and D0310C in one command, so resending per key
-    //would fire that same command twice
+    //would fire that same command twice. the wake-up goes last: it has to be
+    //the last thing a sleeping device hears if wake disturbance is what #77 saw
     assert.deepEqual(sent, [
-      '-H 192.168.1.142 -P 5683 set -I D03102=1',
       '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=0',
+      '-H 192.168.1.142 -P 5683 set -I D03102=1',
     ]);
     //these purifiers serve one connection, and the plugin already holds one
     assert.equal(overlapped, 1, 'resends raced each other at a single-connection device');
