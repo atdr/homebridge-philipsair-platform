@@ -42,6 +42,16 @@ const REFRESH_INTERVAL = 60 * 1000;
 const REFRESH_COST_RISE = 0.5;
 const REFRESH_COST_FALL = 0.125;
 
+//how long a `set` is given before it is killed. aioairctrl opens a session
+//before sending its fire-and-forget packet, and that handshake has no timeout
+//of its own: against a host that never answers it waits indefinitely, measured
+//here as no output and no exit at 180s and again at 900s. Without a cap the
+//promise never settles, the onSet never returns, and the Python child is
+//stranded for the life of the Homebridge run (issue #77). Generous next to a
+//`set` that works, which answers in well under a second even from a purifier
+//that had been silent for the best part of an hour
+const SET_TIMEOUT = 30 * 1000;
+
 //delay before respawning a stream that ended
 const RESTART_DELAY = 5 * 1000;
 
@@ -226,6 +236,23 @@ class Handler {
   }
 
   /**
+   * A device that did not answer the session handshake a `set` needs, in the
+   * user's terms. Named separately from unrunnableBinaryError because the two
+   * send readers in opposite directions: one is the install, the other is
+   * everything between Homebridge and the purifier.
+   *
+   * @returns {Error}
+   */
+  unreachableDeviceError() {
+    const { host, port } = this.accessory.context.config;
+
+    return new Error(
+      `${this.binary} got no answer from ${host}:${port} within ${SET_TIMEOUT / 1000}s and was stopped. ` +
+        `The device may be powered off at the mains, on another network, or at a different address (see README Troubleshooting).`
+    );
+  }
+
+  /**
    * @param {string[]} args
    * @returns {Promise<void>}
    */
@@ -233,12 +260,23 @@ class Handler {
     logger.debug(`CMD: ${this.binary} ${args.join(' ')}`, this.accessory.displayName);
 
     return new Promise((resolve, reject) => {
-      execFile(this.binary, args, (err, stdout, stderr) => {
+      execFile(this.binary, args, { timeout: SET_TIMEOUT }, (err, stdout, stderr) => {
         if (err) {
           const code = /** @type {NodeJS.ErrnoException} */ (err).code;
           const unrunnable = code === 'ENOENT' || code === 'EACCES' || code === 'EPERM';
 
-          return reject(unrunnable ? this.unrunnableBinaryError(code) : err);
+          if (unrunnable) {
+            return reject(this.unrunnableBinaryError(code));
+          }
+
+          //a command killed on the timeout above is a device that cannot be
+          //reached, not an install that cannot run. execFile's own message for
+          //it names only the command line, which reads like the latter
+          if (/** @type {{ killed?: boolean }} */ (err).killed) {
+            return reject(this.unreachableDeviceError());
+          }
+
+          return reject(err);
         }
 
         logger.debug(stderr, this.accessory.displayName);
