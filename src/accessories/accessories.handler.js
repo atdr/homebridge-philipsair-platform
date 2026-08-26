@@ -936,8 +936,13 @@ class Handler {
       return;
     }
 
-    //commands already resent in this pass, since one can answer several keys
-    const resent = new Set();
+    //commands to resend once the pass is over, deduplicated: one can answer
+    //several keys. Collected rather than sent from inside the loop, because a
+    //status that contradicts two different commands would otherwise fire both
+    //at once, which is the race the recovery path exists to undo
+    /** @type {string[][]} */
+    const resend = [];
+    const queued = new Set();
 
     for (const [key, pending] of [...this.pendingWrites]) {
       //a status already in flight when the write was sent cannot have observed
@@ -970,15 +975,19 @@ class Handler {
           this.accessory.displayName
         );
 
-        if (!resent.has(pending.args.join(' '))) {
-          resent.add(pending.args.join(' '));
-          this.resendWrite(pending.args);
+        if (!queued.has(pending.args.join(' '))) {
+          queued.add(pending.args.join(' '));
+          resend.push(pending.args);
         }
         continue;
       }
 
       this.pendingWrites.delete(key);
       this.reportWriteFailure(key, pending);
+    }
+
+    if (resend.length) {
+      this.resendInTurn(resend);
     }
 
     clearTimeout(this.verifyTimeout);
@@ -1108,7 +1117,14 @@ class Handler {
    * @param {string[][]} commands
    */
   async resendInTurn(commands) {
-    for (const args of this.orderPowerLast(commands)) {
+    const batch = this.orderPowerLast(commands);
+
+    //the whole batch's horizon closes up front rather than as each command is
+    //reached: a status arriving while a later one waits its turn predates that
+    //command going back on the wire, so it is not evidence about it
+    batch.forEach((args) => this.holdWrites(args));
+
+    for (const args of batch) {
       await this.resendWrite(args);
     }
   }
