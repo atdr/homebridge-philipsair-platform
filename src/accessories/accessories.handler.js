@@ -1067,13 +1067,48 @@ class Handler {
   }
 
   /**
-   * Sends a sweep's worth of resends one at a time. Firing them together would
-   * be the very race that recovery is here to undo.
+   * Puts the wake-up at the end of a batch.
+   *
+   * Two mechanisms could explain what issue #77 measured, and the evidence
+   * cannot separate them. Under *contention*, two overlapping handshakes at a
+   * one-connection device, order does not matter. Under *wake disturbance*, the
+   * command that wakes the device has to be the last thing it hears, and a
+   * second handshake arriving while it wakes knocks it over. So ordering the
+   * wake-up last is a no-op if the first is true and load-bearing if the second
+   * is, which makes it adoptable without knowing which.
+   *
+   * The rescue that was observed working sent speed first and power last, but
+   * only by chance: insertion order used to be decided by which child process
+   * exited first. Deterministic order also means a failure can be reproduced.
+   *
+   * Read off the pending write rather than by naming registers, so this needs
+   * no per-model code, and only for a power-*on*: switching a device off cannot
+   * wake it, so nothing about that write wants to go last.
+   *
+   * @param {string[][]} commands
+   * @returns {string[][]}
+   */
+  orderPowerLast(commands) {
+    const wake = this.pendingWrites.get('pwr');
+
+    if (!wake || Number(wake.expected) !== 1) {
+      return commands;
+    }
+
+    const command = wake.args.join(' ');
+    const rest = commands.filter((args) => args.join(' ') !== command);
+
+    return rest.length === commands.length ? commands : [...rest, wake.args];
+  }
+
+  /**
+   * Sends a sweep's worth of resends one at a time, wake-up last. Firing them
+   * together would be the very race that recovery is here to undo.
    *
    * @param {string[][]} commands
    */
   async resendInTurn(commands) {
-    for (const args of commands) {
+    for (const args of this.orderPowerLast(commands)) {
       await this.resendWrite(args);
     }
   }
@@ -1089,12 +1124,25 @@ class Handler {
     const resend = [];
     const queued = new Set();
 
+    //one unprompted resend on the way, at the window a responsive device would
+    //have answered by. A `set` is a single unacknowledged packet, and resending
+    //one costs a beep the device makes anyway; a wake-up command that was simply
+    //dropped has nothing else that will ever notice.
+    //
+    //Once any of them is due they all go, so that a scene is one ordered batch
+    //rather than a sweep per key. Each write's deadline is its own recordedAt
+    //plus the window, and the setters record milliseconds apart, so judging them
+    //separately split a power and a speed across two sweeps ordered by whichever
+    //was recorded first: exactly the ordering resendInTurn exists to decide. The
+    //cost is that a write recorded shortly before the sweep is resent a little
+    //early, which is one more idempotent packet to a device already known to be
+    //off, and blindResent still caps it at one per write
+    const blindDue = [...this.pendingWrites.values()].some(
+      (pending) => this.blindEligible(pending) && now - pending.recordedAt >= this.verifyWindow
+    );
+
     for (const [key, pending] of [...this.pendingWrites]) {
-      //one unprompted resend on the way, at the window a responsive device
-      //would have answered by. A `set` is a single unacknowledged packet, and
-      //resending one costs a beep the device makes anyway; a wake-up command
-      //that was simply dropped has nothing else that will ever notice
-      if (this.blindEligible(pending) && now - pending.recordedAt >= this.verifyWindow) {
+      if (blindDue && this.blindEligible(pending)) {
         //flagged before the send, so nothing re-entrant can fire it twice
         pending.blindResent = true;
 
