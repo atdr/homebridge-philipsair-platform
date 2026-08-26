@@ -202,6 +202,10 @@ class Handler {
     this.extraSetFlags = extraSetFlags;
     this.unsupported = new Set(unsupported);
 
+    //tail of the queue that keeps `set` commands from overlapping. see sendCMD
+    /** @type {Promise<void>} */
+    this.writeQueue = Promise.resolve();
+
     this.binary = this.accessory.context.config.aioairctrlPath || DEFAULT_BINARY;
     this.args = [
       '-H',
@@ -253,10 +257,15 @@ class Handler {
   }
 
   /**
+   * Runs one `set`. Everything goes through sendCMD rather than here, so that
+   * no two of these are ever in flight at once.
+   *
    * @param {string[]} args
    * @returns {Promise<void>}
    */
-  sendCMD(args) {
+  runCMD(args) {
+    //logged as it goes out rather than as it is queued, so the log still says
+    //what was on the wire and when
     logger.debug(`CMD: ${this.binary} ${args.join(' ')}`, this.accessory.displayName);
 
     return new Promise((resolve, reject) => {
@@ -294,6 +303,41 @@ class Handler {
         resolve();
       });
     });
+  }
+
+  /**
+   * Sends a command, never at the same time as another one.
+   *
+   * These purifiers serve **one connection at a time**, and the plugin already
+   * holds one for status-observe, so a second `set` running alongside a first
+   * is contention rather than throughput. Issue #77 measured it: at a device
+   * that had been silent for around 40 minutes, two `set` processes fired in
+   * the same second lost the wake-up 3 times in 4, while the same commands sent
+   * one after another were answered within a second, twice out of twice. The
+   * one concurrent pair that did land went to a device that was already awake.
+   *
+   * Nothing changes on the wire. The same commands with the same flags are sent
+   * in the same order, just spaced, which is why this is safe on models nobody
+   * here can test.
+   *
+   * The cosmetic light writes queue with the rest. One connection at a time is
+   * a property of the device, not of how much the write matters, and a
+   * brightness drag currently races dozens of processes at it. The cost is that
+   * a long drag can hold up a command issued behind it.
+   *
+   * @param {string[]} args
+   * @returns {Promise<void>}
+   */
+  sendCMD(args) {
+    const run = () => this.runCMD(args);
+    //`then(run, run)` rather than a chained catch: one command failing must not
+    //stop the next from being attempted, and must not leave a rejection sitting
+    //unhandled on the tail
+    const queued = this.writeQueue.then(run, run);
+
+    this.writeQueue = queued.catch(() => {});
+
+    return queued;
   }
 
   /**
