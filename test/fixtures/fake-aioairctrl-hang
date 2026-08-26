@@ -1,0 +1,9 @@
+#!/usr/bin/env node
+'use strict';
+
+//aioairctrl stand-in for a device that is not there at all. A `set` opens a
+//session before it sends anything, and against a host that never answers that
+//handshake waits indefinitely: no output and no exit, measured on the real CLI
+//at 180s and again at 900s. Nothing but the plugin's own cap ends it.
+
+setInterval(() => {}, 1000);

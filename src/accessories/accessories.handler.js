@@ -202,6 +202,10 @@ class Handler {
     this.extraSetFlags = extraSetFlags;
     this.unsupported = new Set(unsupported);
 
+    //how long a `set` is given before it is killed. an instance field for the
+    //same reason the verification windows are: so a test can shorten it
+    this.sendTimeout = SET_TIMEOUT;
+
     //tail of the queue that keeps `set` commands from overlapping. see sendCMD
     /** @type {Promise<void>} */
     this.writeQueue = Promise.resolve();
@@ -251,7 +255,7 @@ class Handler {
     const { host, port } = this.accessory.context.config;
 
     return new Error(
-      `${this.binary} got no answer from ${host}:${port} within ${SET_TIMEOUT / 1000}s and was stopped. ` +
+      `${this.binary} got no answer from ${host}:${port} within ${this.sendTimeout / 1000}s and was stopped. ` +
         `The device may be powered off at the mains, on another network, or at a different address (see README Troubleshooting).`
     );
   }
@@ -269,7 +273,7 @@ class Handler {
     logger.debug(`CMD: ${this.binary} ${args.join(' ')}`, this.accessory.displayName);
 
     return new Promise((resolve, reject) => {
-      execFile(this.binary, args, { timeout: SET_TIMEOUT }, (err, stdout, stderr) => {
+      execFile(this.binary, args, { timeout: this.sendTimeout }, (err, stdout, stderr) => {
         if (err) {
           const code = /** @type {NodeJS.ErrnoException} */ (err).code;
           const unrunnable = code === 'ENOENT' || code === 'EACCES' || code === 'EPERM';
