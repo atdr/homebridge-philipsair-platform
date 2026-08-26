@@ -80,6 +80,15 @@ const VERIFY_WINDOW_MIN = 300 * 1000;
 //told. one lost packet is unremarkable; two in a row is worth a warning
 const MAX_WRITE_RETRIES = 1;
 
+/**
+ * A write waiting for the device to confirm it. `since` is the transmission
+ * horizon, `recordedAt` the moment the user asked for it: the first decides
+ * which statuses count as evidence, the second anchors both deadlines.
+ *
+ * @typedef {{ expected: unknown, args: string[], attempts: number, since: number,
+ *   recordedAt: number, knownOff: boolean, window: number, blindResent: boolean }} PendingWrite
+ */
+
 class Handler {
   constructor(api, accessory) {
     this.api = api;
@@ -110,11 +119,7 @@ class Handler {
     this.loggedParseFailure = false;
     //writes waiting for the device to confirm them, keyed by the generic status
     //key each one sets. see recordWrite
-    /**
-     * @type {Map<string, { expected: unknown, args: string[], attempts: number,
-     *   since: number, recordedAt: number, knownOff: boolean, window: number,
-     *   blindResent: boolean }>}
-     */
+    /** @type {Map<string, PendingWrite>} */
     this.pendingWrites = new Map();
     this.verifyTimeout = null;
     this.refreshTimeout = null;
@@ -786,7 +791,7 @@ class Handler {
    * refreshInterval long enough to push verifyWindow past offStallTimeout
    * leaves no room before the give-up, so there is no unprompted resend to make.
    *
-   * @param {{ knownOff: boolean, blindResent: boolean, window: number }} pending
+   * @param {PendingWrite} pending
    */
   blindEligible(pending) {
     return pending.knownOff && !pending.blindResent && pending.window > this.verifyWindow;
@@ -797,7 +802,7 @@ class Handler {
    * armVerifyTimeout so the timer and expirePendingWrites cannot disagree about
    * when a write is due.
    *
-   * @param {{ recordedAt: number, knownOff: boolean, blindResent: boolean, window: number }} pending
+   * @param {PendingWrite} pending
    */
   nextVerifyDeadline(pending) {
     return pending.recordedAt + (this.blindEligible(pending) ? this.verifyWindow : pending.window);
@@ -869,40 +874,75 @@ class Handler {
   }
 
   /**
+   * Every pending write a command carries.
+   *
+   * The command rather than the key is what all of this acts on, because one
+   * `set` can carry several: an AC0850 speed is `D0310A` and `D0310C` together,
+   * recorded as two pending writes sharing one argv. Working per key would fire
+   * that one command once per key, and #77 saw a scene write lost under exactly
+   * that shape, two `set` processes racing at a device that serves one
+   * connection.
+   *
+   * @param {string[]} args
+   * @returns {[string, PendingWrite][]}
+   */
+  writesFor(args) {
+    const command = args.join(' ');
+
+    return [...this.pendingWrites].filter(([, pending]) => pending.args.join(' ') === command);
+  }
+
+  /**
+   * Holds a command's writes open until it has actually been transmitted.
+   * Nothing the device sent before then is evidence about it, and `since` is
+   * what reconcilePendingWrites measures an incoming status against.
+   *
+   * @param {string[]} args
+   */
+  holdWrites(args) {
+    this.writesFor(args).forEach(([, pending]) => {
+      pending.since = Infinity;
+    });
+  }
+
+  /**
+   * Opens that horizon again, the moment the command is on the wire.
+   *
+   * @param {string[]} args
+   */
+  markWriteSent(args) {
+    const sentAt = Date.now();
+
+    this.writesFor(args).forEach(([, pending]) => {
+      pending.since = sentAt;
+    });
+  }
+
+  /**
+   * Gives up on every write a command carries.
+   *
+   * @param {string[]} args
+   */
+  abandonWrite(args) {
+    this.writesFor(args).forEach(([key]) => this.pendingWrites.delete(key));
+  }
+
+  /**
    * Puts a command back on the wire, leaving the writes it carries pending.
    *
-   * Keyed on the command rather than on the key it set, because one `set` can
-   * carry several: an AC0850 speed is `D0310A` and `D0310C` together, recorded
-   * as two pending writes sharing one argv. Resending per key would fire that
-   * one command once per key, and #77 saw a scene write lost under exactly that
-   * shape, two `set` processes racing at a device that serves one connection.
-   *
    * Callers do not await the send itself: the answer arrives as another status
-   * line, not as an exit code. Nothing the device sent before the command is
-   * back on the wire is evidence about it, so the horizon moves out until it
-   * has been transmitted, for every write the command carries.
+   * line, not as an exit code.
    *
    * @param {string[]} args the command to resend
    * @returns {Promise<void>} settles when the command has been sent
    */
   resendWrite(args) {
-    const command = args.join(' ');
-    const covered = [...this.pendingWrites].filter(([, pending]) => pending.args.join(' ') === command);
-
-    covered.forEach(([, pending]) => {
-      pending.since = Infinity;
-    });
+    this.holdWrites(args);
 
     return this.sendCMD(args)
-      .then(() => {
-        const sentAt = Date.now();
-
-        covered.forEach(([, pending]) => {
-          pending.since = sentAt;
-        });
-      })
+      .then(() => this.markWriteSent(args))
       .catch((err) => {
-        covered.forEach(([key]) => this.pendingWrites.delete(key));
+        this.abandonWrite(args);
         logger.error(err, this.accessory.displayName);
       });
   }
@@ -1053,7 +1093,7 @@ class Handler {
    * keeps failing should report once rather than on every cycle.
    *
    * @param {string} key
-   * @param {{ expected: unknown, attempts: number, knownOff: boolean, blindResent: boolean, window: number }} pending
+   * @param {PendingWrite} pending
    */
   reportWriteExpiry(key, pending) {
     const waited = Math.round(pending.window / 1000);
