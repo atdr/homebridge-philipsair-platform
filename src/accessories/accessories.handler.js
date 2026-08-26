@@ -417,8 +417,7 @@ class Handler {
       this.purifierService.updateCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState, stateNumber * 2);
 
       logger.info(`Purifier Active: ${state}`, this.accessory.displayName);
-      await this.sendCMD(args);
-      this.recordWrite(args, { pwr: stateNumber });
+      await this.sendTracked(args, { pwr: stateNumber });
     } catch (err) {
       logger.warn('An error occured during changing purifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -446,8 +445,7 @@ class Handler {
 
       logger.info(`Purifier Mode: ${state}`, this.accessory.displayName);
 
-      await this.sendCMD(args);
-      this.recordWrite(args, { mode: values.mode });
+      await this.sendTracked(args, { mode: values.mode });
     } catch (err) {
       logger.warn('An error occured during changing target purifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -469,8 +467,7 @@ class Handler {
 
       logger.info(`Lock: ${state}`, this.accessory.displayName);
 
-      await this.sendCMD(args);
-      this.recordWrite(args, { cl: values.cl });
+      await this.sendTracked(args, { cl: values.cl });
     } catch (err) {
       logger.warn('An error occured during changing lock state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -498,8 +495,7 @@ class Handler {
 
         logger.info(`Purifier Rotation Speed: cmds: ${cmds.join(' ')}`, this.accessory.displayName);
 
-        await this.sendCMD(args);
-        this.recordWrite(args, this.speeds[speed - 1]);
+        await this.sendTracked(args, this.speeds[speed - 1]);
       }
     } catch (err) {
       logger.warn('An error occured during changing purifier rotation speed!', this.accessory.displayName);
@@ -547,8 +543,7 @@ class Handler {
 
       logger.info(`Humidifier Active: ${state}`, this.accessory.displayName);
 
-      await this.sendCMD(args);
-      this.recordWrite(args, { func: values.func });
+      await this.sendTracked(args, { func: values.func });
     } catch (err) {
       logger.warn('An error occured during changing humidifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -607,10 +602,8 @@ class Handler {
 
       logger.info(`Humidifier State: ${state}`, this.accessory.displayName);
 
-      await this.sendCMD(args1);
-      this.recordWrite(args1, { func: values.func });
-      await this.sendCMD(args2);
-      this.recordWrite(args2, { rhset: values.rhset });
+      await this.sendTracked(args1, { func: values.func });
+      await this.sendTracked(args2, { rhset: values.rhset });
     } catch (err) {
       logger.warn('An error occured during changing target humidifer state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -697,7 +690,7 @@ class Handler {
    * @param {Record<string, unknown>} expectations generic key -> expected value
    */
   recordWrite(args, expectations) {
-    const since = Date.now();
+    const recordedAt = Date.now();
 
     //how long silence proves nothing depends on which regime the device is in,
     //and the plugin already models both: verifyWindow is derived from how fast a
@@ -728,9 +721,11 @@ class Handler {
       this.pendingWrites.set(key, {
         expected,
         args,
+        //closed until the command has actually been transmitted: it is recorded
+        //before the send, and a serialised send may wait its turn first
+        since: Infinity,
         attempts: 0,
-        since,
-        recordedAt: since,
+        recordedAt,
         knownOff,
         window,
         blindResent: false,
@@ -738,6 +733,42 @@ class Handler {
     }
 
     this.armVerifyTimeout();
+  }
+
+  /**
+   * Records a write and then sends it, in that order.
+   *
+   * The order is the point. `aioairctrl set` needs a session handshake before
+   * its fire-and-forget packet, and that handshake has no timeout of its own,
+   * so against a purifier that is unplugged or off the network the send does
+   * not resolve for a long time and may not resolve at all. Recording after it
+   * meant no pending write existed in exactly the case the verification
+   * machinery was built for: HomeKit kept the value it had been given
+   * optimistically, and nothing was ever going to correct it (issue #77).
+   *
+   * A pending write for a command that never left the host is the right state,
+   * not a wrong one. The give-up path is what should handle it, and putting
+   * HomeKit back is its job.
+   *
+   * Recording first also makes insertion order follow setter order rather than
+   * child-process exit order, which is what any rule about the order commands
+   * are resent in needs in order to mean anything.
+   *
+   * @param {string[]} args
+   * @param {Record<string, unknown>} expectations generic key -> expected value
+   * @returns {Promise<void>}
+   */
+  async sendTracked(args, expectations) {
+    this.recordWrite(args, expectations);
+
+    try {
+      await this.sendCMD(args);
+      this.markWriteSent(args);
+    } catch (err) {
+      //rethrown so each setter still reports the failure in its own words
+      this.abandonWrite(args);
+      throw err;
+    }
   }
 
   /**
@@ -919,12 +950,18 @@ class Handler {
   }
 
   /**
-   * Gives up on every write a command carries.
+   * Gives up on every write a command carries, and puts HomeKit back to what
+   * the device last reported. The setters update characteristics before the
+   * command is on the wire, so a command that never left the host would
+   * otherwise leave the Home app showing a state the device never reached.
    *
    * @param {string[]} args
    */
   abandonWrite(args) {
-    this.writesFor(args).forEach(([key]) => this.pendingWrites.delete(key));
+    this.writesFor(args).forEach(([key]) => {
+      this.pendingWrites.delete(key);
+      this.revertOptimisticUpdate(key);
+    });
   }
 
   /**
