@@ -34,6 +34,7 @@ const STATEFUL_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-stateful
 const ONCE_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-once');
 const CLI_ERROR_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-cli-error');
 const DEBUG_LOG_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-debug-log');
+const HANG_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-hang');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -828,8 +829,9 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
 
 //the logger is a module singleton, so these tests must not capture it at the same time
 describe('write verification', { concurrency: 1 }, () => {
-  //a write is only registered once the command has been sent, so these tests
-  //stand in for the CLI and drive the verification directly
+  //these tests stand in for the CLI and drive the verification directly. the
+  //stub replaces sendCMD rather than runCMD, so it bypasses the queue: what is
+  //under test here is what happens to a write, not how commands are spaced
   const recordingHandler = () => {
     const handler = makeHandler({});
     handler.purifierService = makeService();
@@ -1317,5 +1319,139 @@ describe('write verification', { concurrency: 1 }, () => {
 
     handler.kill(true);
     await delay(50);
+  });
+
+  it('records the write before the command has been sent', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    //a send that never settles, which is what an unreachable device does
+    handler.sendCMD = () => new Promise(() => {});
+
+    const setting = handler.setPurifierActive(true);
+    await delay(20);
+
+    //the whole point: a command that has not left the host is still a write the
+    //give-up machinery can act on
+    assert.equal(handler.pendingWrites.size, 1);
+    assert.equal(
+      handler.pendingWrites.get('pwr').since,
+      Infinity,
+      'a status arriving now would have been treated as evidence about a command still in flight'
+    );
+
+    handler.kill(true);
+    void setting;
+  });
+
+  it('puts HomeKit back when the command never leaves the host', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    await handler.processUpdate(status({ pwr: '0' }));
+    handler.sendCMD = async () => {
+      throw new Error('nope');
+    };
+
+    await handler.setPurifierActive(true);
+
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.deepEqual(updated(handler.purifierService, 'Active').at(-1), ['Active', 0]);
+    assert.deepEqual(updated(handler.purifierService, 'CurrentAirPurifierState').at(-1), [
+      'CurrentAirPurifierState',
+      0,
+    ]);
+    assert.equal(logs.warn.length, 1, 'the setter still reports the failure in its own words');
+
+    handler.kill(true);
+  });
+
+  it('cuts off a set command the device never answers', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({ aioairctrlPath: HANG_SHIM });
+    handler.purifierService = makeService();
+    handler.sendTimeout = 150;
+
+    await handler.setPurifierActive(true);
+
+    //without the cap this never returns at all, and the child outlives the run
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.match(logs.error.join(' '), /got no answer from 192\.168\.1\.142:5683 within 0\.15s/);
+    assert.doesNotMatch(logs.error.join(' '), /not found|could not be executed/, 'reported as an install fault');
+
+    handler.kill(true);
+  });
+
+  it('never runs two set commands at once', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({ model: 'AC0850' });
+    handler.purifierService = makeService();
+    /** @type {string[]} */
+    const sent = [];
+    let inFlight = 0;
+    let overlapped = 0;
+    handler.runCMD = async (args) => {
+      inFlight += 1;
+      overlapped = Math.max(overlapped, inFlight);
+      await delay(20);
+      inFlight -= 1;
+      sent.push(args.join(' '));
+    };
+
+    //the scene shape: HomeKit delivers these as independent onSet calls, so
+    //nothing awaits one before making the other
+    await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(50)]);
+
+    assert.equal(overlapped, 1, 'two set processes raced at a single-connection device');
+    assert.deepEqual(sent, [
+      '-H 192.168.1.142 -P 5683 set -I D03102=1',
+      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=0',
+    ]);
+
+    handler.kill(true);
+  });
+
+  it('resends in turn when a status contradicts two commands', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({ model: 'AC0850' });
+    handler.purifierService = makeService();
+    /** @type {string[]} */
+    const sent = [];
+    let inFlight = 0;
+    let overlapped = 0;
+    handler.sendCMD = async (args) => {
+      inFlight += 1;
+      overlapped = Math.max(overlapped, inFlight);
+      await delay(20);
+      inFlight -= 1;
+      sent.push(args.join(' '));
+    };
+
+    await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 17 }));
+    await handler.setPurifierActive(true);
+    await handler.setPurifierRotationSpeed(50);
+    sent.length = 0;
+
+    //the device answers, still disagreeing about both commands
+    await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 17 }));
+    await delay(120);
+
+    assert.equal(overlapped, 1, 'two contradicted commands were resent at once');
+    assert.deepEqual(sent, [
+      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=0',
+      '-H 192.168.1.142 -P 5683 set -I D03102=1',
+    ]);
+
+    handler.kill(true);
   });
 });
