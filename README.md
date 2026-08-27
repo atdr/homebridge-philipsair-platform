@@ -366,7 +366,9 @@ These purifiers report spontaneously only while their values are changing, so a 
 
 ### The device did not apply a command
 
-The plugin sent a command, the purifier answered, and its answer still shows the old value. Commands are sent over an unacknowledged protocol, so one that is lost in transit — or that arrives while the device's radio is asleep — produces no error anywhere. The plugin resends it once before reporting this, and the Home app is corrected from the same status that proved the command lost. Commands are sent strictly one at a time, because these purifiers serve only one connection and two arriving together were measured losing one of them at a sleeping device.
+The plugin sent a command, the purifier answered twice, and both answers still show the old value. Commands are sent over an unacknowledged protocol, so a command that never arrives, or that arrives while the device's radio is asleep, produces no error anywhere. The plugin resends it once before reporting this, and the Home app is corrected from the same status that showed the command had not taken effect. Commands are sent strictly one at a time, because these purifiers serve only one connection and two arriving together were measured losing one of them at a sleeping device.
+
+These devices report on their own schedule rather than answering a command, so a status that arrives in the first few seconds after one was sent was composed before the device could act on it and still carries the old value. Such a status is not counted either way, which is why this message needs the device to keep reporting the old value rather than merely to report it once.
 
 An occasional message is normal on a busy or distant network. If it happens every time for one control, the command is probably wrong for your model rather than lost: set `debug` to true, copy the logged `CMD: aioairctrl ...` line, run it yourself, and open an issue with what the device reports afterwards.
 
