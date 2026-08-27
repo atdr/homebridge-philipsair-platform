@@ -36,3 +36,9 @@ coverage
 # Temporary folders
 tmp/
 temp/
+
+# Agent worktrees
+# EnterWorktree checks a second copy of this repo out under here. Keeping it out
+# of git also keeps it out of the gates that walk the tree; see the matching
+# entries in .prettierignore, eslint.config.js, and the check and lint:md scripts.
+.claude/worktrees/
