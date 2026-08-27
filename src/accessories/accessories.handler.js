@@ -90,6 +90,17 @@ const VERIFY_WINDOW_MIN = 300 * 1000;
 //told. one lost packet is unremarkable; two in a row is worth a warning
 const MAX_WRITE_RETRIES = 1;
 
+//how long after a command goes out before the device's answers start counting
+//as answers to it. A `set` is one unacknowledged packet, and a status push
+//already being composed when it lands still carries the old value, so it is
+//evidence about neither the write nor the resend. Measured on an AC0850: a
+//resend at 02:19:31 was contradicted by a push a second later and confirmed by
+//the next one in the same second, which on the last attempt is the difference
+//between silence and a warning telling the user to go and check their network
+//(issue #77). Small next to every other horizon here, and the device pushes
+//every 6 to 40 seconds, so it costs at most one skipped push
+const WRITE_SETTLE = 3 * 1000;
+
 /**
  * A write waiting for the device to confirm it. `since` is the transmission
  * horizon, `recordedAt` the moment the user asked for it: the first decides
@@ -205,6 +216,10 @@ class Handler {
     //how long a `set` is given before it is killed. an instance field for the
     //same reason the verification windows are: so a test can shorten it
     this.sendTimeout = SET_TIMEOUT;
+
+    //how long the device is given to process a command before its answers count
+    //as answers to it. an instance field for the same reason
+    this.writeSettle = WRITE_SETTLE;
 
     //tail of the queue that keeps `set` commands from overlapping. see sendCMD
     /** @type {Promise<void>} */
@@ -950,8 +965,9 @@ class Handler {
 
     for (const [key, pending] of [...this.pendingWrites]) {
       //a status already in flight when the write was sent cannot have observed
-      //it. the resolution is coarse, and the cost of getting it wrong is one
-      //extra resend of a command the device has already applied
+      //it, and `since` carries a settling allowance so that one composed just as
+      //the packet landed is discounted too. Erring this way costs at most a
+      //skipped push; erring the other way reported a write the device applied
       if (receivedAt < pending.since) {
         continue;
       }
@@ -1032,12 +1048,16 @@ class Handler {
   }
 
   /**
-   * Opens that horizon again, the moment the command is on the wire.
+   * Opens that horizon again, a settling allowance after the command went on
+   * the wire rather than the instant it did. The device does not answer a
+   * fire-and-forget packet, it just keeps pushing status, and a push already on
+   * its way when the packet lands still carries the old value. See WRITE_SETTLE
+   * for what treating that as a contradiction cost on hardware.
    *
    * @param {string[]} args
    */
   markWriteSent(args) {
-    const sentAt = Date.now();
+    const sentAt = Date.now() + this.writeSettle;
 
     this.writesFor(args).forEach(([, pending]) => {
       pending.since = sentAt;

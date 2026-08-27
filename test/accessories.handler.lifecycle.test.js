@@ -831,10 +831,13 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
 describe('write verification', { concurrency: 1 }, () => {
   //these tests stand in for the CLI and drive the verification directly. the
   //stub replaces sendCMD rather than runCMD, so it bypasses the queue: what is
-  //under test here is what happens to a write, not how commands are spaced
+  //under test here is what happens to a write, not how commands are spaced.
+  //the settling allowance goes to zero for the same reason: statuses are fed in
+  //with no real time passing, so every one of them would otherwise be discounted
   const recordingHandler = () => {
     const handler = makeHandler({});
     handler.purifierService = makeService();
+    handler.writeSettle = 0;
     /** @type {string[][]} */
     const sent = [];
     handler.sendCMD = async (args) => {
@@ -1306,6 +1309,9 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.stallTimeout = 5000;
     handler.restartDelay = 10;
     handler.verifyWindow = 400;
+    //the shim answers in milliseconds, so the settling allowance scales with the
+    //rest of the timings rather than staying at its real-device size
+    handler.writeSettle = 20;
 
     handler.longPoll();
     await delay(60);
@@ -1425,6 +1431,8 @@ describe('write verification', { concurrency: 1 }, () => {
 
     const handler = makeHandler({ model: 'AC0850' });
     handler.purifierService = makeService();
+    //no real time passes between the setters and the status below
+    handler.writeSettle = 0;
     /** @type {string[]} */
     const sent = [];
     let inFlight = 0;
@@ -1451,6 +1459,69 @@ describe('write verification', { concurrency: 1 }, () => {
       '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=0',
       '-H 192.168.1.142 -P 5683 set -I D03102=1',
     ]);
+
+    handler.kill(true);
+  });
+
+  it('does not count a status the device sent as the command reached it', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    handler.writeSettle = 200;
+
+    await handler.setPurifierActive(true);
+    sent.length = 0;
+
+    //the push that was already on its way, still carrying the old value
+    await handler.processUpdate(status({ pwr: '0' }));
+
+    assert.deepEqual(sent, [], 'a push that raced the command was read as a contradiction');
+    assert.equal(handler.pendingWrites.size, 1);
+    assert.deepEqual(logs.warn, []);
+
+    //the allowance is a window, not a permanent exemption: once it has passed,
+    //a device still reporting the old value is contradicting the command
+    await delay(220);
+    await handler.processUpdate(status({ pwr: '0' }));
+
+    assert.equal(sent.length, 1, 'a genuine contradiction after the allowance was ignored');
+    assert.equal(handler.pendingWrites.get('pwr').attempts, 1);
+
+    handler.kill(true);
+  });
+
+  it('does not report a write on a status that raced its resend', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    handler.writeSettle = 200;
+
+    await handler.setPurifierActive(true);
+    sent.length = 0;
+    //stands for the 19s that passed before the device answered on hardware
+    handler.pendingWrites.get('pwr').since = Date.now() - 1000;
+
+    await handler.processUpdate(status({ pwr: '0' }));
+    await delay(20);
+
+    assert.equal(sent.length, 1, 'the contradiction was not resent');
+    assert.ok(handler.pendingWrites.get('pwr').since > Date.now(), 'the resend reopened the horizon immediately');
+
+    //the retry budget is spent, so a status counted as evidence here reports a
+    //failure outright. this one was composed before the resend landed
+    await handler.processUpdate(status({ pwr: '0' }));
+
+    assert.deepEqual(logs.warn, [], 'a push that raced the resend was reported as a failed write');
+    assert.equal(handler.pendingWrites.size, 1);
+
+    //the next push, once the device has acted on it
+    await delay(220);
+    await handler.processUpdate(status({ pwr: '1' }));
+
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.deepEqual(logs.warn, []);
 
     handler.kill(true);
   });
