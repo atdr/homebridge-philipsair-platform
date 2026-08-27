@@ -101,6 +101,30 @@ much further that goes.
 > stall timer has two regimes: see the off-state item below. Both halves are verified on
 > hardware, the refresh on 1.2.0-beta.4 and the two regimes on 1.2.0-beta.5.
 
+**[AC0850] On a stream left alone it pushes every ~9 s; re-subscribing is what costs.** Measured
+over a full debug night on **v1.2.1**, 2026-08-19 20:04 to 2026-08-20 13:00, purifier on
+throughout (device-reported `pwr=1` from 21:59:39 to 10:55:57), 1165 readings:
+
+| gap from one reading to the next | n   | median    | p90    | max    |
+| -------------------------------- | --- | --------- | ------ | ------ |
+| subscription left alone          | 991 | **9 s**   | 42 s   | 60 s   |
+| after a refresh kill             | 145 | **140 s** | 294 s  | 834 s  |
+| after a stall kill               | 28  | **529 s** | 1602 s | 2220 s |
+
+The 60 s ceiling on the first row is `armRefreshTimeout` firing, not the device falling silent, so
+**how long a live subscription stays quiet on this model is still unmeasured**: the plugin never
+lets one live long enough to find out. What is measured is the cost of teardown. A replacement
+subscription waits 140 s at the median to be answered, and the median burst is **3 readings before
+the refresh kills the stream**. Every long silence in the night follows a kill, and none occurs on
+a stream left untouched, which is the strongest support so far for the orphaned-observer theory
+below.
+
+> ⚠️ **Correction.** The ~51 s and 10-30 s cadences above were both sampled while streams were
+> being torn down on a timer, so they mix the device's own cadence with re-subscription cost. On an
+> untouched stream it is ~9 s. The design consequence runs opposite to what #38 and #44 assumed:
+> **the expensive operation on this model is re-subscribing, not waiting**, so a refresh sized
+> below the device's quiet period makes HomeKit staler rather than fresher. Tracked as issue #71.
+
 **[AC0850] Switched off, it answers only intermittently, and 25 minute silences are normal.**
 Measured 2026-08-18 against 1.2.0-beta.4. Homebridge was stopped so nothing could kill a
 subscription and no client competed, the purifier was switched off, then left 10 minutes to
@@ -128,8 +152,54 @@ timeout value fixes this**, and `STALL_TIMEOUT = 300 s` is not a fault detector 
 device, it is a restart generator. Silence from a switched-off unit is normal and must not be
 treated as a fault.
 
+**[AC0850] Off-state notifications are value-driven, which is what makes the intermittency look
+self-contradictory.** Measured 2026-08-27 against 1.3.0-beta.6, purifier off since 23:21:57, the
+stream being the plugin's own rather than a hand-held one. Between 01:03:26 and 01:17:29, with no
+restart anywhere in the window, readings arrived in **bursts of 1 to 3 spaced 2 to 7 s apart, with
+~3 min 25 s between bursts**. Then nothing at all for 56 minutes.
+
+Read alone that looks like a ~3.5 minute cadence, and it appears to contradict the 25 minute
+silence above. It is not a cadence. Every reading in the window differs from the one before it, in
+the same small set of fields:
+
+```text
+01:03:28  pm25 14->13   free_memory
+01:03:35  pm25 13->14   free_memory  rssi
+01:07:02  pm25 14->16   free_memory  rssi
+01:07:05  pm25 16->17   free_memory  rssi
+01:10:25  pm25 17->16   free_memory  rssi
+01:14:03  pm25 15->14   free_memory
+01:14:04  pm25 14->13
+01:17:29  pm25 13->12   free_memory  rssi  iaql 2->1
+```
+
+`pm25` moves in **all 11 readings**; `rssi` and `free_memory` drift continuously. These are
+notifications that a watched value changed, not protocol keepalives, so the gap between bursts is
+how long the monitored values happened to sit still. It is not an interval the device is keeping,
+and it would not reproduce on a night with different air.
+
+That reconciles the two observations instead of leaving them in conflict. The same device reports
+whenever a watched value moves, so a window where `pm25` is drifting produces bursts and a window
+where it is settled produces 25 minutes of nothing. Both are the same rule. The 2026-08-18 run has
+no field-level data to confirm its silence was value-stable, which is the obvious thing to capture
+if it is ever repeated, alongside stderr.
+
+**Two traps this section exists to stop, both of which have already caught someone.**
+
+**Do not size an off-state experiment off the first ten minutes.** The device answers normally for
+~11 minutes after switch-off. A 2026-08-27 attempt to reproduce a lost wake-up write used a **6
+minute** off period, sat entirely inside that window, and proved nothing about the failing state.
+Clear the window before the experiment starts, and confirm it from the log rather than the clock.
+
+**Do not corroborate an off-state number with an on-state one.** The 9 s left-alone median in the
+table above was measured with the purifier **on**. Reading agreement between it and the 2 to 7 s
+within-burst gaps here would cross the single variable the whole off-state regime exists because
+of. This skill's own history is a run of design errors from exactly that move: #38's
+`STALL_TIMEOUT = 120 s` came from a measurement taken while the purifier was running, and #48 had
+to replace one constant with two regimes to undo it.
+
 Fixed for #48 by making the stall timer state-dependent rather than by choosing a different
-constant, which the experiment above rules out. `armStallTimeout` picks its timeout from
+constant, which the 2026-08-18 experiment rules out. `armStallTimeout` picks its timeout from
 `deviceKnownOff()` at arm time: 300 s when the device is on or has never answered, 30 minutes
 (`OFF_STALL_TIMEOUT`) when the last status said `pwr` is 0. The long one is a backstop against
 a subscription that died unseen, not a poll, so a stall in that regime restarts the stream
@@ -204,7 +274,9 @@ notification it was waiting for (the device answered a `set` 83 s later; the ref
 83 s figure above is also real.** Measured 2026-08-18: `set -I D03102=0` at 21:12:28 produced a
 status **within the same second**, carrying the new value and `"StatusType":"control"` where
 every periodic push says `"status"`. That is the device acknowledging a control action, and it
-is three orders of magnitude faster than the 83 s a beta.3 write waited for. **Do not replace
+is three orders of magnitude faster than the 83 s a beta.3 write waited for. Seven further writes
+on v1.2.1 over the night of 2026-08-19 were all echoed **within 1 s**, so the immediate echo is
+the common case rather than the exception. **Do not replace
 one number with the other**: write-to-notification latency on this model spans at least
 0-83 s, which is exactly why verification must ride the stream rather than run on a schedule
 sized from any single measurement. The `control` marker is a usable signal if a future change
