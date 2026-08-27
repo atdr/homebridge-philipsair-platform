@@ -1332,14 +1332,20 @@ class Handler {
    * answer disagrees. Latched like reportPollFailure, since the HomeKit
    * automation that produced it will keep producing it.
    *
+   * The message says what was observed and no more. It used to name a lost
+   * packet as the likely cause, which the plugin cannot see and which was wrong
+   * in the one case anybody has watched from both ends: the device beeped for
+   * every command it was sent (issue #77). Where a status has come back and
+   * disagrees, the device is the place to look, not the network.
+   *
    * @param {string} key
    * @param {{ expected: unknown, attempts: number }} pending
    */
   reportWriteFailure(key, pending) {
     const summary =
       `The device did not apply ${key}=${pending.expected} after ${pending.attempts + 1} attempts ` +
-      `(it reports ${this.obj[key]}). The command was most likely lost in transit; ` +
-      'see README Troubleshooting.';
+      `(it reports ${this.obj[key]}). It answered each time, so the command reached it and was ` +
+      'not acted on; see README Troubleshooting.';
 
     if (this.loggedWriteFailure) {
       logger.debug(summary, this.accessory.displayName);
