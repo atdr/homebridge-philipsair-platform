@@ -302,11 +302,11 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     assert.equal(logs.warn.filter((line) => line.includes('exited with code 1')).length, 1);
   });
 
-  it('captures nothing reportable from the CLI progress log that debug mode writes', async () => {
-    //with 'debug' enabled the plugin passes -D and aioairctrl logs its whole
+  it('captures nothing reportable from the CLI progress log that cliDebug writes', async () => {
+    //with 'cliDebug' enabled the plugin passes -D and aioairctrl logs its whole
     //run to stderr, so the buffer used to be full of progress records that then
     //surfaced as errors. this drives the real stream rather than the buffer
-    const handler = makeHandler({ aioairctrlPath: DEBUG_LOG_SHIM, debug: true });
+    const handler = makeHandler({ aioairctrlPath: DEBUG_LOG_SHIM, cliDebug: true });
     handler.accessory.getService = () => null;
     handler.restartDelay = 5000;
 
@@ -321,7 +321,7 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     t.after(silenceLogger);
     const logs = captureLogs();
 
-    const handler = makeHandler({ debug: true });
+    const handler = makeHandler({ cliDebug: true });
 
     handler.captureStderr('DEBUG:aioairctrl.coap.client:syncing\n');
     handler.pollFailures = 3;

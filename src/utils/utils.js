@@ -7,6 +7,7 @@ exports.generateConfig = (config) => {
     name: config.name || 'PhilipsAirPlatform',
     aioairctrlPath: exports.validBinaryPath(config.aioairctrlPath),
     debug: config.debug || false,
+    cliDebug: config.cliDebug || false,
     warn: config.warn !== false,
     error: config.error !== false,
     extendedError: config.extendedError !== false,

@@ -82,8 +82,8 @@ the plugin warns and logs the CLI's captured stderr, then logs `Device is respon
 when status resumes. Both are deduplicated to once per outage.
 
 > ⚠️ **In debug mode, stderr carries progress as well as faults** (issue #49, seen on
-> 1.2.0-beta.4). `debug: true` passes `-D`, which makes aioairctrl write its entire debug log
-> to stderr, so the buffer was never empty and any unexpected exit — including the stall
+> 1.2.0-beta.4). `cliDebug: true` passes `-D`, which makes aioairctrl write its entire debug
+> log to stderr, so the buffer was never empty and any unexpected exit — including the stall
 > restarts and `requestRefresh` kills the plugin causes itself — surfaced a benign line as an
 > error. `Error: aioairctrl wrote: DEBUG:aioairctrl.coap.client:syncing` is the signature in
 > logs from 1.2.0-beta.4 and earlier; read it as "a process exited", not "a process failed".
@@ -100,7 +100,10 @@ when status resumes. Both are deduplicated to once per outage.
 > stall reporting, which was the risk in fixing this by silencing plugin-initiated exits instead.
 
 First move on any runtime issue: set `debug: true` in the platform config (Homebridge
-UI → plugin config, or config.json) and restart. Log access: Homebridge UI log page, or
+UI → plugin config, or config.json) and restart. That is the plugin's own tracing only.
+`cliDebug: true` adds aioairctrl's `-D` log on top, which is the noisier half and is worth
+turning on only when the CLI itself is the suspect; before #63 the two were one switch, and
+a night of evidence did not survive log truncation. Log access: Homebridge UI log page, or
 `journalctl -u homebridge -f`, or `hb-service logs`, depending on the install (standard
 Homebridge, not plugin-specific).
 
