@@ -56,13 +56,15 @@
             "active": {
               "title": "Active",
               "type": "boolean",
+              "default": true,
               "description": "If enabled, the device will be exposed to HomeKit."
             },
             "name": {
               "title": "Name",
               "type": "string",
               "required": true,
-              "description": "Set the device name for display in the Home app."
+              "placeholder": "Air Purifier",
+              "description": "Your own label for this device in the Home app. It does not tell the plugin what the device is; the Model field does that."
             },
             "manufacturer": {
               "title": "Manufacturer",
@@ -74,12 +76,9 @@
             "model": {
               "title": "Model",
               "type": "string",
-              "placeholder": "Air Purifier",
-              "default": "Air Purifier",
-              "description": "Determines how the plugin controls this device, not just what the Home app displays. If your device is in the suggestions, pick the exact ID \u2014 those models need it for correct fan speeds and controls. Any other value works, using default settings that suit most purifiers. See the tested devices list in the README.",
-              "condition": {
-                "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
-              }
+              "required": true,
+              "placeholder": "AC0850",
+              "description": "The model ID printed on your device. Ignore any /11 or /31 suffix. It selects the commands the plugin sends, so a missing or wrong model is the usual reason the Home app controls do nothing. Suggested models are tested; anything else uses a default mapping that may not fit."
             },
             "serialNumber": {
               "title": "Serial Number",
@@ -93,7 +92,7 @@
               "type": "string",
               "required": true,
               "placeholder": "10.0.1.16",
-              "description": "IP address or hostname of your device, e.g. 10.0.1.16 or purifier.local.",
+              "description": "IP address or hostname of your device. Give it a fixed address first, usually a DHCP reservation on your router: if the address changes, the plugin can no longer reach the device.",
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               }
@@ -195,13 +194,13 @@
           "orderable": false,
           "items": [
             "devices[].active",
-            "devices[].name",
             {
               "key": "devices[].model",
               "typeahead": {
                 "source": ["AC0850", "AC1715", "AC3036", "AC3829"]
               }
             },
+            "devices[].name",
             "devices[].host",
             {
               "key": "devices[].port",

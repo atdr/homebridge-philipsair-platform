@@ -10,7 +10,7 @@ describe('accessories.config', () => {
     const device = Config({ name: 'Purifier', host: '192.168.1.142' });
 
     assert.deepEqual(device, {
-      active: false,
+      active: true,
       name: 'Purifier',
       manufacturer: 'Philips',
       model: 'Air Purifier',
@@ -28,6 +28,13 @@ describe('accessories.config', () => {
       carbonFilter: false,
       hepaFilter: false,
     });
+  });
+
+  //a device is opted out, not opted in: the config UI writes the key on every
+  //device it saves, so the only config without one was written by hand
+  it('skips a device only when it says so explicitly', () => {
+    assert.equal(Config({ name: 'Purifier', host: '10.0.0.2', active: false }).active, false);
+    assert.equal(Config({ name: 'Purifier', host: '10.0.0.2' }).active, true);
   });
 
   it('accepts hostnames as host', () => {

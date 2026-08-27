@@ -91,6 +91,35 @@ describe('config.schema', () => {
     );
   });
 
+  //A default of 'Air Purifier' is what taught users the field was a display
+  //label: the box arrived pre-filled with a generic name, so someone who had
+  //already typed 'AC0850' into Name had no reason to touch it. There must be
+  //nothing to pre-fill, and the hint must be a model the plugin actually maps.
+  it('offers no default model and hints with a real model ID', () => {
+    const model = schema.schema.properties.devices.items.properties.model;
+
+    assert.equal(model.default, undefined, 'devices[].model must not pre-fill a value; it is not a display label');
+    assert.ok(
+      mappedModels.includes(model.placeholder),
+      `devices[].model placeholder '${model.placeholder}' is not a model mapped in accessories.models.js`
+    );
+  });
+
+  //Name and Model are the pair this schema exists to tell apart, so they have
+  //to render together. A condition on model takes it off screen for a device
+  //that is not active, leaving a tab that asks only for a name, which is the
+  //confusion this whole change set is about.
+  it('shows the model field alongside the name, whatever the device says', () => {
+    const properties = schema.schema.properties.devices.items.properties;
+
+    assert.equal(properties.name.condition, undefined, 'devices[].name must not be conditional');
+    assert.equal(
+      properties.model.condition,
+      undefined,
+      'devices[].model must not be conditional; it is the field that selects the speed and register maps'
+    );
+  });
+
   //Asserting the header contains the words it was written with would only
   //restate the schema. What is worth guarding is that the instructions stay
   //true of how the plugin actually behaves, and stay in step with the README:
@@ -138,6 +167,42 @@ describe('config.schema', () => {
         `the README installs with '${install[0]}' but the config UI header recommends something else`
       );
     });
+  });
+
+  //An array layout's items are its element templates: @ng-formworks/core
+  //treats every entry that does not resolve to a dataPointer under
+  //<array>/- as another element of the array. A keyless node -- a help or
+  //message block, say -- therefore renders as an extra device tab, shifts
+  //every real device onto the wrong data index, and inflates listItems, so
+  //buildFormGroupTemplate materialises a phantom device that saving writes
+  //back to config.json. Keyless decoration has to be nested inside a keyed
+  //child, or hung outside the array entirely.
+  it('puts nothing keyless directly inside an array layout, which would count as a device', () => {
+    const offenders = [];
+
+    const walk = (node, insideArray) => {
+      if (Array.isArray(node)) {
+        for (const child of node) {
+          walk(child, insideArray);
+        }
+        return;
+      }
+      if (!node || typeof node !== 'object') {
+        return;
+      }
+      if (insideArray && node.key === undefined) {
+        offenders.push(node.type ?? JSON.stringify(node));
+      }
+      walk(node.items, typeof node.type === 'string' && node.type.endsWith('array'));
+    };
+
+    walk(schema.layout, false);
+
+    assert.deepEqual(
+      offenders,
+      [],
+      `these layout nodes sit straight inside an array and have no key, so each renders as an array element: ${offenders.join(', ')}`
+    );
   });
 
   //Observed in a live Homebridge UI on 1.2.0-beta.6: headerDisplay renders
