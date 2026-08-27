@@ -1,2 +1,6 @@
 package-lock.json
 CHANGELOG.md
+
+# a second checkout of this repo lives here while an agent session holds a
+# worktree, and prettier would otherwise check that copy too
+.claude/worktrees/
