@@ -152,8 +152,54 @@ timeout value fixes this**, and `STALL_TIMEOUT = 300 s` is not a fault detector 
 device, it is a restart generator. Silence from a switched-off unit is normal and must not be
 treated as a fault.
 
+**[AC0850] Off-state notifications are value-driven, which is what makes the intermittency look
+self-contradictory.** Measured 2026-08-27 against 1.3.0-beta.6, purifier off since 23:21:57, the
+stream being the plugin's own rather than a hand-held one. Between 01:03:26 and 01:17:29, with no
+restart anywhere in the window, readings arrived in **bursts of 1 to 3 spaced 2 to 7 s apart, with
+~3 min 25 s between bursts**. Then nothing at all for 56 minutes.
+
+Read alone that looks like a ~3.5 minute cadence, and it appears to contradict the 25 minute
+silence above. It is not a cadence. Every reading in the window differs from the one before it, in
+the same small set of fields:
+
+```text
+01:03:28  pm25 14->13   free_memory
+01:03:35  pm25 13->14   free_memory  rssi
+01:07:02  pm25 14->16   free_memory  rssi
+01:07:05  pm25 16->17   free_memory  rssi
+01:10:25  pm25 17->16   free_memory  rssi
+01:14:03  pm25 15->14   free_memory
+01:14:04  pm25 14->13
+01:17:29  pm25 13->12   free_memory  rssi  iaql 2->1
+```
+
+`pm25` moves in **all 11 readings**; `rssi` and `free_memory` drift continuously. These are
+notifications that a watched value changed, not protocol keepalives, so the gap between bursts is
+how long the monitored values happened to sit still. It is not an interval the device is keeping,
+and it would not reproduce on a night with different air.
+
+That reconciles the two observations instead of leaving them in conflict. The same device reports
+whenever a watched value moves, so a window where `pm25` is drifting produces bursts and a window
+where it is settled produces 25 minutes of nothing. Both are the same rule. The 2026-08-18 run has
+no field-level data to confirm its silence was value-stable, which is the obvious thing to capture
+if it is ever repeated, alongside stderr.
+
+**Two traps this section exists to stop, both of which have already caught someone.**
+
+**Do not size an off-state experiment off the first ten minutes.** The device answers normally for
+~11 minutes after switch-off. A 2026-08-27 attempt to reproduce a lost wake-up write used a **6
+minute** off period, sat entirely inside that window, and proved nothing about the failing state.
+Clear the window before the experiment starts, and confirm it from the log rather than the clock.
+
+**Do not corroborate an off-state number with an on-state one.** The 9 s left-alone median in the
+table above was measured with the purifier **on**. Reading agreement between it and the 2 to 7 s
+within-burst gaps here would cross the single variable the whole off-state regime exists because
+of. This skill's own history is a run of design errors from exactly that move: #38's
+`STALL_TIMEOUT = 120 s` came from a measurement taken while the purifier was running, and #48 had
+to replace one constant with two regimes to undo it.
+
 Fixed for #48 by making the stall timer state-dependent rather than by choosing a different
-constant, which the experiment above rules out. `armStallTimeout` picks its timeout from
+constant, which the 2026-08-18 experiment rules out. `armStallTimeout` picks its timeout from
 `deviceKnownOff()` at arm time: 300 s when the device is on or has never answered, 30 minutes
 (`OFF_STALL_TIMEOUT`) when the last status said `pwr` is 0. The long one is a backstop against
 a subscription that died unseen, not a poll, so a stall in that regime restarts the stream
