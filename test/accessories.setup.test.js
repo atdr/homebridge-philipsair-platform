@@ -14,6 +14,16 @@ const Setup = require('../src/accessories/accessories.setup');
 const noop = () => {};
 logger.configure({ info: noop, warn: noop, error: noop }, {});
 
+// capture what one Setup call logs, then put the silence back
+const capture = () => {
+  const info = [];
+  const warn = [];
+
+  logger.configure({ info: (message) => info.push(message), warn: (message) => warn.push(message), error: noop }, {});
+
+  return { info, warn, restore: () => logger.configure({ info: noop, warn: noop, error: noop }, {}) };
+};
+
 describe('accessories.setup', () => {
   let deviceMap;
 
@@ -87,5 +97,96 @@ describe('accessories.setup', () => {
     assert.equal(deviceMap.size, 1);
     const [device] = deviceMap.values();
     assert.equal(device.host, '192.168.1.142');
+  });
+
+  //a device quietly running on the default mapping is a device whose controls
+  //may do nothing, so which command set is in force has to be in the log
+  it('names the command set each device runs on', async () => {
+    const { info, warn, restore } = capture();
+
+    await Setup(
+      deviceMap,
+      [
+        { active: true, name: 'Bedroom', model: 'ac0850/11', host: '192.168.1.142' },
+        { active: true, name: 'Study', model: 'AC2889', host: '192.168.1.143' },
+      ],
+      uuid.generate
+    );
+    restore();
+
+    assert.equal([...deviceMap.values()].map((device) => device.modelKey).join(','), 'AC0850,');
+    assert.ok(info.some((message) => message.includes('Bedroom: Using the AC0850 command set')));
+    assert.ok(info.some((message) => message.includes('Study: No tested mapping for model "AC2889"')));
+    assert.deepEqual(warn, []);
+  });
+
+  //the placeholder Config substitutes for an empty model field is not something
+  //the user typed, so it must not be quoted back at them as though it were
+  it('distinguishes an empty model field from a model it has no mapping for', async () => {
+    const { info, restore } = capture();
+
+    await Setup(deviceMap, [{ active: true, name: 'Bedroom', host: '192.168.1.142' }], uuid.generate);
+    restore();
+
+    assert.ok(info.some((message) => message.includes('Bedroom: No model is configured, using the default')));
+    assert.ok(!info.some((message) => message.includes('Air Purifier')));
+  });
+
+  //the reported failure: 'I made sure it was named AC0850 in the plugin'
+  it('adopts a model ID left in the device name and says where it came from', async () => {
+    const { info, warn, restore } = capture();
+
+    await Setup(deviceMap, [{ active: true, name: 'AC0850', host: '192.168.1.142' }], uuid.generate);
+    restore();
+
+    const [device] = deviceMap.values();
+
+    assert.equal(device.modelKey, 'AC0850');
+    assert.ok(warn.some((message) => message.includes('looks like a model ID')));
+    assert.ok(warn.some((message) => message.includes('Move it to the model field')));
+    assert.ok(info.some((message) => message.includes('Using the AC0850 command set')));
+  });
+
+  it('reports a device name that disagrees with the configured model, without acting on it', async () => {
+    const { warn, restore } = capture();
+
+    await Setup(
+      deviceMap,
+      [{ active: true, name: 'AC0850 bedroom', model: 'AC1715', host: '10.0.1.16' }],
+      uuid.generate
+    );
+    restore();
+
+    const [device] = deviceMap.values();
+
+    assert.equal(device.modelKey, 'AC1715');
+    assert.ok(warn.some((message) => message.includes('mentions AC0850, but the model is set to AC1715')));
+  });
+
+  it('says when the sleep speed option cannot do anything for the model', async () => {
+    const { warn, restore } = capture();
+
+    await Setup(
+      deviceMap,
+      [
+        { active: true, name: 'Bedroom', model: 'AC0850', host: '10.0.1.16', sleepSpeed: true },
+        { active: true, name: 'Study', model: 'AC3829', host: '10.0.1.17', sleepSpeed: true },
+      ],
+      uuid.generate
+    );
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.ok(warn[0].includes('Bedroom: The sleep speed option does nothing for the AC0850'));
+  });
+
+  it('leaves a trace when a device is skipped for being inactive', async () => {
+    const { info, restore } = capture();
+
+    await Setup(deviceMap, [{ active: false, name: 'Bedroom', host: '10.0.1.16' }], uuid.generate);
+    restore();
+
+    assert.equal(deviceMap.size, 0);
+    assert.ok(info.some((message) => message.includes('Bedroom: Not active in the config')));
   });
 });
