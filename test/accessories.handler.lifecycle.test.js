@@ -52,6 +52,7 @@ const answered = async (handler, timeout = 2000) => {
 //characteristics resolve to their own names so updates can be asserted by name
 const fakeApi = {
   hap: { Service: { AirPurifier: 'AirPurifier' }, Characteristic: new Proxy({}, { get: (target, prop) => prop }) },
+  updatePlatformAccessories: () => {},
 };
 
 const makeService = () => {

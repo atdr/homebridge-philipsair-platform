@@ -17,7 +17,7 @@ const Handler = require('../src/accessories/accessories.handler');
 const noop = () => {};
 logger.configure({ info: noop, warn: noop, error: noop }, {});
 
-const fakeApi = { hap };
+const fakeApi = { hap, updatePlatformAccessories: () => {} };
 
 const wire = (config) => {
   //homebridge's PlatformAccessory carries a context; the bare HAP one does not

@@ -113,4 +113,77 @@ describe('accessories.models', () => {
       assert.equal(modelConfig({ model: 'nonsense', modelKey: 'AC1715' }).keyMaps.pwr, 'D03-02');
     });
   });
+
+  describe('identifyModel', () => {
+    //a real AC0850/31 dump, from the register inventory on issue #46
+    const ac0850Status = {
+      D01102: 5,
+      D03102: 0,
+      D0310A: 2,
+      D0310C: 0,
+      D0310D: 0,
+      D03120: 1,
+      D03221: 11,
+      D0312A: 1,
+      D0312C: 4,
+      D05408: 4800,
+      D0540E: 251,
+    };
+
+    it('fingerprints a model from the registers it reports', () => {
+      assert.deepEqual(modelConfig.identifyModel(ac0850Status), { key: 'AC0850', certainty: 'fingerprint' });
+      assert.deepEqual(modelConfig.identifyModel({ 'D03-02': 'ON', 'D03-13': 'Turbo', 'D03-32': 9 }), {
+        key: 'AC1715',
+        certainty: 'fingerprint',
+      });
+    });
+
+    //a real AC0850/31, untranslated, captured 2026-08-19 on firmware 0.1.3
+    const selfIdentifying = {
+      D01102: 5,
+      D01S03: 'Bedroom',
+      D01S04: 'Pluto',
+      D01S05: 'AC0850/31',
+      D01S12: '0.1.3',
+      WifiVersion: 'AWS_Philips_AIR_Combo@86',
+      StatusType: 'status',
+      D03102: 1,
+      D0310A: 2,
+      D0310C: 0,
+      D03120: 1,
+      D03221: 1,
+      D0540E: 224,
+      D05408: 4800,
+    };
+
+    it('takes a device at its word when it names itself', () => {
+      assert.deepEqual(modelConfig.identifyModel(selfIdentifying), { key: 'AC0850', certainty: 'reported' });
+      assert.equal(modelConfig.identifyModel({ pwr: '1', om: '2', modelid: 'AC1715/10' }).key, 'AC1715');
+    });
+
+    //D01S03 and D01S04 are whatever the owner typed into the Philips app, and
+    //they sit in the same status as the model. Reading a model out of them
+    //would identify a device by the name its owner happened to give it
+    it('reads the model only from a field that carries a model', () => {
+      assert.equal(modelConfig.identifyModel({ ...selfIdentifying, D01S03: 'AC1715' }).key, 'AC0850');
+      assert.equal(modelConfig.identifyModel({ D01S03: 'AC1715', Runtime: 1, rssi: -42 }).key, undefined);
+    });
+
+    it('identifies nothing from a status that names no model this plugin maps', () => {
+      //AC3829 self-identifies, but has no mapping to switch to
+      assert.equal(modelConfig.identifyModel({ pwr: '1', om: '2', type: 'AC3829' }).key, undefined);
+      assert.equal(modelConfig.identifyModel({ pwr: '1' }).key, undefined);
+      assert.equal(modelConfig.identifyModel({}).key, undefined);
+    });
+
+    it('knows whether a mapping can read a status at all', () => {
+      assert.equal(modelConfig.readsStatus(ac0850Status, {}), false);
+      assert.equal(modelConfig.readsStatus(ac0850Status, modelConfig({ model: 'AC0850' }).keyMaps), true);
+      assert.equal(modelConfig.readsStatus({ pwr: '1', om: '2' }, {}), true);
+
+      assert.equal(modelConfig.looksLikeRegisters(ac0850Status), true);
+      assert.equal(modelConfig.looksLikeRegisters({ 'D03-02': 'ON' }), true);
+      assert.equal(modelConfig.looksLikeRegisters({ pwr: '1', om: '2' }), false);
+    });
+  });
 });
