@@ -33,6 +33,15 @@ const OFF_STALL_TIMEOUT = 30 * 60 * 1000;
 //its own faster than this never triggers it
 const REFRESH_INTERVAL = 60 * 1000;
 
+//how fast the estimate of what re-subscribing costs follows the last refresh,
+//as the weight given to a new reading. deliberately asymmetric: a refresh that
+//cost more than expected is evidence, while one answered cheaply may be luck,
+//and #71 established that on this hardware the expensive mistake is being too
+//eager. So the estimate rises quickly and falls slowly, settling above the mean
+//rather than on it, which errs toward leaving a working stream alone
+const REFRESH_COST_RISE = 0.5;
+const REFRESH_COST_FALL = 0.125;
+
 //delay before respawning a stream that ended
 const RESTART_DELAY = 5 * 1000;
 
@@ -105,6 +114,25 @@ class Handler {
     this.pendingWrites = new Map();
     this.verifyTimeout = null;
     this.refreshTimeout = null;
+    //when the last refresh killed the stream, so the reading that answers the
+    //replacement subscription can be priced. null once that price is known
+    /** @type {number | null} */
+    this.refreshKilledAt = null;
+    //what the refresh has learned re-subscribing to this device costs, in ms.
+    //null until a refresh has been priced, when the configured interval stands
+    //in: it is what the plugin waits having measured nothing. see adaptRefresh
+    /** @type {number | null} */
+    this.refreshCost = null;
+    //when the stream last produced a line, which outlives the stream that
+    //produced it: the stall deadline is measured from a *reading*, and every
+    //stall after a teardown is judged on a stream that has answered nothing yet
+    /** @type {number | null} */
+    this.lastReadingAt = null;
+    //when the stall detector last tore the stream down. a stall that has been
+    //acted on is spent, so the next deadline runs from here rather than from a
+    //reading that may now be hours old. see stallDelay
+    /** @type {number | null} */
+    this.lastStallAt = null;
     //whether an unapplied write has already been warned about, so an automation
     //that keeps failing reports once rather than on every cycle
     this.loggedWriteFailure = false;
@@ -837,6 +865,7 @@ class Handler {
 
     logger.debug('Requesting a fresh reading from the device', this.accessory.displayName);
     this.refreshing = true;
+    this.refreshKilledAt = Date.now();
     this.airControl.kill();
   }
 
@@ -1035,7 +1064,85 @@ class Handler {
     this.refreshTimeout = setTimeout(() => {
       this.refreshTimeout = null;
       this.requestRefresh();
-    }, this.refreshInterval);
+    }, this.refreshDelay());
+  }
+
+  /**
+   * How long the plugin currently waits after a reading before re-subscribing:
+   * what a refresh is measured to cost on this device, held between the
+   * configured interval as a floor and the stall timeout as a ceiling. Past the
+   * ceiling the fault detector tears the stream down anyway, so a refresh that
+   * waited longer could never fire.
+   */
+  refreshDelay() {
+    if (!this.refreshInterval) {
+      return 0;
+    }
+
+    const cost = this.refreshCost === null ? this.refreshInterval : this.refreshCost;
+
+    return Math.min(Math.max(cost, this.refreshInterval), this.stallTimeout);
+  }
+
+  /**
+   * Prices the last refresh and adjusts how eager the next one is.
+   *
+   * Re-subscribing is a trade: it elicits a reading, and on some models it costs
+   * far more than waiting for the device to push one. An AC0850 answers an
+   * untouched stream every ~9 s but takes 140 s at the median to answer a
+   * replacement subscription, so a refresh sized below its quiet period made
+   * HomeKit *staler* (issue #71). Rather than replace one constant read off one
+   * purifier with another, the interval follows what re-subscribing actually
+   * costs here:
+   *
+   * The estimate is a smoothed average of what refreshes have actually cost,
+   * and the wait is set to it directly. An earlier rule doubled and halved a
+   * multiplier instead, comparing each cost against the current wait: back off
+   * above it, come down at or below half of it. That cannot settle. A fixed
+   * point needs the cost distribution to fall inside a deadband one octave wide,
+   * and this hardware's is bimodal, so the multiplier flipped indefinitely -- 88
+   * changes over 4.5 days on a live AC0850, a median of 19 minutes apart, 43 of
+   * them the same 60s/120s pair. Half of that oscillation sat at the configured
+   * floor, which is the eagerness #71 exists to avoid.
+   *
+   * Averaging the cost removes the deadband, so a bimodal signal produces one
+   * wait between its modes rather than a flip across them. It settles into a
+   * band rather than onto a point, since the input keeps moving, but the band is
+   * a fraction of the octave the multiplier swung through.
+   *
+   * @param {number} receivedAt
+   */
+  adaptRefresh(receivedAt) {
+    const killedAt = this.refreshKilledAt;
+
+    this.refreshKilledAt = null;
+
+    if (!killedAt || !this.refreshInterval) {
+      return;
+    }
+
+    //a refresh that outran the fault detector says the same thing as one that
+    //merely reached it, and clamping keeps a single outlier -- 1725s was
+    //measured -- from sitting in the average for a dozen refreshes afterwards
+    const cost = Math.min(receivedAt - killedAt, this.stallTimeout);
+    const before = this.refreshDelay();
+    const estimate = this.refreshCost === null ? this.refreshInterval : this.refreshCost;
+    const weight = cost > estimate ? REFRESH_COST_RISE : REFRESH_COST_FALL;
+
+    this.refreshCost = estimate + weight * (cost - estimate);
+
+    const delay = this.refreshDelay();
+
+    //every refresh moves the estimate, so logging each one would be noisier than
+    //the rule it replaced. only a wait that moved enough to change behaviour is
+    //worth a line
+    if (Math.abs(delay - before) >= before / 5) {
+      logger.debug(
+        `Re-subscribing took ${Math.round(cost / 1000)}s against a ${Math.round(before / 1000)}s wait, ` +
+          `asking for a fresh reading after ${Math.round(delay / 1000)}s from now on`,
+        this.accessory.displayName
+      );
+    }
   }
 
   /**
@@ -1057,6 +1164,38 @@ class Handler {
   }
 
   /**
+   * How long the stall detector waits, measured from the last *reading* rather
+   * than from the process now running.
+   *
+   * Armed at spawn it measured "this subscription has not been answered yet",
+   * which with a refresh cutting in at 60 s made every stall fire at 365 s
+   * rather than the 300 s the constant claims (issue #71). A device that has
+   * never answered has no reading to measure from, and that is precisely the
+   * case the warning exists for (#48), so it still gets the full timeout.
+   *
+   * The floor is what stops a deadline that is already past from killing every
+   * replacement subscription before it can answer: a fresh stream gets at least
+   * as long as the refresh is currently willing to wait for a reading. That is
+   * for a deadline overrun by something *other* than a stall, such as a refresh
+   * whose replacement was slow to be answered.
+   *
+   * A stall that has already been acted on is spent, so the clock runs from the
+   * teardown as much as from the last reading. Measured from the reading alone
+   * the deadline stays permanently past on a device that is not answering, so
+   * every later arm falls through to the floor: that is how the 30 min
+   * off-state backstop degraded into a teardown every 5 min, six times the rate
+   * the constant claims, for as long as the purifier stayed switched off.
+   */
+  stallDelay() {
+    const timeout = this.deviceKnownOff() ? this.offStallTimeout : this.stallTimeout;
+    const since = Math.max(this.lastReadingAt || 0, this.lastStallAt || 0);
+    const elapsed = since ? Date.now() - since : 0;
+    const grace = this.refreshInterval ? Math.min(this.refreshDelay(), timeout) : timeout;
+
+    return Math.max(timeout - elapsed, grace);
+  }
+
+  /**
    * Restarts the observe stream when the device goes quiet for far longer than
    * a refresh cycle can account for. Re-armed by every status line, so this is
    * a fault detector rather than a poll: the refresh above is what keeps an
@@ -1072,19 +1211,26 @@ class Handler {
     clearTimeout(this.processTimeout);
 
     const off = this.deviceKnownOff();
-    const timeout = off ? this.offStallTimeout : this.stallTimeout;
+    const delay = this.stallDelay();
 
     this.processTimeout = setTimeout(() => {
       if (this.airControl) {
+        const silence = this.lastReadingAt ? Date.now() - this.lastReadingAt : delay;
+
         logger.debug(
-          `No status received for ${Math.round(timeout / 1000)}s${off ? ' while the device is off' : ''}, restarting the polling process`,
+          `No status received for ${Math.round(silence / 1000)}s${off ? ' while the device is off' : ''}, restarting the polling process`,
           this.accessory.displayName
         );
         this.stalled = true;
         this.stalledWhileOff = off;
+        this.lastStallAt = Date.now();
+        //a refresh whose replacement subscription was never answered cost more
+        //than any wait would have, which is the strongest evidence there is
+        //that this device is not worth re-subscribing to so eagerly
+        this.adaptRefresh(Date.now());
         this.airControl.kill();
       }
-    }, timeout);
+    }, delay);
   }
 
   handleStdoutChunk(data) {
@@ -1120,7 +1266,11 @@ class Handler {
   async processUpdate(line) {
     const receivedAt = Date.now();
 
-    //a line arriving proves the stream is alive, whether or not it parses
+    //a line arriving proves the stream is alive, whether or not it parses, so
+    //both the stall deadline and the price of the last refresh date from here
+    this.lastReadingAt = receivedAt;
+    this.adaptRefresh(receivedAt);
+
     if (this.airControl && !this.shutdown) {
       this.armStallTimeout();
       this.armRefreshTimeout();

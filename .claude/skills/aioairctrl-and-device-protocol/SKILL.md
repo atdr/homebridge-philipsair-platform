@@ -247,11 +247,60 @@ window in both runs began **after a CoAP client was killed**, which keeps an orp
 explanation alive (see the single-connection item below) without coming close to proving it.
 **If repeating this, keep stderr.**
 
+**The off-state regime held for warnings but not for teardowns, and only a multi-night soak
+showed it.** Found 2026-08-25 in 4.5 days of 1.3.0-beta.3 on the same AC0850: **zero** user-visible
+warnings across the whole run, exactly as #48 intended, but **472 off-state teardowns over three
+nights**, arriving every **305 s** rather than every 30 minutes. `stallDelay` measured `elapsed`
+from `lastReadingAt` alone, so once the first off-state stall had fired the deadline was
+permanently past, `timeout - elapsed` went negative, and every later arm fell through to the
+`grace` floor, which is `refreshDelay()` pinned at its 300 s ceiling. The silence figures in the
+debug line make it unmistakable, climbing in exact 305 s steps from the correct first fire:
+
+```text
+21/08 10:18:22  No status received for 1800s while the device is off, restarting the polling process
+21/08 10:23:27  No status received for 2105s while the device is off, ...
+21/08 10:28:32  No status received for 2410s while the device is off, ...
+```
+
+Two things hid it. `stalledWhileOff` correctly suppresses the failure report, so the churn was
+silent apart from a `aioairctrl` spawn every 5 minutes all night. And the ~50 minute hardware
+window above is too short: it contains the first fire and at most one repeat, so it verified the
+regime and not its cadence. **An off-state observation has to span hours to say anything about
+teardown rate.** Fixed by running the clock from the later of the last reading and the last
+teardown (`lastStallAt`), so the floor still covers the case it was written for, a deadline
+overrun by a slow refresh replacement, without becoming the cadence itself. The same bug made the
+on-state regime tear down at `refreshDelay()` rather than 300 s once a device had gone quiet.
+
 **[AC0850] A fresh subscription elicits a reading.** This is why the pre-#30 fixed 60 s process
 lifetime accidentally worked as a ~65 s poll loop, and why raising `STALL_TIMEOUT` alone
 makes idle staleness worse rather than better. The deliberate periodic refresh in
 `armRefreshTimeout` is the fix, and the 60 s default is that accidental v1.1.0 behaviour made
-explicit rather than a number derived from these measurements.
+explicit rather than a number derived from these measurements. Since #71 it is only the **floor**:
+the elicited reading is not free, so `adaptRefresh` keeps a smoothed average of what refreshes
+have actually cost on this device and waits that long, held between the configured interval and
+`STALL_TIMEOUT`. The trade is made per device rather than per constant.
+
+**A controller comparing each cost against its own current wait cannot settle on this hardware.**
+`adaptRefresh` first doubled and halved a multiplier: back off above the current wait, come down
+at or below half of it. A fixed point needs the cost distribution to fall inside that deadband,
+one octave wide, and the AC0850's is bimodal rather than a tight distribution (88 change-triggering
+samples spanned 6 s to 1725 s, median 97 s). Measured over 4.5 days of 1.3.0-beta.3: **88 changes,
+a median 19 minutes apart, never at rest while the device was active.**
+
+```text
+  23  60 -> 120     43 of the 88 are this one pair
+  20  120 -> 60
+  12  300 -> 150    a second ladder, because maxFactor is 5 and not a power of two
+  10  150 -> 300
+```
+
+Half the oscillation sat at the 60 s floor, which is the eagerness #71 exists to rule out. Fixed
+by averaging the cost and setting the wait to it, which removes the deadband: a bimodal signal then
+produces one wait between its modes instead of a flip across them. Replaying the same 10 s/200 s
+alternation through both rules, the multiplier locks into 60/120 forever while the average settles
+into 158-179 s, a band of ±6 % instead of a full octave. **It settles into a band, not onto a
+point** — the input keeps moving — and the rise weight is deliberately four times the fall weight,
+so it errs high, toward leaving a working stream alone.
 
 **The refresh timer is armed only from `processUpdate`, never from `longPoll`,** and any change
 to it must keep that property: the interval then measures the time since a _reading_, so a
