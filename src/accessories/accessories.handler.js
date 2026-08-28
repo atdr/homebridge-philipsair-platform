@@ -50,7 +50,19 @@ const REFRESH_COST_FALL = 0.125;
 //stranded for the life of the Homebridge run (issue #77). Generous next to a
 //`set` that works, which answers in well under a second even from a purifier
 //that had been silent for the best part of an hour
-const SET_TIMEOUT = 30 * 1000;
+//
+//HAP's own write-handler timeout, not something this repo can import
+//(hap-nodejs is not a dependency, per the zero-runtime-dependency rule):
+//verified against an installed copy as Accessory.TIMEOUT_WARNING (3000) +
+//Accessory.TIMEOUT_AFTER_WARNING (6000). Above this, HAP gives up on its own
+//and reports "didn't respond at all" regardless of what the setter promise
+//does, and it is the tighter of the two constraints on this path: a setter
+//still awaited past it shows Not Responding for however much longer the cap
+//above takes to catch up (issue #83)
+const HAP_WRITE_HARD_TIMEOUT = 9 * 1000;
+//margin under HAP_WRITE_HARD_TIMEOUT for scheduling/network overhead between
+//HAP receiving the write and this process's execFile call actually starting
+const SET_TIMEOUT = HAP_WRITE_HARD_TIMEOUT - 1000;
 
 //delay before respawning a stream that ended
 const RESTART_DELAY = 5 * 1000;
@@ -117,7 +129,7 @@ const WRITE_COALESCE_WINDOW = 75;
  * which statuses count as evidence, the second anchors both deadlines.
  *
  * @typedef {{ expected: unknown, args: string[], attempts: number, since: number,
- *   recordedAt: number, knownOff: boolean, window: number, blindResent: boolean }} PendingWrite
+ *   recordedAt: number, knownOff: boolean, window: number, blindResent: boolean, token: number }} PendingWrite
  */
 
 class Handler {
@@ -152,6 +164,10 @@ class Handler {
     //key each one sets. see recordWrite
     /** @type {Map<string, PendingWrite>} */
     this.pendingWrites = new Map();
+    //identifies which recordWrite call a pending entry came from, so
+    //markWriteSent/abandonWrite can tell a write apart from a same-command
+    //retry that has since overwritten it in pendingWrites (issue #83)
+    this.writeSeq = 0;
     this.verifyTimeout = null;
     this.refreshTimeout = null;
     //when the last refresh killed the stream, so the reading that answers the
@@ -888,9 +904,12 @@ class Handler {
    *
    * @param {string[]} args the exact command to resend if it did not take
    * @param {Record<string, unknown>} expectations generic key -> expected value
+   * @returns {number} a token identifying this call's entries, for `sendTracked`
+   *   to hand back to `markWriteSent`/`abandonWrite` (see there for why)
    */
   recordWrite(args, expectations) {
     const recordedAt = Date.now();
+    const token = ++this.writeSeq;
 
     //how long silence proves nothing depends on which regime the device is in,
     //and the plugin already models both: verifyWindow is derived from how fast a
@@ -929,10 +948,13 @@ class Handler {
         knownOff,
         window,
         blindResent: false,
+        token,
       });
     }
 
     this.armVerifyTimeout();
+
+    return token;
   }
 
   /**
@@ -954,19 +976,27 @@ class Handler {
    * child-process exit order, which is what any rule about the order commands
    * are resent in needs in order to mean anything.
    *
+   * `recordWrite`'s token is carried through to `markWriteSent`/`abandonWrite`
+   * rather than let them find their target by re-matching `args` themselves:
+   * `pendingWrites` is keyed by generic key, so a same-command retry recorded
+   * while this send is still in flight overwrites this call's own entries. A
+   * command-string match would then act on that retry's entries once this
+   * send finally settles, not on the write that actually finished -- reverting
+   * HomeKit to a stale attempt against the user's newer intent (issue #83).
+   *
    * @param {string[]} args
    * @param {Record<string, unknown>} expectations generic key -> expected value
    * @returns {Promise<void>}
    */
   async sendTracked(args, expectations) {
-    this.recordWrite(args, expectations);
+    const token = this.recordWrite(args, expectations);
 
     try {
       await this.sendCMD(args);
-      this.markWriteSent(args);
+      this.markWriteSent(args, token);
     } catch (err) {
       //rethrown so each setter still reports the failure in its own words
-      this.abandonWrite(args);
+      this.abandonWrite(args, token);
       throw err;
     }
   }
@@ -1153,12 +1183,23 @@ class Handler {
    * its way when the packet lands still carries the old value. See WRITE_SETTLE
    * for what treating that as a contradiction cost on hardware.
    *
+   * `token`, when given, restricts this to the entries `recordWrite` handed it
+   * out for: a same-command retry recorded later (`pendingWrites` is keyed by
+   * generic key, so it overwrites this call's own entries) must not have its
+   * still-unsent write's horizon opened early by this one settling (issue
+   * #83). Left out by `resendWrite`, which always means whatever is currently
+   * pending for the command, a sweep rather than one call's own writes.
+   *
    * @param {string[]} args
+   * @param {number} [token]
    */
-  markWriteSent(args) {
+  markWriteSent(args, token) {
     const sentAt = Date.now() + this.writeSettle;
 
     this.writesFor(args).forEach(([, pending]) => {
+      if (token !== undefined && pending.token !== token) {
+        return;
+      }
       pending.since = sentAt;
     });
   }
@@ -1169,10 +1210,23 @@ class Handler {
    * command is on the wire, so a command that never left the host would
    * otherwise leave the Home app showing a state the device never reached.
    *
+   * `token`, when given, restricts this to the entries `recordWrite` handed it
+   * out for. Without it, a same-command retry recorded while this send was
+   * still in flight -- overwriting this call's own entries in `pendingWrites`,
+   * which is keyed by generic key -- would be the thing abandoned and reverted
+   * once this send finally fails, undoing the user's newer intent rather than
+   * the stale attempt that actually failed (issue #83). Left out by
+   * `resendWrite`, which always means whatever is currently pending for the
+   * command.
+   *
    * @param {string[]} args
+   * @param {number} [token]
    */
-  abandonWrite(args) {
-    this.writesFor(args).forEach(([key]) => {
+  abandonWrite(args, token) {
+    this.writesFor(args).forEach(([key, pending]) => {
+      if (token !== undefined && pending.token !== token) {
+        return;
+      }
       this.pendingWrites.delete(key);
       this.revertOptimisticUpdate(key);
     });
