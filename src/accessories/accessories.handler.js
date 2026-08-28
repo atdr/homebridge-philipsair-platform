@@ -1237,12 +1237,32 @@ class Handler {
    * processUpdate, and the status push immediately after it corrects HomeKit
    * from the very status that proved the write lost.
    *
+   * Both exits say so, because neither is visible anywhere else. The revert
+   * publishes the last reading, and a HomeKit that has abandoned the write has
+   * already fallen back to that same value, so the tile looks identical whether
+   * this ran or not. Measured on hardware over 11h35m without once being able
+   * to tell which had happened.
+   *
    * @param {string} key the generic key whose write was abandoned
    */
   revertOptimisticUpdate(key) {
     if (!this.everAnswered()) {
+      logger.debug(
+        `Leaving HomeKit's ${key} as it is, the device has never reported a reading to go back to`,
+        this.accessory.displayName
+      );
       return;
     }
+
+    //the key is generic key space, which on some models is a register the
+    //device need not have reported, so the reading is a suffix rather than an
+    //`undefined` in the middle of the line
+    const reading = key in this.obj ? ` (${this.obj[key]})` : '';
+
+    logger.debug(
+      `Putting HomeKit's ${key} back to the last reading the device gave${reading}`,
+      this.accessory.displayName
+    );
 
     const Characteristic = this.api.hap.Characteristic;
     const on = !!parseInt(this.obj.pwr);

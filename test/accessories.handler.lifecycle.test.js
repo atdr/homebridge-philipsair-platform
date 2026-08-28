@@ -16,12 +16,14 @@ silenceLogger();
 
 //captures what the plugin would actually print at default verbosity, so the
 //tests can assert that a failure is visible rather than only recoverable
-const captureLogs = () => {
+//debug lines go through log.info with a `[DEBUG] ` prefix, so they land in
+//entries.info when a test asks for them
+const captureLogs = (config = {}) => {
   const entries = { info: [], warn: [], error: [] };
   const record = (bucket) => (message) =>
     entries[bucket].push(message instanceof Error ? message.message : String(message));
 
-  logger.configure({ info: record('info'), warn: record('warn'), error: record('error') }, {});
+  logger.configure({ info: record('info'), warn: record('warn'), error: record('error') }, config);
 
   return entries;
 };
@@ -1149,7 +1151,7 @@ describe('write verification', { concurrency: 1 }, () => {
 
   it('puts HomeKit back to the last reading when a wake-up is given up on', async (t) => {
     t.after(silenceLogger);
-    captureLogs();
+    const logs = captureLogs({ debug: true });
 
     const { handler } = recordingHandler();
     await handler.processUpdate(status({ pwr: '0' }));
@@ -1173,12 +1175,19 @@ describe('write verification', { concurrency: 1 }, () => {
       0,
     ]);
 
+    //the revert publishes the same value HomeKit falls back to on its own, so
+    //the log is the only place it can be told apart from not having run
+    assert.ok(
+      logs.info.some((line) => line.includes("Putting HomeKit's pwr back to the last reading the device gave (0)")),
+      `the revert left no trace, got ${JSON.stringify(logs.info)}`
+    );
+
     handler.kill(true);
   });
 
   it('leaves HomeKit alone for a device that has never answered', async (t) => {
     t.after(silenceLogger);
-    captureLogs();
+    const logs = captureLogs({ debug: true });
 
     const { handler } = recordingHandler();
     handler.verifyWindow = 40;
@@ -1191,6 +1200,11 @@ describe('write verification', { concurrency: 1 }, () => {
     //there is no reading to revert to, so publishing one would be a guess
     assert.deepEqual(handler.purifierService.updates, []);
     assert.equal(handler.pendingWrites.size, 0);
+    assert.ok(
+      logs.info.some((line) => line.includes("Leaving HomeKit's pwr as it is")),
+      `silence here is indistinguishable from the revert never being reached, got ${JSON.stringify(logs.info)}`
+    );
+    assert.ok(!logs.info.some((line) => line.includes('back to the last reading')));
 
     handler.kill(true);
   });
