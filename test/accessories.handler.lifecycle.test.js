@@ -1448,6 +1448,92 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.kill(true);
   });
 
+  it('does not let a stale abandon revert a newer write to the same command', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+
+    const args = ['set', '-I', 'pwr=1'];
+
+    //A is recorded and its send stalls, the way an unreachable device does
+    let rejectFirst;
+    const first = new Promise((_resolve, reject) => {
+      rejectFirst = reject;
+    });
+    handler.sendCMD = () => first;
+    const sendingA = handler.sendTracked(args, { pwr: 1 }).catch((err) => err);
+
+    //B is the retry: same command, recorded before A has settled, and
+    //pendingWrites is keyed by generic key -- this overwrites A's own entry
+    handler.sendCMD = async () => {};
+    const sendingB = handler.sendTracked(args, { pwr: 1 });
+    await sendingB;
+
+    assert.equal(handler.pendingWrites.size, 1, "B's write must be recorded");
+
+    //A's send finally fails, well after B has taken over the same key. A
+    //command-string match on abandonWrite would find B's entry here, not A's
+    rejectFirst(new Error('nope'));
+    await sendingA;
+
+    assert.equal(handler.pendingWrites.size, 1, "A's late failure must not abandon B's write");
+    assert.deepEqual(
+      updated(handler.purifierService, 'Active'),
+      [],
+      "A's late failure must not revert HomeKit against B's still-live intent"
+    );
+
+    handler.kill(true);
+  });
+
+  it('does not let a stale success reopen a newer write not yet on the wire', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+
+    const args = ['set', '-I', 'pwr=1'];
+
+    let resolveFirst;
+    const first = new Promise((resolve) => {
+      resolveFirst = resolve;
+    });
+    handler.sendCMD = () => first;
+    const sendingA = handler.sendTracked(args, { pwr: 1 });
+
+    //B is recorded before A has settled, overwriting A's entry. B's own send
+    //stays pending too, so its own horizon should still be closed
+    let resolveSecond;
+    const second = new Promise((resolve) => {
+      resolveSecond = resolve;
+    });
+    handler.sendCMD = () => second;
+    const sendingB = handler.sendTracked(args, { pwr: 1 });
+
+    assert.equal(handler.pendingWrites.get('pwr').since, Infinity, "B's write has not been sent yet");
+
+    //A's send finally succeeds, well after B has taken over the same key. A
+    //command-string match on markWriteSent would stamp B's `since` here, off
+    //A's completion rather than B's own, opening B's verification horizon
+    //before B's packet is actually on the wire
+    resolveFirst();
+    await sendingA;
+
+    assert.equal(
+      handler.pendingWrites.get('pwr').since,
+      Infinity,
+      "A's late success must not open B's still-unsent write's horizon early"
+    );
+
+    resolveSecond();
+    await sendingB;
+
+    handler.kill(true);
+  });
+
   it('coalesces two setters that arrive together into one command', async (t) => {
     t.after(silenceLogger);
     captureLogs();
