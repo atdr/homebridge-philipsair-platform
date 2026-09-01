@@ -50,7 +50,28 @@ const REFRESH_COST_FALL = 0.125;
 //stranded for the life of the Homebridge run (issue #77). Generous next to a
 //`set` that works, which answers in well under a second even from a purifier
 //that had been silent for the best part of an hour
-const SET_TIMEOUT = 30 * 1000;
+//
+//HAP's own write-handler timeout, not something this repo can import
+//(hap-nodejs is not a dependency, per the zero-runtime-dependency rule):
+//verified against an installed copy as Accessory.TIMEOUT_WARNING (3000) +
+//Accessory.TIMEOUT_AFTER_WARNING (6000). Above this, HAP gives up on its own
+//and reports "didn't respond at all" regardless of what the setter promise
+//does (issue #83)
+const HAP_WRITE_HARD_TIMEOUT = 9 * 1000;
+//SET_TIMEOUT is deliberately kept ABOVE HAP_WRITE_HARD_TIMEOUT, not below it.
+//A cap below HAP's cutoff (tried in #85 at 8s) makes revertOptimisticUpdate
+//fire while HomeKit's own write is still open. HomeKit disregards an event on
+//the characteristic it is currently writing but accepts events on the others,
+//so such a revert lands half applied: Active is dropped, CurrentAirPurifierState
+//is taken, and the swallowed setter error then commits Active against it. That
+//contradiction is what stranded the tile on "Turning off..." indefinitely
+//(issue #86). Sitting above the cutoff means HAP has already timed out and
+//rolled Active back on its own, leaving this to repair only
+//CurrentAirPurifierState, which HAP never wrote and so cannot roll back.
+//Measured on an AC0850: a transitional spinner from HAP's 9s until this fires
+//at 12s. The Not Responding badge outlives it and clears on the next read,
+//which is correct, since the device really did not answer
+const SET_TIMEOUT = HAP_WRITE_HARD_TIMEOUT + 3 * 1000;
 
 //delay before respawning a stream that ended
 const RESTART_DELAY = 5 * 1000;

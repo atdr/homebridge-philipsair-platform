@@ -1534,6 +1534,23 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.kill(true);
   });
 
+  it("caps a set command a short margin above HAP's own write timeout by default", () => {
+    const handler = makeHandler({});
+
+    //HAP marks a characteristic write "didn't respond at all" after ~9s
+    //(TIMEOUT_WARNING 3000 + TIMEOUT_AFTER_WARNING 6000); the message-format
+    //assertion for this cap lives in 'cuts off a set command the device
+    //never answers' above, with sendTimeout overridden for speed -- this
+    //only pins that the *default* itself sits a few seconds above that
+    //ceiling, not below it, so revertOptimisticUpdate fires after HAP has
+    //already given up rather than while its own write is still open
+    //(issue #86)
+    assert.equal(handler.sendTimeout, 12000);
+    assert.ok(handler.sendTimeout > 9000);
+
+    handler.kill(true);
+  });
+
   it('coalesces two setters that arrive together into one command', async (t) => {
     t.after(silenceLogger);
     captureLogs();
