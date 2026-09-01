@@ -50,7 +50,24 @@ const REFRESH_COST_FALL = 0.125;
 //stranded for the life of the Homebridge run (issue #77). Generous next to a
 //`set` that works, which answers in well under a second even from a purifier
 //that had been silent for the best part of an hour
-const SET_TIMEOUT = 30 * 1000;
+//
+//HAP's own write-handler timeout, not something this repo can import
+//(hap-nodejs is not a dependency, per the zero-runtime-dependency rule):
+//verified against an installed copy as Accessory.TIMEOUT_WARNING (3000) +
+//Accessory.TIMEOUT_AFTER_WARNING (6000). Above this, HAP gives up on its own
+//and reports "didn't respond at all" regardless of what the setter promise
+//does (issue #83)
+const HAP_WRITE_HARD_TIMEOUT = 9 * 1000;
+//SET_TIMEOUT is deliberately kept ABOVE HAP_WRITE_HARD_TIMEOUT, not below it.
+//A cap below HAP's cutoff (tried in #85 at 8s) makes revertOptimisticUpdate
+//fire while HomeKit's own write is still open, which HomeKit disregards --
+//the tile then strands on "Turning off..." indefinitely instead of
+//correcting, because the write that follows the revert still reports success
+//and overwrites it (issue #86). Sitting above the cutoff means HAP has
+//already given up and shown Not Responding by the time this fires, so the
+//revert lands somewhere it can actually take: a few seconds of accurate
+//Not Responding, then a tile that corrects itself
+const SET_TIMEOUT = HAP_WRITE_HARD_TIMEOUT + 3 * 1000;
 
 //delay before respawning a stream that ended
 const RESTART_DELAY = 5 * 1000;
