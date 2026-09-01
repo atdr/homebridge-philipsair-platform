@@ -1232,6 +1232,14 @@ describe('write verification', { concurrency: 1 }, () => {
 
     handler.verifyWindow = 50;
     handler.offStallTimeout = 100000;
+    //these two setter calls are sequential, not the concurrent scene shape
+    //#82 coalesces, but each still pays the coalescing window before its
+    //write is recorded. Kept near-zero so the two recordWrite calls land
+    //close enough together for one shared verify timer to catch both, as
+    //they would have before #82 (that timer is armed once and not re-armed
+    //for a later entry's earlier deadline, so a wide gap here would silently
+    //miss the second write's own blind resend)
+    handler.writeCoalesceWindow = 1;
 
     //the scene #77 was observed under: power and speed set together
     await handler.setPurifierActive(true);
@@ -1347,6 +1355,10 @@ describe('write verification', { concurrency: 1 }, () => {
 
     const handler = makeHandler({});
     handler.purifierService = makeService();
+    //near-zero so the coalescing window (issue #82) is not what this test is
+    //measuring: it only exists to let a companion write arrive, and there is
+    //none here
+    handler.writeCoalesceWindow = 5;
     //a send that never settles, which is what an unreachable device does
     handler.sendCMD = () => new Promise(() => {});
 
@@ -1364,6 +1376,34 @@ describe('write verification', { concurrency: 1 }, () => {
 
     handler.kill(true);
     void setting;
+  });
+
+  it('sends a write still waiting out its coalescing window on kill, rather than stranding it', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    /** @type {string[][]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args);
+    };
+
+    const setting = handler.setPurifierActive(true);
+
+    //still inside the default coalescing window: the optimistic HomeKit
+    //update has already applied, but recordWrite only runs at flush, so
+    //there is no pendingWrites entry yet for kill() to act on the usual way
+    await delay(10);
+    assert.equal(handler.pendingWrites.size, 0, 'recorded earlier than the coalescing window allows');
+
+    handler.kill(true);
+    await setting;
+
+    assert.equal(sent.length, 1, 'a write still queued when kill() ran was left stranded');
+
+    handler.kill(true);
   });
 
   it('puts HomeKit back when the command never leaves the host', async (t) => {
@@ -1408,7 +1448,7 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.kill(true);
   });
 
-  it('never runs two set commands at once', async (t) => {
+  it('coalesces two setters that arrive together into one command', async (t) => {
     t.after(silenceLogger);
     captureLogs();
 
@@ -1426,15 +1466,54 @@ describe('write verification', { concurrency: 1 }, () => {
       sent.push(args.join(' '));
     };
 
-    //the scene shape: HomeKit delivers these as independent onSet calls, so
-    //nothing awaits one before making the other
+    //the scene shape #82 measured: HomeKit delivers these as independent
+    //onSet calls, so nothing awaits one before making the other. Both are
+    //integer-encodable, so they should be folded into one command rather
+    //than sent (and possibly raced or dropped) as two
     await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(50)]);
 
-    assert.equal(overlapped, 1, 'two set processes raced at a single-connection device');
-    assert.deepEqual(sent, [
-      '-H 192.168.1.142 -P 5683 set -I D03102=1',
-      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=0',
+    assert.equal(overlapped, 1, 'a merged write is still one process on the wire');
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1 D0310A=2 D0310C=0']);
+    assert.deepEqual([...handler.pendingWrites.keys()], ['pwr', 'D0310A', 'D0310C']);
+
+    const pending = [...handler.pendingWrites.values()];
+    assert.ok(
+      pending.every((entry) => entry.args === pending[0].args),
+      'the merged keys should share one args reference, the same as an unmerged multi-register command'
+    );
+
+    handler.kill(true);
+  });
+
+  it('does not merge writes that would lose -I for one of them', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    /** @type {string[]} */
+    const sent = [];
+    let inFlight = 0;
+    let overlapped = 0;
+    handler.runCMD = async (args) => {
+      inFlight += 1;
+      overlapped = Math.max(overlapped, inFlight);
+      await delay(20);
+      inFlight -= 1;
+      sent.push(args.join(' '));
+    };
+
+    //setHumidifierTargetState's exact trap shape (issue #82): func is a word,
+    //rhset asks for -I explicitly. Merging them would recompute intEncodable
+    //as false over the pair and silently drop -I from rhset, so the merge
+    //must fall back to sending them separately, exactly as if arrived alone
+    await Promise.all([
+      handler.queueWrite(['func=PH'], { func: 'PH' }),
+      handler.queueWrite(['rhset=70'], { rhset: 70 }, ['-I']),
     ]);
+
+    assert.equal(overlapped, 1, 'writes that cannot merge must still never overlap on the wire');
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set func=PH', '-H 192.168.1.142 -P 5683 set -I rhset=70']);
 
     handler.kill(true);
   });

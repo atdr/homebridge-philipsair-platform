@@ -101,6 +101,16 @@ const MAX_WRITE_RETRIES = 1;
 //every 6 to 40 seconds, so it costs at most one skipped push
 const WRITE_SETTLE = 3 * 1000;
 
+//how long a setter waits for a companion write before sending alone. HomeKit
+//delivers a scene's characteristics as separate onSet calls, and measurement
+//on an AC0850 found them roughly a second apart with #78's queue in force,
+//but that gap was the queue waiting for the first process to exit, not late
+//delivery: every setter line was timestamped the same second. A purifier that
+//received a power-on and a speed write a second apart applied the first and
+//silently dropped the second three times in four (issue #82), so this window
+//exists to catch them before they are ever split into two commands
+const WRITE_COALESCE_WINDOW = 75;
+
 /**
  * A write waiting for the device to confirm it. `since` is the transmission
  * horizon, `recordedAt` the moment the user asked for it: the first decides
@@ -224,6 +234,16 @@ class Handler {
     //tail of the queue that keeps `set` commands from overlapping. see sendCMD
     /** @type {Promise<void>} */
     this.writeQueue = Promise.resolve();
+
+    //how long a setter waits for a companion write before sending alone. an
+    //instance field for the same reason the other windows are: so a test can
+    //shorten it. see queueWrite
+    this.writeCoalesceWindow = WRITE_COALESCE_WINDOW;
+    //writes waiting for a companion, and the timer that will flush them. see
+    //queueWrite
+    /** @type {{ cmds: string[], expectations: Record<string, unknown>, extraFlags: string[], resolve: () => void, reject: (err: unknown) => void }[]} */
+    this.writeBatch = [];
+    this.writeBatchTimeout = null;
 
     this.binary = this.accessory.context.config.aioairctrlPath || DEFAULT_BINARY;
     this.args = [
@@ -360,6 +380,25 @@ class Handler {
   }
 
   /**
+   * Whether every `key=value` element could be sent under `-I`. aioairctrl
+   * converts 'true'/'false' to booleans before int(), so those survive -I as
+   * 1/0; anything else has to look like a whole number. Lifted out of
+   * `setArgs` so `queueWrite` can decide, on the exact same rule, whether
+   * merging two writes into one command is safe (issue #82) — the check has
+   * to run on the real merged group, never on two already-built `args`
+   * arrays, or a merge could silently drop `-I` from a write that needed it.
+   *
+   * @param {string[]} cmds `key=value` elements from handleCommand
+   * @returns {boolean}
+   */
+  intEncodable(cmds) {
+    return cmds.every((cmd) => {
+      const value = cmd.slice(cmd.indexOf('=') + 1);
+      return value === 'true' || value === 'false' || /^\s*[+-]?\d+\s*$/.test(value);
+    });
+  }
+
+  /**
    * Builds a `set` invocation. `-I` asks aioairctrl to encode every value in
    * the command as an integer, so it is dropped when any value is not one:
    * applying it to `mode=P` makes the CLI reject the whole command, and a model
@@ -371,16 +410,88 @@ class Handler {
    * @returns {string[]}
    */
   setArgs(cmds, extraFlags = []) {
-    //aioairctrl converts 'true'/'false' to booleans before int(), so those
-    //survive -I as 1/0; anything else has to look like a whole number
-    const intEncodable = cmds.every((cmd) => {
-      const value = cmd.slice(cmd.indexOf('=') + 1);
-      return value === 'true' || value === 'false' || /^\s*[+-]?\d+\s*$/.test(value);
-    });
-
-    const flags = [...new Set([...this.extraSetFlags, ...extraFlags])].filter((flag) => flag !== '-I' || intEncodable);
+    const flags = [...new Set([...this.extraSetFlags, ...extraFlags])].filter(
+      (flag) => flag !== '-I' || this.intEncodable(cmds)
+    );
 
     return [...this.args, 'set', ...flags, ...cmds];
+  }
+
+  /**
+   * Queues a write for a short window, in case a companion arrives to merge
+   * with. HomeKit delivers a scene's characteristics as separate `onSet`
+   * calls, and a purifier serving one write at a time can drop the second of
+   * two sent close together even once they are serialised (issue #82). Two
+   * writes that arrive inside the window are folded into one `set` where
+   * that is safe; a lone write still pays the window before it is sent.
+   *
+   * Takes the raw `cmds`/`extraFlags` a setter would otherwise have passed to
+   * `setArgs` directly, not a built `args` array: the merge decision has to
+   * run `setArgs`'s own `intEncodable` check on the real merged group, at
+   * flush time, so it can never diverge from what `setArgs` would compute.
+   *
+   * @param {string[]} cmds
+   * @param {Record<string, unknown>} expectations
+   * @param {string[]} [extraFlags]
+   * @returns {Promise<void>}
+   */
+  queueWrite(cmds, expectations, extraFlags = []) {
+    return new Promise((resolve, reject) => {
+      this.writeBatch.push({ cmds, expectations, extraFlags, resolve, reject });
+
+      if (!this.writeBatchTimeout) {
+        this.writeBatchTimeout = setTimeout(() => this.flushWriteBatch(), this.writeCoalesceWindow);
+      }
+    });
+  }
+
+  /**
+   * Sends everything `queueWrite` collected since the last flush, merged into
+   * one command where every value in the merged group is integer-encodable,
+   * and as separate commands otherwise. Never merges by "arrived together"
+   * alone: `setHumidifierTargetState`'s `func` (a word) and `rhset` (needs
+   * `-I`) would have `-I` silently stripped from the merged command if they
+   * were ever coalesced this way, which is why the check runs on `mergedCmds`
+   * itself rather than reusing each write's own precomputed flags.
+   *
+   * Merged expectations are combined last-key-wins. Safe today because the
+   * six tracked setters use disjoint generic keys (pwr / mode / cl /
+   * D0310A+D0310C / func / rhset); that is an invariant of the current setter
+   * set, not something this method enforces, so a future setter reusing a key
+   * would have one expectation silently dropped rather than erroring.
+   */
+  async flushWriteBatch() {
+    const batch = this.writeBatch;
+    this.writeBatch = [];
+    this.writeBatchTimeout = null;
+
+    const mergedCmds = batch.flatMap((entry) => entry.cmds);
+    const canMerge = batch.length > 1 && this.intEncodable(mergedCmds);
+
+    if (canMerge) {
+      const extraFlags = [...new Set(batch.flatMap((entry) => entry.extraFlags))];
+      const expectations = Object.assign({}, ...batch.map((entry) => entry.expectations));
+      const args = this.setArgs(mergedCmds, extraFlags);
+
+      try {
+        await this.sendTracked(args, expectations);
+        batch.forEach((entry) => entry.resolve());
+      } catch (err) {
+        batch.forEach((entry) => entry.reject(err));
+      }
+      return;
+    }
+
+    for (const entry of batch) {
+      const args = this.setArgs(entry.cmds, entry.extraFlags);
+
+      try {
+        await this.sendTracked(args, entry.expectations);
+        entry.resolve();
+      } catch (err) {
+        entry.reject(err);
+      }
+    }
   }
 
   /**
@@ -513,12 +624,10 @@ class Handler {
     try {
       const stateNumber = state ? 1 : 0;
 
-      const args = this.setArgs([this.handleCommand('pwr', stateNumber)]);
-
       this.purifierService.updateCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState, stateNumber * 2);
 
       logger.info(`Purifier Active: ${state}`, this.accessory.displayName);
-      await this.sendTracked(args, { pwr: stateNumber });
+      await this.queueWrite([this.handleCommand('pwr', stateNumber)], { pwr: stateNumber });
     } catch (err) {
       logger.warn('An error occured during changing purifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -542,11 +651,9 @@ class Handler {
           .updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, state);
       }
 
-      const args = this.setArgs([this.handleCommand('mode', values.mode)]);
-
       logger.info(`Purifier Mode: ${state}`, this.accessory.displayName);
 
-      await this.sendTracked(args, { mode: values.mode });
+      await this.queueWrite([this.handleCommand('mode', values.mode)], { mode: values.mode });
     } catch (err) {
       logger.warn('An error occured during changing target purifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -564,11 +671,9 @@ class Handler {
         cl: state == 1,
       };
 
-      const args = this.setArgs([this.handleCommand('cl', values.cl)]);
-
       logger.info(`Lock: ${state}`, this.accessory.displayName);
 
-      await this.sendTracked(args, { cl: values.cl });
+      await this.queueWrite([this.handleCommand('cl', values.cl)], { cl: values.cl });
     } catch (err) {
       logger.warn('An error occured during changing lock state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -592,11 +697,10 @@ class Handler {
         Object.entries(this.speeds[speed - 1]).forEach(([cmd, value]) => {
           cmds.push(`${this.handleCommand(cmd, value)}`);
         });
-        const args = this.setArgs(cmds);
 
         logger.info(`Purifier Rotation Speed: cmds: ${cmds.join(' ')}`, this.accessory.displayName);
 
-        await this.sendTracked(args, this.speeds[speed - 1]);
+        await this.queueWrite(cmds, this.speeds[speed - 1]);
       }
     } catch (err) {
       logger.warn('An error occured during changing purifier rotation speed!', this.accessory.displayName);
@@ -640,11 +744,9 @@ class Handler {
           .updateCharacteristic(this.api.hap.Characteristic.RelativeHumidityHumidifierThreshold, 0);
       }
 
-      const args = this.setArgs([this.handleCommand('func', values.func)]);
-
       logger.info(`Humidifier Active: ${state}`, this.accessory.displayName);
 
-      await this.sendTracked(args, { func: values.func });
+      await this.queueWrite([this.handleCommand('func', values.func)], { func: values.func });
     } catch (err) {
       logger.warn('An error occured during changing humidifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -698,13 +800,10 @@ class Handler {
         this.humidifierService.updateCharacteristic(this.api.hap.Characteristic.Active, 0);
       }
 
-      const args1 = this.setArgs([this.handleCommand('func', values.func)]);
-      const args2 = this.setArgs([this.handleCommand('rhset', values.rhset)], ['-I']);
-
       logger.info(`Humidifier State: ${state}`, this.accessory.displayName);
 
-      await this.sendTracked(args1, { func: values.func });
-      await this.sendTracked(args2, { rhset: values.rhset });
+      await this.queueWrite([this.handleCommand('func', values.func)], { func: values.func });
+      await this.queueWrite([this.handleCommand('rhset', values.rhset)], { rhset: values.rhset }, ['-I']);
     } catch (err) {
       logger.warn('An error occured during changing target humidifer state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -1998,11 +2097,21 @@ class Handler {
     clearTimeout(this.restartTimeout);
     clearTimeout(this.verifyTimeout);
     clearTimeout(this.refreshTimeout);
+    clearTimeout(this.writeBatchTimeout);
     this.processTimeout = null;
     this.restartTimeout = null;
     this.verifyTimeout = null;
     this.refreshTimeout = null;
+    this.writeBatchTimeout = null;
     this.pendingWrites.clear();
+
+    //a write still waiting out its coalescing window has already applied its
+    //optimistic HomeKit update but has no pendingWrites entry yet to revert;
+    //flushing now rather than leaving the cleared timer above to strand it
+    //sends it on its way, the same fate an already-in-flight write has today
+    if (this.writeBatch.length) {
+      this.flushWriteBatch();
+    }
 
     if (this.airControl) {
       logger.debug('Killing airControl process', this.accessory.displayName);
