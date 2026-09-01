@@ -366,9 +366,23 @@ These purifiers report spontaneously only while their values are changing, so a 
 
 ### The device did not apply a command
 
-The plugin sent a command, the purifier answered, and its answer still shows the old value. Commands are sent over an unacknowledged protocol, so one that is lost in transit — or that arrives while the device's radio is asleep — produces no error anywhere. The plugin resends it once before reporting this, and the Home app is corrected to whatever the device actually reports, so it never keeps showing a state the device never reached.
+The plugin sent a command, the purifier answered twice, and both answers still show the old value. Commands are sent over an unacknowledged protocol, so a command that never arrives, or that arrives while the device's radio is asleep, produces no error anywhere. The plugin resends it once before reporting this, and the Home app is corrected from the same status that showed the command had not taken effect. Commands are sent strictly one at a time, because these purifiers serve only one connection and two arriving together were measured losing one of them at a sleeping device.
+
+These devices report on their own schedule rather than answering a command, so a status that arrives in the first few seconds after one was sent was composed before the device could act on it and still carries the old value. Such a status is not counted either way, which is why this message needs the device to keep reporting the old value rather than merely to report it once.
 
 An occasional message is normal on a busy or distant network. If it happens every time for one control, the command is probably wrong for your model rather than lost: set `debug` to true, copy the logged `CMD: aioairctrl ...` line, run it yourself, and open an issue with what the device reports afterwards.
+
+### The device never answered a command sent while it was off
+
+Turning a purifier on normally wakes it, and it answers within seconds even after a long silence, so a wake-up command that has produced no answer at all was most likely never received. The plugin cannot tell that apart from an ordinary quiet spell straight away, though, so it holds such a write open for as long as it already tolerates silence from an off device, rather than the few minutes it expects from one that was talking, and sends the command a second time along the way. If the device does speak at any point and is still off, the ordinary resend above takes over. This message appears only when nothing at all has been heard for the whole of that window, and the Home app is put back to the last state the device actually reported.
+
+The usual cause is a command lost in transit, which is unremarkable once in a while on a busy or distant network. Repeatedly, and for one device only, points at signal strength or an address problem, so check where the purifier stands and what address it currently has. Turning a purifier off almost never produces this, because a running device answers quickly enough to contradict a lost command. It is the arrive-home automation that turns one **on** that this exists for.
+
+### The purifier could not be reached at all
+
+`aioairctrl got no answer from <host>:<port> within 30s and was stopped.` Sending a command is not a single packet: the CLI opens a session with the device first, and if nothing answers, that wait never ends by itself. The plugin therefore stops the attempt, reports it, and puts the Home app back to the last state the device actually reported, rather than leaving a switch showing a command that went nowhere. Homebridge may also note that the accessory was slow to respond, which is the same event seen from its side.
+
+This means the device is not reachable, not that the install is broken: a purifier switched off at the mains or unplugged, one that has moved to another network, or one whose address has changed. An address that used to work and stopped is usually a DHCP lease that renewed onto a different one, so check the purifier's current address on your router and set a reservation for it. If the address is right and the device is powered, check that nothing else is holding its single connection, as in the section above.
 
 ### aioairctrl rejected the command
 

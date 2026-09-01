@@ -16,12 +16,14 @@ silenceLogger();
 
 //captures what the plugin would actually print at default verbosity, so the
 //tests can assert that a failure is visible rather than only recoverable
-const captureLogs = () => {
+//debug lines go through log.info with a `[DEBUG] ` prefix, so they land in
+//entries.info when a test asks for them
+const captureLogs = (config = {}) => {
   const entries = { info: [], warn: [], error: [] };
   const record = (bucket) => (message) =>
     entries[bucket].push(message instanceof Error ? message.message : String(message));
 
-  logger.configure({ info: record('info'), warn: record('warn'), error: record('error') }, {});
+  logger.configure({ info: record('info'), warn: record('warn'), error: record('error') }, config);
 
   return entries;
 };
@@ -34,6 +36,7 @@ const STATEFUL_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-stateful
 const ONCE_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-once');
 const CLI_ERROR_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-cli-error');
 const DEBUG_LOG_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-debug-log');
+const HANG_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-hang');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -828,11 +831,15 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
 
 //the logger is a module singleton, so these tests must not capture it at the same time
 describe('write verification', { concurrency: 1 }, () => {
-  //a write is only registered once the command has been sent, so these tests
-  //stand in for the CLI and drive the verification directly
+  //these tests stand in for the CLI and drive the verification directly. the
+  //stub replaces sendCMD rather than runCMD, so it bypasses the queue: what is
+  //under test here is what happens to a write, not how commands are spaced.
+  //the settling allowance goes to zero for the same reason: statuses are fed in
+  //with no real time passing, so every one of them would otherwise be discounted
   const recordingHandler = () => {
     const handler = makeHandler({});
     handler.purifierService = makeService();
+    handler.writeSettle = 0;
     /** @type {string[][]} */
     const sent = [];
     handler.sendCMD = async (args) => {
@@ -999,6 +1006,254 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.kill(true);
   });
 
+  it('measures a write to a sleeping device against the off-state backstop', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler } = recordingHandler();
+    //the device has said it is off, so silence from it is the expected answer
+    //rather than evidence. #77: an AC0850 answered nothing for eleven minutes
+    //and then contradicted the write, long after the responsive window closed
+    await handler.processUpdate(status({ pwr: '0' }));
+    handler.verifyWindow = 60;
+    handler.offStallTimeout = 100000;
+
+    await handler.setPurifierActive(true);
+    await delay(150);
+
+    assert.equal(handler.pendingWrites.size, 1, 'a wake-up write was discarded on the responsive window');
+    assert.equal(handler.pendingWrites.get('pwr').window, 100000);
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
+  it('keeps the responsive window for a write to a device that was answering', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler } = recordingHandler();
+    //the wider window follows the regime the device is in, not the write: a
+    //device that was talking is still expected to answer within a refresh cycle
+    await handler.processUpdate(status({ pwr: '1' }));
+    handler.verifyWindow = 60;
+    handler.offStallTimeout = 100000;
+
+    await handler.setPurifierActive(false);
+    await delay(150);
+
+    assert.equal(handler.pendingWrites.size, 0, 'a write to a responsive device outlived its window');
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
+  it('resends a wake-up once unprompted, without spending the retry budget', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    await handler.processUpdate(status({ pwr: '0' }));
+    handler.verifyWindow = 60;
+    handler.offStallTimeout = 100000;
+
+    await handler.setPurifierActive(true);
+    sent.length = 0;
+
+    await delay(150);
+
+    assert.deepEqual(sent.length, 1, 'a wake-up nothing answered was never resent');
+    assert.ok(sent[0].includes('pwr=1'));
+    //the retry the device's own answer will ask for must still be available
+    assert.equal(handler.pendingWrites.get('pwr').attempts, 0);
+    assert.equal(handler.pendingWrites.get('pwr').blindResent, true);
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
+  it('resends a wake-up unprompted only once, however long the silence lasts', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    await handler.processUpdate(status({ pwr: '0' }));
+    handler.verifyWindow = 40;
+    handler.offStallTimeout = 100000;
+
+    await handler.setPurifierActive(true);
+    sent.length = 0;
+
+    await delay(300);
+
+    assert.equal(sent.length, 1, 'the unprompted resend repeated on every sweep');
+    assert.deepEqual(logs.warn, [], 'a write still inside its window was reported');
+
+    handler.kill(true);
+  });
+
+  it('resends when the device contradicts a wake-up long after the responsive window', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    await handler.processUpdate(status({ pwr: '0' }));
+    handler.verifyWindow = 60;
+    handler.offStallTimeout = 100000;
+
+    await handler.setPurifierActive(true);
+    sent.length = 0;
+
+    //the write is still pending when the evidence finally lands, so the retry
+    //path that already worked gets to act on it. this is the whole of #77
+    await delay(150);
+    //the unprompted resend has already gone by now. charging it to `attempts`
+    //would leave nothing for this, the one moment the device is known to listen
+    await handler.processUpdate(status({ pwr: '0' }));
+
+    assert.equal(sent.length, 2, 'the write the device contradicted was never resent');
+    assert.ok(sent.every((args) => args.includes('pwr=1')));
+    assert.equal(handler.pendingWrites.get('pwr').attempts, 1);
+    assert.deepEqual(logs.warn, [], 'a single retry should not bother the user');
+
+    handler.kill(true);
+  });
+
+  it('reports a wake-up the device never answered', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler } = recordingHandler();
+    await handler.processUpdate(status({ pwr: '0' }));
+    handler.verifyWindow = 40;
+    handler.offStallTimeout = 120;
+
+    await handler.setPurifierActive(true);
+    await delay(300);
+
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.ok(
+      logs.warn.some((line) => line.includes('never answered pwr=1')),
+      `a dropped wake-up was discarded in silence, got ${JSON.stringify(logs.warn)}`
+    );
+    //asked once, then once more unprompted, before it was given up on
+    assert.ok(logs.warn.some((line) => line.includes('after 2 attempts')));
+
+    //a repeating automation reports once, not on every cycle
+    logs.warn.length = 0;
+    await handler.setPurifierActive(true);
+    await delay(300);
+
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
+  it('puts HomeKit back to the last reading when a wake-up is given up on', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs({ debug: true });
+
+    const { handler } = recordingHandler();
+    await handler.processUpdate(status({ pwr: '0' }));
+    handler.verifyWindow = 40;
+    handler.offStallTimeout = 120;
+
+    await handler.setPurifierActive(true);
+    //the optimistic update HomeKit is given while the write is still live
+    assert.deepEqual(updated(handler.purifierService, 'CurrentAirPurifierState').at(-1), [
+      'CurrentAirPurifierState',
+      2,
+    ]);
+
+    await delay(300);
+
+    //#77: the Home app kept reporting PURIFYING_AIR for a purifier the plugin
+    //knew was off, and stayed wrong until a real status happened to arrive
+    assert.deepEqual(updated(handler.purifierService, 'Active').at(-1), ['Active', 0]);
+    assert.deepEqual(updated(handler.purifierService, 'CurrentAirPurifierState').at(-1), [
+      'CurrentAirPurifierState',
+      0,
+    ]);
+
+    //the revert publishes the same value HomeKit falls back to on its own, so
+    //the log is the only place it can be told apart from not having run
+    assert.ok(
+      logs.info.some((line) => line.includes("Putting HomeKit's pwr back to the last reading the device gave (0)")),
+      `the revert left no trace, got ${JSON.stringify(logs.info)}`
+    );
+
+    handler.kill(true);
+  });
+
+  it('leaves HomeKit alone for a device that has never answered', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs({ debug: true });
+
+    const { handler } = recordingHandler();
+    handler.verifyWindow = 40;
+
+    await handler.setPurifierActive(true);
+    handler.purifierService.updates.length = 0;
+
+    await delay(300);
+
+    //there is no reading to revert to, so publishing one would be a guess
+    assert.deepEqual(handler.purifierService.updates, []);
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.ok(
+      logs.info.some((line) => line.includes("Leaving HomeKit's pwr as it is")),
+      `silence here is indistinguishable from the revert never being reached, got ${JSON.stringify(logs.info)}`
+    );
+    assert.ok(!logs.info.some((line) => line.includes('back to the last reading')));
+
+    handler.kill(true);
+  });
+
+  it('resends one command per command, not once per key it carries', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({ model: 'AC0850' });
+    handler.purifierService = makeService();
+    /** @type {string[]} */
+    const sent = [];
+    let inFlight = 0;
+    let overlapped = 0;
+    handler.sendCMD = async (args) => {
+      inFlight += 1;
+      overlapped = Math.max(overlapped, inFlight);
+      await delay(20);
+      inFlight -= 1;
+      sent.push(args.join(' '));
+    };
+
+    await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 17 }));
+    assert.equal(handler.deviceKnownOff(), true);
+
+    handler.verifyWindow = 50;
+    handler.offStallTimeout = 100000;
+
+    //the scene #77 was observed under: power and speed set together
+    await handler.setPurifierActive(true);
+    await handler.setPurifierRotationSpeed(50);
+    assert.deepEqual([...handler.pendingWrites.keys()], ['pwr', 'D0310A', 'D0310C']);
+    sent.length = 0;
+
+    await delay(250);
+
+    //an AC0850 speed is D0310A and D0310C in one command, so resending per key
+    //would fire that same command twice. the wake-up goes last: it has to be
+    //the last thing a sleeping device hears if wake disturbance is what #77 saw
+    assert.deepEqual(sent, [
+      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=0',
+      '-H 192.168.1.142 -P 5683 set -I D03102=1',
+    ]);
+    //these purifiers serve one connection, and the plugin already holds one
+    assert.equal(overlapped, 1, 'resends raced each other at a single-connection device');
+
+    handler.kill(true);
+  });
+
   it('expires a pending write on its own deadline, not on the last status', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
@@ -1068,6 +1323,9 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.stallTimeout = 5000;
     handler.restartDelay = 10;
     handler.verifyWindow = 400;
+    //the shim answers in milliseconds, so the settling allowance scales with the
+    //rest of the timings rather than staying at its real-device size
+    handler.writeSettle = 20;
 
     handler.longPoll();
     await delay(60);
@@ -1081,5 +1339,204 @@ describe('write verification', { concurrency: 1 }, () => {
 
     handler.kill(true);
     await delay(50);
+  });
+
+  it('records the write before the command has been sent', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    //a send that never settles, which is what an unreachable device does
+    handler.sendCMD = () => new Promise(() => {});
+
+    const setting = handler.setPurifierActive(true);
+    await delay(20);
+
+    //the whole point: a command that has not left the host is still a write the
+    //give-up machinery can act on
+    assert.equal(handler.pendingWrites.size, 1);
+    assert.equal(
+      handler.pendingWrites.get('pwr').since,
+      Infinity,
+      'a status arriving now would have been treated as evidence about a command still in flight'
+    );
+
+    handler.kill(true);
+    void setting;
+  });
+
+  it('puts HomeKit back when the command never leaves the host', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    await handler.processUpdate(status({ pwr: '0' }));
+    handler.sendCMD = async () => {
+      throw new Error('nope');
+    };
+
+    await handler.setPurifierActive(true);
+
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.deepEqual(updated(handler.purifierService, 'Active').at(-1), ['Active', 0]);
+    assert.deepEqual(updated(handler.purifierService, 'CurrentAirPurifierState').at(-1), [
+      'CurrentAirPurifierState',
+      0,
+    ]);
+    assert.equal(logs.warn.length, 1, 'the setter still reports the failure in its own words');
+
+    handler.kill(true);
+  });
+
+  it('cuts off a set command the device never answers', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({ aioairctrlPath: HANG_SHIM });
+    handler.purifierService = makeService();
+    handler.sendTimeout = 150;
+
+    await handler.setPurifierActive(true);
+
+    //without the cap this never returns at all, and the child outlives the run
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.match(logs.error.join(' '), /got no answer from 192\.168\.1\.142:5683 within 0\.15s/);
+    assert.doesNotMatch(logs.error.join(' '), /not found|could not be executed/, 'reported as an install fault');
+
+    handler.kill(true);
+  });
+
+  it('never runs two set commands at once', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({ model: 'AC0850' });
+    handler.purifierService = makeService();
+    /** @type {string[]} */
+    const sent = [];
+    let inFlight = 0;
+    let overlapped = 0;
+    handler.runCMD = async (args) => {
+      inFlight += 1;
+      overlapped = Math.max(overlapped, inFlight);
+      await delay(20);
+      inFlight -= 1;
+      sent.push(args.join(' '));
+    };
+
+    //the scene shape: HomeKit delivers these as independent onSet calls, so
+    //nothing awaits one before making the other
+    await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(50)]);
+
+    assert.equal(overlapped, 1, 'two set processes raced at a single-connection device');
+    assert.deepEqual(sent, [
+      '-H 192.168.1.142 -P 5683 set -I D03102=1',
+      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=0',
+    ]);
+
+    handler.kill(true);
+  });
+
+  it('resends in turn when a status contradicts two commands', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({ model: 'AC0850' });
+    handler.purifierService = makeService();
+    //no real time passes between the setters and the status below
+    handler.writeSettle = 0;
+    /** @type {string[]} */
+    const sent = [];
+    let inFlight = 0;
+    let overlapped = 0;
+    handler.sendCMD = async (args) => {
+      inFlight += 1;
+      overlapped = Math.max(overlapped, inFlight);
+      await delay(20);
+      inFlight -= 1;
+      sent.push(args.join(' '));
+    };
+
+    await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 17 }));
+    await handler.setPurifierActive(true);
+    await handler.setPurifierRotationSpeed(50);
+    sent.length = 0;
+
+    //the device answers, still disagreeing about both commands
+    await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 17 }));
+    await delay(120);
+
+    assert.equal(overlapped, 1, 'two contradicted commands were resent at once');
+    assert.deepEqual(sent, [
+      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=0',
+      '-H 192.168.1.142 -P 5683 set -I D03102=1',
+    ]);
+
+    handler.kill(true);
+  });
+
+  it('does not count a status the device sent as the command reached it', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    handler.writeSettle = 200;
+
+    await handler.setPurifierActive(true);
+    sent.length = 0;
+
+    //the push that was already on its way, still carrying the old value
+    await handler.processUpdate(status({ pwr: '0' }));
+
+    assert.deepEqual(sent, [], 'a push that raced the command was read as a contradiction');
+    assert.equal(handler.pendingWrites.size, 1);
+    assert.deepEqual(logs.warn, []);
+
+    //the allowance is a window, not a permanent exemption: once it has passed,
+    //a device still reporting the old value is contradicting the command
+    await delay(220);
+    await handler.processUpdate(status({ pwr: '0' }));
+
+    assert.equal(sent.length, 1, 'a genuine contradiction after the allowance was ignored');
+    assert.equal(handler.pendingWrites.get('pwr').attempts, 1);
+
+    handler.kill(true);
+  });
+
+  it('does not report a write on a status that raced its resend', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    handler.writeSettle = 200;
+
+    await handler.setPurifierActive(true);
+    sent.length = 0;
+    //stands for the 19s that passed before the device answered on hardware
+    handler.pendingWrites.get('pwr').since = Date.now() - 1000;
+
+    await handler.processUpdate(status({ pwr: '0' }));
+    await delay(20);
+
+    assert.equal(sent.length, 1, 'the contradiction was not resent');
+    assert.ok(handler.pendingWrites.get('pwr').since > Date.now(), 'the resend reopened the horizon immediately');
+
+    //the retry budget is spent, so a status counted as evidence here reports a
+    //failure outright. this one was composed before the resend landed
+    await handler.processUpdate(status({ pwr: '0' }));
+
+    assert.deepEqual(logs.warn, [], 'a push that raced the resend was reported as a failed write');
+    assert.equal(handler.pendingWrites.size, 1);
+
+    //the next push, once the device has acted on it
+    await delay(220);
+    await handler.processUpdate(status({ pwr: '1' }));
+
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
   });
 });

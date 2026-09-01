@@ -42,6 +42,16 @@ const REFRESH_INTERVAL = 60 * 1000;
 const REFRESH_COST_RISE = 0.5;
 const REFRESH_COST_FALL = 0.125;
 
+//how long a `set` is given before it is killed. aioairctrl opens a session
+//before sending its fire-and-forget packet, and that handshake has no timeout
+//of its own: against a host that never answers it waits indefinitely, measured
+//here as no output and no exit at 180s and again at 900s. Without a cap the
+//promise never settles, the onSet never returns, and the Python child is
+//stranded for the life of the Homebridge run (issue #77). Generous next to a
+//`set` that works, which answers in well under a second even from a purifier
+//that had been silent for the best part of an hour
+const SET_TIMEOUT = 30 * 1000;
+
 //delay before respawning a stream that ended
 const RESTART_DELAY = 5 * 1000;
 
@@ -80,6 +90,26 @@ const VERIFY_WINDOW_MIN = 300 * 1000;
 //told. one lost packet is unremarkable; two in a row is worth a warning
 const MAX_WRITE_RETRIES = 1;
 
+//how long after a command goes out before the device's answers start counting
+//as answers to it. A `set` is one unacknowledged packet, and a status push
+//already being composed when it lands still carries the old value, so it is
+//evidence about neither the write nor the resend. Measured on an AC0850: a
+//resend at 02:19:31 was contradicted by a push a second later and confirmed by
+//the next one in the same second, which on the last attempt is the difference
+//between silence and a warning telling the user to go and check their network
+//(issue #77). Small next to every other horizon here, and the device pushes
+//every 6 to 40 seconds, so it costs at most one skipped push
+const WRITE_SETTLE = 3 * 1000;
+
+/**
+ * A write waiting for the device to confirm it. `since` is the transmission
+ * horizon, `recordedAt` the moment the user asked for it: the first decides
+ * which statuses count as evidence, the second anchors both deadlines.
+ *
+ * @typedef {{ expected: unknown, args: string[], attempts: number, since: number,
+ *   recordedAt: number, knownOff: boolean, window: number, blindResent: boolean }} PendingWrite
+ */
+
 class Handler {
   constructor(api, accessory) {
     this.api = api;
@@ -110,7 +140,7 @@ class Handler {
     this.loggedParseFailure = false;
     //writes waiting for the device to confirm them, keyed by the generic status
     //key each one sets. see recordWrite
-    /** @type {Map<string, { expected: unknown, args: string[], attempts: number, since: number, recordedAt: number }>} */
+    /** @type {Map<string, PendingWrite>} */
     this.pendingWrites = new Map();
     this.verifyTimeout = null;
     this.refreshTimeout = null;
@@ -183,6 +213,18 @@ class Handler {
     this.extraSetFlags = extraSetFlags;
     this.unsupported = new Set(unsupported);
 
+    //how long a `set` is given before it is killed. an instance field for the
+    //same reason the verification windows are: so a test can shorten it
+    this.sendTimeout = SET_TIMEOUT;
+
+    //how long the device is given to process a command before its answers count
+    //as answers to it. an instance field for the same reason
+    this.writeSettle = WRITE_SETTLE;
+
+    //tail of the queue that keeps `set` commands from overlapping. see sendCMD
+    /** @type {Promise<void>} */
+    this.writeQueue = Promise.resolve();
+
     this.binary = this.accessory.context.config.aioairctrlPath || DEFAULT_BINARY;
     this.args = [
       '-H',
@@ -217,19 +259,52 @@ class Handler {
   }
 
   /**
+   * A device that did not answer the session handshake a `set` needs, in the
+   * user's terms. Named separately from unrunnableBinaryError because the two
+   * send readers in opposite directions: one is the install, the other is
+   * everything between Homebridge and the purifier.
+   *
+   * @returns {Error}
+   */
+  unreachableDeviceError() {
+    const { host, port } = this.accessory.context.config;
+
+    return new Error(
+      `${this.binary} got no answer from ${host}:${port} within ${this.sendTimeout / 1000}s and was stopped. ` +
+        `The device may be powered off at the mains, on another network, or at a different address (see README Troubleshooting).`
+    );
+  }
+
+  /**
+   * Runs one `set`. Everything goes through sendCMD rather than here, so that
+   * no two of these are ever in flight at once.
+   *
    * @param {string[]} args
    * @returns {Promise<void>}
    */
-  sendCMD(args) {
+  runCMD(args) {
+    //logged as it goes out rather than as it is queued, so the log still says
+    //what was on the wire and when
     logger.debug(`CMD: ${this.binary} ${args.join(' ')}`, this.accessory.displayName);
 
     return new Promise((resolve, reject) => {
-      execFile(this.binary, args, (err, stdout, stderr) => {
+      execFile(this.binary, args, { timeout: this.sendTimeout }, (err, stdout, stderr) => {
         if (err) {
           const code = /** @type {NodeJS.ErrnoException} */ (err).code;
           const unrunnable = code === 'ENOENT' || code === 'EACCES' || code === 'EPERM';
 
-          return reject(unrunnable ? this.unrunnableBinaryError(code) : err);
+          if (unrunnable) {
+            return reject(this.unrunnableBinaryError(code));
+          }
+
+          //a command killed on the timeout above is a device that cannot be
+          //reached, not an install that cannot run. execFile's own message for
+          //it names only the command line, which reads like the latter
+          if (/** @type {{ killed?: boolean }} */ (err).killed) {
+            return reject(this.unreachableDeviceError());
+          }
+
+          return reject(err);
         }
 
         logger.debug(stderr, this.accessory.displayName);
@@ -247,6 +322,41 @@ class Handler {
         resolve();
       });
     });
+  }
+
+  /**
+   * Sends a command, never at the same time as another one.
+   *
+   * These purifiers serve **one connection at a time**, and the plugin already
+   * holds one for status-observe, so a second `set` running alongside a first
+   * is contention rather than throughput. Issue #77 measured it: at a device
+   * that had been silent for around 40 minutes, two `set` processes fired in
+   * the same second lost the wake-up 3 times in 4, while the same commands sent
+   * one after another were answered within a second, twice out of twice. The
+   * one concurrent pair that did land went to a device that was already awake.
+   *
+   * Nothing changes on the wire. The same commands with the same flags are sent
+   * in the same order, just spaced, which is why this is safe on models nobody
+   * here can test.
+   *
+   * The cosmetic light writes queue with the rest. One connection at a time is
+   * a property of the device, not of how much the write matters, and a
+   * brightness drag currently races dozens of processes at it. The cost is that
+   * a long drag can hold up a command issued behind it.
+   *
+   * @param {string[]} args
+   * @returns {Promise<void>}
+   */
+  sendCMD(args) {
+    const run = () => this.runCMD(args);
+    //`then(run, run)` rather than a chained catch: one command failing must not
+    //stop the next from being attempted, and must not leave a rejection sitting
+    //unhandled on the tail
+    const queued = this.writeQueue.then(run, run);
+
+    this.writeQueue = queued.catch(() => {});
+
+    return queued;
   }
 
   /**
@@ -374,6 +484,15 @@ class Handler {
     return `${key}=${value}`;
   }
 
+  /**
+   * The HomeKit threshold for the humidity target the device reports. The
+   * conditions guarding it differ between the status push and the setters, but
+   * this ladder is identical everywhere it is used, so it lives in one place.
+   */
+  humidityThreshold() {
+    return { 40: 25, 50: 50, 60: 75, 70: 100 }[this.obj.rhset] || 0;
+  }
+
   speedsMinStep() {
     return 100 / this.speeds.length;
   }
@@ -399,8 +518,7 @@ class Handler {
       this.purifierService.updateCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState, stateNumber * 2);
 
       logger.info(`Purifier Active: ${state}`, this.accessory.displayName);
-      await this.sendCMD(args);
-      this.recordWrite(args, { pwr: stateNumber });
+      await this.sendTracked(args, { pwr: stateNumber });
     } catch (err) {
       logger.warn('An error occured during changing purifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -428,8 +546,7 @@ class Handler {
 
       logger.info(`Purifier Mode: ${state}`, this.accessory.displayName);
 
-      await this.sendCMD(args);
-      this.recordWrite(args, { mode: values.mode });
+      await this.sendTracked(args, { mode: values.mode });
     } catch (err) {
       logger.warn('An error occured during changing target purifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -451,8 +568,7 @@ class Handler {
 
       logger.info(`Lock: ${state}`, this.accessory.displayName);
 
-      await this.sendCMD(args);
-      this.recordWrite(args, { cl: values.cl });
+      await this.sendTracked(args, { cl: values.cl });
     } catch (err) {
       logger.warn('An error occured during changing lock state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -480,8 +596,7 @@ class Handler {
 
         logger.info(`Purifier Rotation Speed: cmds: ${cmds.join(' ')}`, this.accessory.displayName);
 
-        await this.sendCMD(args);
-        this.recordWrite(args, this.speeds[speed - 1]);
+        await this.sendTracked(args, this.speeds[speed - 1]);
       }
     } catch (err) {
       logger.warn('An error occured during changing purifier rotation speed!', this.accessory.displayName);
@@ -508,15 +623,7 @@ class Handler {
       if (this.obj.func == 'PH' && water_level == 100) {
         state_ph = 1;
 
-        if (this.obj.rhset == 40) {
-          speed_humidity = 25;
-        } else if (this.obj.rhset == 50) {
-          speed_humidity = 50;
-        } else if (this.obj.rhset == 60) {
-          speed_humidity = 75;
-        } else if (this.obj.rhset == 70) {
-          speed_humidity = 100;
-        }
+        speed_humidity = this.humidityThreshold();
       }
 
       this.humidifierService.updateCharacteristic(this.api.hap.Characteristic.TargetHumidifierDehumidifierState, 1);
@@ -537,8 +644,7 @@ class Handler {
 
       logger.info(`Humidifier Active: ${state}`, this.accessory.displayName);
 
-      await this.sendCMD(args);
-      this.recordWrite(args, { func: values.func });
+      await this.sendTracked(args, { func: values.func });
     } catch (err) {
       logger.warn('An error occured during changing humidifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -597,10 +703,8 @@ class Handler {
 
       logger.info(`Humidifier State: ${state}`, this.accessory.displayName);
 
-      await this.sendCMD(args1);
-      this.recordWrite(args1, { func: values.func });
-      await this.sendCMD(args2);
-      this.recordWrite(args2, { rhset: values.rhset });
+      await this.sendTracked(args1, { func: values.func });
+      await this.sendTracked(args2, { rhset: values.rhset });
     } catch (err) {
       logger.warn('An error occured during changing target humidifer state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -687,7 +791,21 @@ class Handler {
    * @param {Record<string, unknown>} expectations generic key -> expected value
    */
   recordWrite(args, expectations) {
-    const since = Date.now();
+    const recordedAt = Date.now();
+
+    //how long silence proves nothing depends on which regime the device is in,
+    //and the plugin already models both: verifyWindow is derived from how fast a
+    //*responsive* device answers, while a device reporting itself off may say
+    //nothing for offStallTimeout without anything being wrong. Judging a write
+    //to a sleeping device by the responsive window discarded it long before the
+    //evidence arrived (issue #77). The regime is read once, here: a device that
+    //wakes up is resolved by reconcilePendingWrites on the status that proves
+    //it, so nothing needs to reconsider this later.
+    //
+    //max() rather than offStallTimeout alone, so a long configured
+    //refreshInterval cannot make the off-state window the *shorter* of the two
+    const knownOff = this.deviceKnownOff();
+    const window = knownOff ? Math.max(this.offStallTimeout, this.verifyWindow) : this.verifyWindow;
 
     for (const [key, expected] of Object.entries(expectations)) {
       //a key the device has never mentioned can never confirm anything, so an
@@ -701,10 +819,57 @@ class Handler {
         continue;
       }
 
-      this.pendingWrites.set(key, { expected, args, attempts: 0, since, recordedAt: since });
+      this.pendingWrites.set(key, {
+        expected,
+        args,
+        //closed until the command has actually been transmitted: it is recorded
+        //before the send, and a serialised send may wait its turn first
+        since: Infinity,
+        attempts: 0,
+        recordedAt,
+        knownOff,
+        window,
+        blindResent: false,
+      });
     }
 
     this.armVerifyTimeout();
+  }
+
+  /**
+   * Records a write and then sends it, in that order.
+   *
+   * The order is the point. `aioairctrl set` needs a session handshake before
+   * its fire-and-forget packet, and that handshake has no timeout of its own,
+   * so against a purifier that is unplugged or off the network the send does
+   * not resolve for a long time and may not resolve at all. Recording after it
+   * meant no pending write existed in exactly the case the verification
+   * machinery was built for: HomeKit kept the value it had been given
+   * optimistically, and nothing was ever going to correct it (issue #77).
+   *
+   * A pending write for a command that never left the host is the right state,
+   * not a wrong one. The give-up path is what should handle it, and putting
+   * HomeKit back is its job.
+   *
+   * Recording first also makes insertion order follow setter order rather than
+   * child-process exit order, which is what any rule about the order commands
+   * are resent in needs in order to mean anything.
+   *
+   * @param {string[]} args
+   * @param {Record<string, unknown>} expectations generic key -> expected value
+   * @returns {Promise<void>}
+   */
+  async sendTracked(args, expectations) {
+    this.recordWrite(args, expectations);
+
+    try {
+      await this.sendCMD(args);
+      this.markWriteSent(args);
+    } catch (err) {
+      //rethrown so each setter still reports the failure in its own words
+      this.abandonWrite(args);
+      throw err;
+    }
   }
 
   /**
@@ -719,8 +884,9 @@ class Handler {
     }
 
     //the earliest deadline still outstanding, so a sweep triggered by an
-    //unrelated status does not push an older write's expiry out by a window
-    const oldest = Math.min(...[...this.pendingWrites.values()].map((pending) => pending.recordedAt));
+    //unrelated status does not push an older write's expiry out by a window.
+    //each write carries its own window, so this cannot be one shared deadline
+    const due = Math.min(...[...this.pendingWrites.values()].map((pending) => this.nextVerifyDeadline(pending)));
 
     this.verifyTimeout = setTimeout(
       () => {
@@ -728,8 +894,50 @@ class Handler {
         this.expirePendingWrites();
         this.armVerifyTimeout();
       },
-      Math.max(oldest + this.verifyWindow - Date.now(), 0)
+      Math.max(due - Date.now(), 0)
     );
+  }
+
+  /**
+   * Whether a write is still owed its one unprompted resend.
+   *
+   * Deliberately *not* charged to `attempts`. That budget belongs to the resend
+   * the device's own answer asks for, and with one retry to spend, charging a
+   * blind resend to it would leave `reconcilePendingWrites` with nothing left
+   * at the one moment the device had proved it was listening: a correct warning
+   * and no second attempt, which is worse than not resending blind at all.
+   *
+   * Only for a write to a device already known to be off, where silence is
+   * worth acting on. Measurement on an AC0850 settled what that silence means:
+   * a wake-up that lands is answered fast, once in a single second by a device
+   * that had said nothing for 53 minutes, because turning a purifier on wakes
+   * it and it starts talking. So a wake-up still unanswered a window later was
+   * very likely never received, which is the case a resend can actually fix.
+   *
+   * A responsive device that has gone quiet is a different problem: it has
+   * already been answering, so silence there is freshness rather than a lost
+   * command, and doubling every write on every unmeasured model would not fix
+   * it.
+   *
+   * The window comparison is what keeps the two deadlines distinct: a
+   * refreshInterval long enough to push verifyWindow past offStallTimeout
+   * leaves no room before the give-up, so there is no unprompted resend to make.
+   *
+   * @param {PendingWrite} pending
+   */
+  blindEligible(pending) {
+    return pending.knownOff && !pending.blindResent && pending.window > this.verifyWindow;
+  }
+
+  /**
+   * When the sweep next has something to do about a write. Kept next to
+   * armVerifyTimeout so the timer and expirePendingWrites cannot disagree about
+   * when a write is due.
+   *
+   * @param {PendingWrite} pending
+   */
+  nextVerifyDeadline(pending) {
+    return pending.recordedAt + (this.blindEligible(pending) ? this.verifyWindow : pending.window);
   }
 
   /**
@@ -747,10 +955,19 @@ class Handler {
       return;
     }
 
+    //commands to resend once the pass is over, deduplicated: one can answer
+    //several keys. Collected rather than sent from inside the loop, because a
+    //status that contradicts two different commands would otherwise fire both
+    //at once, which is the race the recovery path exists to undo
+    /** @type {string[][]} */
+    const resend = [];
+    const queued = new Set();
+
     for (const [key, pending] of [...this.pendingWrites]) {
       //a status already in flight when the write was sent cannot have observed
-      //it. the resolution is coarse, and the cost of getting it wrong is one
-      //extra resend of a command the device has already applied
+      //it, and `since` carries a settling allowance so that one composed just as
+      //the packet landed is discounted too. Erring this way costs at most a
+      //skipped push; erring the other way reported a write the device applied
       if (receivedAt < pending.since) {
         continue;
       }
@@ -772,30 +989,25 @@ class Handler {
 
       if (pending.attempts < this.maxWriteRetries) {
         pending.attempts += 1;
-        //nothing is evidence about the resend until the resend is on the wire:
-        //status the device sent in the meantime describes the state before it
-        pending.since = Infinity;
 
         logger.debug(
           `Device reports ${key}=${this.obj[key]}, resending ${key}=${pending.expected}`,
           this.accessory.displayName
         );
 
-        //not awaited: this runs while a status line is being processed, and the
-        //answer to it arrives as another status line, not as an exit code
-        this.sendCMD(pending.args)
-          .then(() => {
-            pending.since = Date.now();
-          })
-          .catch((err) => {
-            this.pendingWrites.delete(key);
-            logger.error(err, this.accessory.displayName);
-          });
+        if (!queued.has(pending.args.join(' '))) {
+          queued.add(pending.args.join(' '));
+          resend.push(pending.args);
+        }
         continue;
       }
 
       this.pendingWrites.delete(key);
       this.reportWriteFailure(key, pending);
+    }
+
+    if (resend.length) {
+      this.resendInTurn(resend);
     }
 
     clearTimeout(this.verifyTimeout);
@@ -804,29 +1016,335 @@ class Handler {
   }
 
   /**
-   * Drops writes the device never spoke to. Deliberately quiet: silence past
-   * the window means this device answers more slowly than the one the delays
-   * were chosen against, and reporting that as a lost command would turn every
-   * unmeasured model into a warning loop.
+   * Every pending write a command carries.
+   *
+   * The command rather than the key is what all of this acts on, because one
+   * `set` can carry several: an AC0850 speed is `D0310A` and `D0310C` together,
+   * recorded as two pending writes sharing one argv. Working per key would fire
+   * that one command once per key, and #77 saw a scene write lost under exactly
+   * that shape, two `set` processes racing at a device that serves one
+   * connection.
+   *
+   * @param {string[]} args
+   * @returns {[string, PendingWrite][]}
+   */
+  writesFor(args) {
+    const command = args.join(' ');
+
+    return [...this.pendingWrites].filter(([, pending]) => pending.args.join(' ') === command);
+  }
+
+  /**
+   * Holds a command's writes open until it has actually been transmitted.
+   * Nothing the device sent before then is evidence about it, and `since` is
+   * what reconcilePendingWrites measures an incoming status against.
+   *
+   * @param {string[]} args
+   */
+  holdWrites(args) {
+    this.writesFor(args).forEach(([, pending]) => {
+      pending.since = Infinity;
+    });
+  }
+
+  /**
+   * Opens that horizon again, a settling allowance after the command went on
+   * the wire rather than the instant it did. The device does not answer a
+   * fire-and-forget packet, it just keeps pushing status, and a push already on
+   * its way when the packet lands still carries the old value. See WRITE_SETTLE
+   * for what treating that as a contradiction cost on hardware.
+   *
+   * @param {string[]} args
+   */
+  markWriteSent(args) {
+    const sentAt = Date.now() + this.writeSettle;
+
+    this.writesFor(args).forEach(([, pending]) => {
+      pending.since = sentAt;
+    });
+  }
+
+  /**
+   * Gives up on every write a command carries, and puts HomeKit back to what
+   * the device last reported. The setters update characteristics before the
+   * command is on the wire, so a command that never left the host would
+   * otherwise leave the Home app showing a state the device never reached.
+   *
+   * @param {string[]} args
+   */
+  abandonWrite(args) {
+    this.writesFor(args).forEach(([key]) => {
+      this.pendingWrites.delete(key);
+      this.revertOptimisticUpdate(key);
+    });
+  }
+
+  /**
+   * Puts a command back on the wire, leaving the writes it carries pending.
+   *
+   * Callers do not await the send itself: the answer arrives as another status
+   * line, not as an exit code.
+   *
+   * @param {string[]} args the command to resend
+   * @returns {Promise<void>} settles when the command has been sent
+   */
+  resendWrite(args) {
+    this.holdWrites(args);
+
+    return this.sendCMD(args)
+      .then(() => this.markWriteSent(args))
+      .catch((err) => {
+        this.abandonWrite(args);
+        logger.error(err, this.accessory.displayName);
+      });
+  }
+
+  /**
+   * Puts the wake-up at the end of a batch.
+   *
+   * Two mechanisms could explain what issue #77 measured, and the evidence
+   * cannot separate them. Under *contention*, two overlapping handshakes at a
+   * one-connection device, order does not matter. Under *wake disturbance*, the
+   * command that wakes the device has to be the last thing it hears, and a
+   * second handshake arriving while it wakes knocks it over. So ordering the
+   * wake-up last is a no-op if the first is true and load-bearing if the second
+   * is, which makes it adoptable without knowing which.
+   *
+   * The rescue that was observed working sent speed first and power last, but
+   * only by chance: insertion order used to be decided by which child process
+   * exited first. Deterministic order also means a failure can be reproduced.
+   *
+   * Read off the pending write rather than by naming registers, so this needs
+   * no per-model code, and only for a power-*on*: switching a device off cannot
+   * wake it, so nothing about that write wants to go last.
+   *
+   * @param {string[][]} commands
+   * @returns {string[][]}
+   */
+  orderPowerLast(commands) {
+    const wake = this.pendingWrites.get('pwr');
+
+    if (!wake || Number(wake.expected) !== 1) {
+      return commands;
+    }
+
+    const command = wake.args.join(' ');
+    const rest = commands.filter((args) => args.join(' ') !== command);
+
+    return rest.length === commands.length ? commands : [...rest, wake.args];
+  }
+
+  /**
+   * Sends a sweep's worth of resends one at a time, wake-up last. Firing them
+   * together would be the very race that recovery is here to undo.
+   *
+   * @param {string[][]} commands
+   */
+  async resendInTurn(commands) {
+    const batch = this.orderPowerLast(commands);
+
+    //the whole batch's horizon closes up front rather than as each command is
+    //reached: a status arriving while a later one waits its turn predates that
+    //command going back on the wire, so it is not evidence about it
+    batch.forEach((args) => this.holdWrites(args));
+
+    for (const args of batch) {
+      await this.resendWrite(args);
+    }
+  }
+
+  /**
+   * Drops writes the device never spoke to, and resends a wake-up once on the
+   * way. What silence means depends on which device it came from, so see
+   * reportWriteExpiry for which of these is worth telling the user about.
    */
   expirePendingWrites() {
     const now = Date.now();
+    /** @type {string[][]} */
+    const resend = [];
+    const queued = new Set();
 
-    for (const [key, pending] of this.pendingWrites) {
-      //each write owns its deadline: the timer is re-armed by every status, and
-      //a device that keeps talking about other keys would otherwise hold a
-      //pending write open indefinitely
-      if (now - pending.recordedAt < this.verifyWindow) {
+    //one unprompted resend on the way, at the window a responsive device would
+    //have answered by. A `set` is a single unacknowledged packet, and resending
+    //one costs a beep the device makes anyway; a wake-up command that was simply
+    //dropped has nothing else that will ever notice.
+    //
+    //Once any of them is due they all go, so that a scene is one ordered batch
+    //rather than a sweep per key. Each write's deadline is its own recordedAt
+    //plus the window, and the setters record milliseconds apart, so judging them
+    //separately split a power and a speed across two sweeps ordered by whichever
+    //was recorded first: exactly the ordering resendInTurn exists to decide. The
+    //cost is that a write recorded shortly before the sweep is resent a little
+    //early, which is one more idempotent packet to a device already known to be
+    //off, and blindResent still caps it at one per write
+    const blindDue = [...this.pendingWrites.values()].some(
+      (pending) => this.blindEligible(pending) && now - pending.recordedAt >= this.verifyWindow
+    );
+
+    for (const [key, pending] of [...this.pendingWrites]) {
+      if (blindDue && this.blindEligible(pending)) {
+        //flagged before the send, so nothing re-entrant can fire it twice
+        pending.blindResent = true;
+
+        logger.debug(
+          `Nothing has answered ${key}=${pending.expected} while the device is off, resending it`,
+          this.accessory.displayName
+        );
+
+        if (!queued.has(pending.args.join(' '))) {
+          queued.add(pending.args.join(' '));
+          resend.push(pending.args);
+        }
         continue;
       }
 
-      logger.debug(
-        `No status covering ${key}=${pending.expected} arrived within ${Math.round(this.verifyWindow / 1000)}s`,
-        this.accessory.displayName
-      );
+      //each write owns its deadline: the timer is re-armed by every status, and
+      //a device that keeps talking about other keys would otherwise hold a
+      //pending write open indefinitely. the resend above does not move it, so
+      //the give-up stays anchored to the original command
+      if (now - pending.recordedAt < pending.window) {
+        continue;
+      }
 
       this.pendingWrites.delete(key);
+      this.reportWriteExpiry(key, pending);
+      this.revertOptimisticUpdate(key);
     }
+
+    if (resend.length) {
+      this.resendInTurn(resend);
+    }
+  }
+
+  /**
+   * Puts HomeKit back to what the plugin believes, for a write that has been
+   * given up on.
+   *
+   * The setters update characteristics before the command is even on the wire,
+   * because HomeKit expects an answer promptly and the device cannot give one.
+   * That is fine while the write is still live, and wrong once it is not: the
+   * Home app was left reporting PURIFYING_AIR for a purifier the plugin knew
+   * was off, and stayed wrong until a real status happened to arrive, which for
+   * an off device can be the better part of an hour (issue #77).
+   *
+   * `this.obj` is only ever assigned from a device status, so this publishes a
+   * reading rather than a guess, and a device that has never answered has no
+   * reading to publish. Every value here is the same expression processUpdate
+   * pushes, so a reverted characteristic and a status-driven one agree.
+   *
+   * Only reached from expirePendingWrites. The other way a write is given up,
+   * retries exhausted in reconcilePendingWrites, needs nothing: it runs from
+   * processUpdate, and the status push immediately after it corrects HomeKit
+   * from the very status that proved the write lost.
+   *
+   * Both exits say so, because neither is visible anywhere else. The revert
+   * publishes the last reading, and a HomeKit that has abandoned the write has
+   * already fallen back to that same value, so the tile looks identical whether
+   * this ran or not. Measured on hardware over 11h35m without once being able
+   * to tell which had happened.
+   *
+   * @param {string} key the generic key whose write was abandoned
+   */
+  revertOptimisticUpdate(key) {
+    if (!this.everAnswered()) {
+      logger.debug(
+        `Leaving HomeKit's ${key} as it is, the device has never reported a reading to go back to`,
+        this.accessory.displayName
+      );
+      return;
+    }
+
+    //the key is generic key space, which on some models is a register the
+    //device need not have reported, so the reading is a suffix rather than an
+    //`undefined` in the middle of the line
+    const reading = key in this.obj ? ` (${this.obj[key]})` : '';
+
+    logger.debug(
+      `Putting HomeKit's ${key} back to the last reading the device gave${reading}`,
+      this.accessory.displayName
+    );
+
+    const Characteristic = this.api.hap.Characteristic;
+    const on = !!parseInt(this.obj.pwr);
+
+    if (this.purifierService) {
+      if (key === 'pwr') {
+        this.purifierService
+          .updateCharacteristic(Characteristic.Active, on ? 1 : 0)
+          .updateCharacteristic(Characteristic.CurrentAirPurifierState, on ? 2 : 0);
+      }
+
+      if (key === 'mode' && this.supports('mode')) {
+        this.purifierService.updateCharacteristic(Characteristic.TargetAirPurifierState, this.obj.mode === 'M' ? 0 : 1);
+      }
+
+      //the speed is spread across whichever keys the model maps it to, so ask
+      //the model rather than naming them here
+      if (this.speeds.some((speedConfig) => key in speedConfig)) {
+        this.purifierService.updateCharacteristic(Characteristic.RotationSpeed, this.rotationSpeed());
+      }
+    }
+
+    if (this.humidifierService && (key === 'func' || key === 'rhset')) {
+      const watered = !(this.obj.func == 'PH' && this.obj.wl == 0);
+      const humidifying = on && this.obj.func === 'PH';
+
+      this.humidifierService
+        .updateCharacteristic(Characteristic.Active, humidifying ? 1 : 0)
+        .updateCharacteristic(Characteristic.CurrentHumidifierDehumidifierState, humidifying ? 2 : 0)
+        .updateCharacteristic(
+          Characteristic.RelativeHumidityHumidifierThreshold,
+          humidifying && watered ? this.humidityThreshold() : 0
+        );
+    }
+  }
+
+  /**
+   * Reports a write that ran out of window without the device ever speaking to
+   * it. The two silences this can be are not the same thing.
+   *
+   * From a device that was answering, silence past the window means this model
+   * answers more slowly than the one the delays were chosen against. That is a
+   * freshness problem rather than a lost command, and reporting it would turn
+   * every unmeasured model into a warning loop, so it stays at debug.
+   *
+   * From a device the plugin knew was off, it is the opposite. A wake-up that
+   * lands is answered quickly, even by a device that had been quiet for the
+   * best part of an hour, so silence here is not the device being slow. The
+   * plugin has asked twice across the whole backstop the stall detector allows
+   * and heard nothing back at all, which on the evidence means the command
+   * never arrived. A silent drop there is how an arrive-home automation fails
+   * with nothing in the log (issue #77).
+   *
+   * Latched on the same flag as reportWriteFailure, since an automation that
+   * keeps failing should report once rather than on every cycle.
+   *
+   * @param {string} key
+   * @param {PendingWrite} pending
+   */
+  reportWriteExpiry(key, pending) {
+    const waited = Math.round(pending.window / 1000);
+
+    if (!pending.knownOff) {
+      logger.debug(
+        `No status covering ${key}=${pending.expected} arrived within ${waited}s`,
+        this.accessory.displayName
+      );
+      return;
+    }
+
+    const sends = 1 + pending.attempts + (pending.blindResent ? 1 : 0);
+    const summary =
+      `The device never answered ${key}=${pending.expected} in ${waited}s while switched off, ` +
+      `after ${sends} attempts. The command was most likely lost; see README Troubleshooting.`;
+
+    if (this.loggedWriteFailure) {
+      logger.debug(summary, this.accessory.displayName);
+      return;
+    }
+
+    this.loggedWriteFailure = true;
+    logger.warn(summary, this.accessory.displayName);
   }
 
   /**
@@ -834,14 +1352,20 @@ class Handler {
    * answer disagrees. Latched like reportPollFailure, since the HomeKit
    * automation that produced it will keep producing it.
    *
+   * The message says what was observed and no more. It used to name a lost
+   * packet as the likely cause, which the plugin cannot see and which was wrong
+   * in the one case anybody has watched from both ends: the device beeped for
+   * every command it was sent (issue #77). Where a status has come back and
+   * disagrees, the device is the place to look, not the network.
+   *
    * @param {string} key
    * @param {{ expected: unknown, attempts: number }} pending
    */
   reportWriteFailure(key, pending) {
     const summary =
       `The device did not apply ${key}=${pending.expected} after ${pending.attempts + 1} attempts ` +
-      `(it reports ${this.obj[key]}). The command was most likely lost in transit; ` +
-      'see README Troubleshooting.';
+      `(it reports ${this.obj[key]}). It answered each time, so the command reached it and was ` +
+      'not acted on; see README Troubleshooting.';
 
     if (this.loggedWriteFailure) {
       logger.debug(summary, this.accessory.displayName);
@@ -1397,15 +1921,7 @@ class Handler {
 
         if (this.obj.pwr == '1') {
           if (this.obj.func == 'PH' && water_level == 100) {
-            if (this.obj.rhset == 40) {
-              speed_humidity = 25;
-            } else if (this.obj.rhset == 50) {
-              speed_humidity = 50;
-            } else if (this.obj.rhset == 60) {
-              speed_humidity = 75;
-            } else if (this.obj.rhset == 70) {
-              speed_humidity = 100;
-            }
+            speed_humidity = this.humidityThreshold();
           }
         }
 
