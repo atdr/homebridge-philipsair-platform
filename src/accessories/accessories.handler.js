@@ -60,13 +60,17 @@ const REFRESH_COST_FALL = 0.125;
 const HAP_WRITE_HARD_TIMEOUT = 9 * 1000;
 //SET_TIMEOUT is deliberately kept ABOVE HAP_WRITE_HARD_TIMEOUT, not below it.
 //A cap below HAP's cutoff (tried in #85 at 8s) makes revertOptimisticUpdate
-//fire while HomeKit's own write is still open, which HomeKit disregards --
-//the tile then strands on "Turning off..." indefinitely instead of
-//correcting, because the write that follows the revert still reports success
-//and overwrites it (issue #86). Sitting above the cutoff means HAP has
-//already given up and shown Not Responding by the time this fires, so the
-//revert lands somewhere it can actually take: a few seconds of accurate
-//Not Responding, then a tile that corrects itself
+//fire while HomeKit's own write is still open. HomeKit disregards an event on
+//the characteristic it is currently writing but accepts events on the others,
+//so such a revert lands half applied: Active is dropped, CurrentAirPurifierState
+//is taken, and the swallowed setter error then commits Active against it. That
+//contradiction is what stranded the tile on "Turning off..." indefinitely
+//(issue #86). Sitting above the cutoff means HAP has already timed out and
+//rolled Active back on its own, leaving this to repair only
+//CurrentAirPurifierState, which HAP never wrote and so cannot roll back.
+//Measured on an AC0850: a transitional spinner from HAP's 9s until this fires
+//at 12s. The Not Responding badge outlives it and clears on the next read,
+//which is correct, since the device really did not answer
 const SET_TIMEOUT = HAP_WRITE_HARD_TIMEOUT + 3 * 1000;
 
 //delay before respawning a stream that ended
