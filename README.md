@@ -156,10 +156,10 @@ For a complete `config.json`, see [`example-config.json`](https://github.com/atd
 
 The `model` field selects how the plugin encodes power, mode and fan speed, because Philips models do not agree on any of the three. Support falls into three tiers.
 
-| Tier            | Tested                                        | Mapped, unverified                                | Everything else                                |
-| --------------- | --------------------------------------------- | ------------------------------------------------- | ---------------------------------------------- |
-| **Description** | Dedicated mapping, verified on real hardware. | Dedicated mapping, inherited and never confirmed. | Default mapping. Often fits, never guaranteed. |
-| **Models**      | AC0850, AC1715, AC3036                        | AC3829                                            | Anything else                                  |
+| Tier            | Tested                                                 | Mapped, unverified                                | Everything else                                |
+| --------------- | ------------------------------------------------------ | ------------------------------------------------- | ---------------------------------------------- |
+| **Description** | Dedicated mapping, verified on real hardware.          | Dedicated mapping, inherited and never confirmed. | Default mapping. Often fits, never guaranteed. |
+| **Models**      | <ul><li>AC0850</li><li>AC1715</li><li>AC3036</li></ul> | <ul><li>AC3829</li></ul>                          | <ul><li>Any other model</li></ul>              |
 
 The model dropdown in the Homebridge UI offers every model with a mapping of its own, tested or not. Anything else falls back to the default.
 
