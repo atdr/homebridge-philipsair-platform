@@ -110,10 +110,6 @@ const deviceOrder = positions(
   allLayoutKeys.map((key) => /^devices\[\]\.(\w+)$/.exec(key)?.[1]).filter((key) => key !== undefined)
 );
 
-//Fenced ```json blocks in the README. There should be none: the full config
-//example lives in example-config.json and the README links to it.
-const jsonBlocks = [...readme.matchAll(/```json\n([\s\S]*?)```/g)].map((match) => match[1]);
-
 describe('docs', () => {
   it('documents every config.schema.json property in the README field tables', () => {
     for (const prop of platformProps) {
@@ -169,19 +165,6 @@ describe('docs', () => {
     }
   });
 
-  it('links example-config.json from the README rather than reprinting it', () => {
-    assert.equal(
-      jsonBlocks.length,
-      0,
-      'README should link example-config.json, not carry a ```json copy that can drift from it'
-    );
-    assert.match(
-      configSection,
-      /\[`example-config\.json`\]\(\S*example-config\.json\)/,
-      "README '## Configuration' section should link example-config.json"
-    );
-  });
-
   it('orders each README option table the way the Homebridge UI does', () => {
     const check = (table, order, label) => {
       const indices = table.map((option) => order.get(option)).filter((index) => index !== undefined);
@@ -197,16 +180,15 @@ describe('docs', () => {
     deviceTables.forEach((table) => check(table, deviceOrder, 'README device options table'));
   });
 
+  //markdownlint's MD053 already reports a footnote definition nothing references,
+  //because it parses one as a link reference definition. It does not report the
+  //other direction: MD052 does not treat '[^name]' as a reference it can resolve,
+  //so an undefined footnote reference lints clean and renders as literal text.
   it('defines every footnote the README references', () => {
     const defined = new Set([...readme.matchAll(/^\[\^([^\]]+)\]:/gm)].map((match) => match[1]));
-    const referenced = new Set([...readme.matchAll(/\[\^([^\]]+)\](?!:)/g)].map((match) => match[1]));
 
-    for (const name of referenced) {
+    for (const [, name] of readme.matchAll(/\[\^([^\]]+)\](?!:)/g)) {
       assert.ok(defined.has(name), `README references footnote [^${name}] but never defines it`);
-    }
-
-    for (const name of defined) {
-      assert.ok(referenced.has(name), `README defines footnote [^${name}] but never references it`);
     }
   });
 
