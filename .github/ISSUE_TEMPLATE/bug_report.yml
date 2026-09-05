@@ -7,12 +7,9 @@ body:
       value: |
         Thanks for taking the time to report this.
 
-        Before filing, please check
-        [Troubleshooting](https://github.com/atdr/homebridge-philipsair-platform#troubleshooting). It covers the
-        common log messages and, in particular, an accessory whose controls do nothing.
+        Before filing, please check [Troubleshooting](https://github.com/atdr/homebridge-philipsair-platform#troubleshooting). It covers the common log messages and, in particular, an accessory whose controls do nothing.
 
-        Please write in plain English: short sentences, everyday words, and exactly what you saw. There is no need
-        to write it up formally.
+        Please write in plain English: short sentences, everyday words, and exactly what you saw. There is no need to write it up formally.
 
   - type: checkboxes
     id: preflight
@@ -48,9 +45,7 @@ body:
     attributes:
       label: Homebridge log
       description: |
-        Set **Debug Log** to true in the plugin config, restart Homebridge, reproduce the problem, and paste the
-        log covering it. Include the plugin's startup lines, which name the command set in use. Remember to switch
-        debug off again afterwards.
+        Set **Debug Log** to true in the plugin config, restart Homebridge, reproduce the problem, and paste the log covering it. Include the plugin's startup lines, which name the command set in use. Remember to switch debug off again afterwards.
       render: shell
     validations:
       required: true
@@ -93,8 +88,8 @@ body:
     id: aioairctrl-version
     attributes:
       label: aioairctrl version
-      description: Output of `pip show aioairctrl`, or `pipx list` if you installed it with pipx. Run it as the
-        user Homebridge runs as. The CLI has no `--version` flag of its own.
+      description: |
+        Output of `pip show aioairctrl`, or `pipx list` if you installed it with pipx. Run it as the user Homebridge runs as. The CLI has no `--version` flag of its own.
       placeholder: '0.3.1'
     validations:
       required: false
