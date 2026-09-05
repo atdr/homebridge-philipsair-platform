@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.3.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.2.1...v1.3.0) (2026-09-05)
+
+
+### Features
+
+* **config:** make the model field impossible to mistake for a label ([#65](https://github.com/atdr/homebridge-philipsair-platform/issues/65)) ([e92cb3b](https://github.com/atdr/homebridge-philipsair-platform/commit/e92cb3b7dc1fd03cb09e2e0b7f00de1e5ccc7832))
+* **config:** resolve the model from the label, the field, or the name ([#66](https://github.com/atdr/homebridge-philipsair-platform/issues/66)) ([10ca8c8](https://github.com/atdr/homebridge-philipsair-platform/commit/10ca8c875fa062909b21be3dd6f6ce9b6ebc91c7))
+* **config:** split aioairctrl's debug log from the plugin's ([#73](https://github.com/atdr/homebridge-philipsair-platform/issues/73)) ([15326c1](https://github.com/atdr/homebridge-philipsair-platform/commit/15326c12a3af6ed71077a2f9245b39ea662a1461)), closes [#63](https://github.com/atdr/homebridge-philipsair-platform/issues/63)
+* **handler:** identify the device from its own status ([#67](https://github.com/atdr/homebridge-philipsair-platform/issues/67)) ([7d3c80c](https://github.com/atdr/homebridge-philipsair-platform/commit/7d3c80c74c6560dd87a68f764dacc28c55c34583))
+
+
+### Bug Fixes
+
+* **handler:** coalesce writes that arrive together into one command ([#84](https://github.com/atdr/homebridge-philipsair-platform/issues/84)) ([fc4d004](https://github.com/atdr/homebridge-philipsair-platform/commit/fc4d004b80c69c453b2d90fbc01a81dd653125cb))
+* **handler:** give a write its own identity so a late abandon can't undo a newer one ([#87](https://github.com/atdr/homebridge-philipsair-platform/issues/87)) ([a609aa7](https://github.com/atdr/homebridge-philipsair-platform/commit/a609aa76dcf4b3b971bfa293808c24f8452219cc))
+* **handler:** keep the write cap above HomeKit's write timeout, not below it ([#85](https://github.com/atdr/homebridge-philipsair-platform/issues/85)) ([f65f13b](https://github.com/atdr/homebridge-philipsair-platform/commit/f65f13bc60ce02130cbf2f18d1f7bae41bd96d05))
+* **handler:** let a stall count toward the escalation threshold ([#75](https://github.com/atdr/homebridge-philipsair-platform/issues/75)) ([ef4ff00](https://github.com/atdr/homebridge-philipsair-platform/commit/ef4ff0023931fd8fbeca6cc3fa9f8c728a74d4de))
+* **handler:** let the refresh cost decide the refresh interval ([#74](https://github.com/atdr/homebridge-philipsair-platform/issues/74)) ([f397da5](https://github.com/atdr/homebridge-philipsair-platform/commit/f397da51068394ab21ba40e6b48cda529384eb94))
+* **handler:** verify a wake-up write against the off-state backstop ([#78](https://github.com/atdr/homebridge-philipsair-platform/issues/78)) ([f49bd6a](https://github.com/atdr/homebridge-philipsair-platform/commit/f49bd6a738ad7c3df5ffa57de7a7b47fd3b4544b))
+
 ## [1.2.1](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.2.0...v1.2.1) (2026-08-19)
 
 
