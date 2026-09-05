@@ -9,113 +9,190 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/atdr/homebridge-philipsair-platform.svg?style=flat-square)](https://github.com/atdr/homebridge-philipsair-platform)
 [![CI](https://img.shields.io/github/actions/workflow/status/atdr/homebridge-philipsair-platform/ci.yml?style=flat-square&label=CI)](https://github.com/atdr/homebridge-philipsair-platform/actions/workflows/ci.yml)
 
-## Info
+A [Homebridge](https://homebridge.io) plugin that brings Philips air purifiers and humidifiers into
+Apple Home. It talks to the device directly on your own network, over the encrypted CoAP protocol
+the purifiers use, with no Philips account and no cloud service in the path.
 
-This is a plugin for Philips Air Purifier/Humidifier.
+In the Home app you get:
 
-This plugin supports following functions:
+- An **air purifier** with power, fan speed, air quality and filter status
+- An optional separate **humidifier** accessory
+- Optional **temperature** and **humidity** sensors
+- The device's own **lights** as lightbulbs
 
-- Air Purifier
-- Humidifier
-- Device Lights
-- Temperature Sensor
-- Humidity Sensor
+Not every model exposes every control. The AC0850, for example, reports no auto/manual mode and no
+child lock, so neither is offered in the Home app for that model; power, fan speed, air quality and
+filter status are unaffected.
 
-## Installation
+## Requirements
 
-After [Homebridge](https://github.com/homebridge/homebridge) has been installed, there are three things to install, then three to check about your device before you configure it.
+- **Homebridge** `^1.8` or `^2.0`
+- **Node** `^20.18`, `^22.10`, or `^24`
+- **Python 3.12+** and the [`aioairctrl`](https://pypi.org/project/aioairctrl/) CLI, installed for
+  the user that runs Homebridge. Device communication is not pure JavaScript: the plugin runs this
+  command to speak the purifiers' protocol, and it is not installed automatically.
+- A Philips purifier on the same network, at an address that does not change
 
-### 1. Install Python 3 and pipx
+## Quick start
 
-Device communication is not pure JavaScript: it runs through a Python CLI, so Python and a way to install it are prerequisites. On Debian/Ubuntu:
-
-```bash
-sudo apt install python3 pipx
-```
-
-On macOS, `brew install pipx`. On Windows, install Python from [python.org](https://www.python.org/downloads/) and then `py -m pip install --user pipx`.
-
-> The latest `aioairctrl` requires Python 3.12 or newer; on older Python versions pip/pipx will fall back to an older `aioairctrl` release.
-
-### 2. Install the aioairctrl CLI as the user that runs Homebridge
-
-The plugin invokes the [`aioairctrl`](https://pypi.org/project/aioairctrl/) executable, so it has to be installed for the account Homebridge runs as, not just for you:
+### 1. Install aioairctrl
 
 ```bash
 pipx install aioairctrl
-```
-
-Then confirm that account can run it:
-
-```bash
 sudo -u homebridge aioairctrl --help
 ```
 
-Any other install method works too (`pip install --user`, a virtualenv, `sudo python3 -m pip install --break-system-packages aioairctrl`, ...) as long as the `aioairctrl` command is available. If the executable is not on the PATH of the user running Homebridge, which is common with pipx because it installs to `~/.local/bin`, set the `aioairctrlPath` platform option to its full path, e.g. `/home/pi/.local/bin/aioairctrl`.
+The second command is the one that matters: the CLI has to run as the account Homebridge runs as,
+not just as you. The plugin runs the same check itself at startup and says what to fix in the log if
+it cannot run the command.
 
-The plugin runs the same check itself at startup and says what to fix in the log if it cannot run the command. See [Cannot run aioairctrl](#cannot-run-aioairctrl) if it reports a problem.
+<details>
+<summary>Other platforms, other install methods, and what to do if it is not on the PATH</summary>
 
-### 3. Install this plugin
+On macOS, `brew install pipx`. On Windows, install Python from
+[python.org](https://www.python.org/downloads/) and then `py -m pip install --user pipx`. On
+Debian/Ubuntu, `sudo apt install python3 pipx` first.
 
-Either search for `philipsair` on the **Plugins** page of the [Homebridge UI](https://github.com/homebridge/homebridge-config-ui-x), or install it from the command line:
+Any install method works — `pip install --user`, a virtualenv,
+`sudo python3 -m pip install --break-system-packages aioairctrl` — as long as the `aioairctrl`
+command is available to the Homebridge user.
+
+If the executable is not on that user's PATH, which is common with pipx because it installs to
+`~/.local/bin`, run `which aioairctrl` and put the full path it prints into the **aioairctrl Path**
+option, e.g. `/home/pi/.local/bin/aioairctrl`.
+
+The latest `aioairctrl` needs Python 3.12 or newer; on older Python versions pip and pipx fall back
+to an older release. If startup reports a problem, see
+[Cannot run aioairctrl](#cannot-run-aioairctrl).
+
+</details>
+
+### 2. Install the plugin
+
+Search for `philipsair` on the **Plugins** page of the
+[Homebridge UI](https://github.com/homebridge/homebridge-config-ui-x), or install it from the
+command line:
 
 ```bash
 sudo npm install -g @atdr/homebridge-philipsair-platform@latest
 ```
 
-### 4. Give the purifier a fixed address
+### 3. Give the purifier a fixed address
 
-The plugin reaches your device at the address you configure and never rediscovers it. If your router hands out addresses by DHCP, that address can change when the lease renews, and the accessory then stops responding with nothing in the log to explain why.
+The plugin reaches your device at the address you configure and never rediscovers it. If your router
+hands out addresses by DHCP, that address can change when the lease renews, and the accessory then
+stops responding with nothing in the log to explain why.
 
-Set a **DHCP reservation** for the purifier on your router first, sometimes called a static lease or an address reservation, and use the reserved address in the config. A hostname such as `purifier.local` works too, on a network that resolves it reliably.
+Set a **DHCP reservation** for the purifier on your router, sometimes called a static lease or an
+address reservation, and use the reserved address in the config. A hostname such as `purifier.local`
+works too, on a network that resolves it reliably.
 
-### 5. Find the model ID of your device
+### 4. Add the device in the Homebridge UI
 
-The plugin needs the model ID to send the right commands: fan speeds, power and the rest are encoded differently across models. It is printed on the label on the back or underside of the unit, and shown in the Philips app.
+Open the plugin's settings, add a device, and fill in **Model**, **Name** and **Host Address**.
+Everything else has a working default, and the UI explains each field as you go.
 
-It looks like `AC0850/11`. Enter only the part before the slash, `AC0850`. The suffix is a regional variant and is not part of the ID the plugin matches.
+> [!IMPORTANT]
+> **Model** and **Name** are not interchangeable. **Model** is the ID printed on the device
+> (`AC0850`), and it selects the commands the plugin sends. **Name** is only your own label in the
+> Home app (`Bedroom Purifier`). Putting the model ID in Name and leaving Model unset is the single
+> most common configuration mistake with this plugin, and it leaves you with an accessory whose
+> controls do nothing.
 
-This goes in the **Model** field, not the **Name** field:
+<details>
+<summary>Finding your model ID</summary>
 
-- **Model** selects the commands the plugin sends. Get this wrong and the device appears in the Home app with controls that do nothing.
-- **Name** is only your own label for the device in the Home app, such as `Bedroom Purifier`.
+It is printed on the label on the back or underside of the unit, and shown in the Philips app. It
+looks like `AC0850/11` — enter only the part before the slash, `AC0850`. The suffix is a regional
+variant and is not part of the ID the plugin matches. Case and stray spaces do not matter.
 
-Putting the model ID in Name and leaving Model unset is the single most common configuration mistake with this plugin.
+</details>
 
-### 6. Check the device answers before configuring it
+<details>
+<summary>Checking the device answers before you configure it</summary>
 
-Confirm the purifier talks to this machine at all, using the address from step 4:
+Confirm the purifier talks to this machine at all, using the address from step 3:
 
 ```bash
 aioairctrl -H 10.0.1.16 -P 5683 status -J
 ```
 
-Allow up to 90 seconds for a reply. These purifiers serve **one connection at a time**, so stop Homebridge first if it is already polling this device, and run the check with the purifier switched **on**, because one that is switched off can legitimately stay silent for half an hour.
+Allow up to 90 seconds for a reply. These purifiers serve **one connection at a time**, so stop
+Homebridge first if it is already polling this device, and run the check with the purifier switched
+**on** — one that is switched off can legitimately stay silent for half an hour.
 
-The keys it prints are the device's own status registers, and the plugin translates them using the model mapping from step 5.
+The keys it prints are the device's own status registers. The plugin translates them using the
+mapping selected by **Model**.
 
-### 7. Add the device in the Homebridge UI
+</details>
 
-Open the plugin's settings and add a device, filling in **Model** (step 5), **Name** (whatever you want to see in the Home app) and **Host Address** (step 4). Everything else has a working default. The [Example Config](#example-config) section below shows the equivalent `config.json`.
+## Configuration
 
-## Upgrading from v1.1.0 or earlier
+The Homebridge UI documents every field inline, so this section is a reference for editing
+`config.json` by hand.
 
-Older releases registered accessories under a different internal plugin identifier, so the first restart after upgrading may remove and re-add your device in HomeKit once. The accessory keeps its name, but you may need to reassign its room and any scenes/automations that reference it.
+### Platform options
 
-v1.1.0 and earlier also did not stop their polling process on shutdown, so upgrading can leave one behind. Purifiers serve **one connection at a time**, so the leftover process competes with the new one and the device looks unresponsive for as long as it survives. It is reparented to `init` and will not stop on its own. After upgrading, check for one:
+| Option           | Description                                                                    | Default                |
+| ---------------- | ------------------------------------------------------------------------------ | ---------------------- |
+| `platform`       | Must always be `PhilipsAirPlatform`. **Required.**                             | —                      |
+| `name`           | Name for the log.                                                              | `"PhilipsAirPlatform"` |
+| `aioairctrlPath` | Full path to the `aioairctrl` executable, if it is not on the PATH.            | _(PATH lookup)_        |
+| `debug`          | Logs every device status and command. Very noisy; switch it off afterwards.    | `false`                |
+| `cliDebug`       | Adds aioairctrl's own debug log to the plugin's.[^cli-debug]                   | `false`                |
+| `warn`           | Reports problems the plugin recovered from, such as a lost command.            | `true`                 |
+| `error`          | Reports the underlying error behind a problem.[^always-reported]               | `true`                 |
+| `extendedError`  | Includes the full stack trace with each error. Useful when reporting an issue. | `true`                 |
+| `devices`        | Array of the purifiers to expose, one entry each. **Required.**                | —                      |
 
-```bash
-ps -eo pid,ppid,args | grep '[a]ioairctrl\|[p]yaircontrol'
-```
+### Device options
 
-Anything with a parent PID of `1` is a leftover, so `kill` it; rebooting clears it too. Later releases stop their own process on shutdown, so this is a one-time step.
+Each entry in the `devices` array is one purifier. Three fields are required:
 
-## Example Config
+| Option  | Description                                                                                                                                        |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model` | The model ID printed on the device, without the regional suffix. Selects the command set the plugin sends — see [Device support](#device-support). |
+| `name`  | Your own label for the device in the Home app. Not the model ID.                                                                                   |
+| `host`  | IP address or hostname of the device. Give it a fixed address first (Quick start, step 3).                                                         |
 
-### AC3829 / AC3036
+<details>
+<summary>Optional device options</summary>
+
+| Option            | Description                                                                                                                                                                            | Default     |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `active`          | Set `false` to skip this device without deleting its configuration.                                                                                                                    | `true`      |
+| `port`            | Port of your device.                                                                                                                                                                   | `5683`      |
+| `refreshInterval` | Shortest wait after a reading before asking for another. `0` disables the refresh entirely. See [The state in the Home app is out of date](#the-state-in-the-home-app-is-out-of-date). | `60`        |
+| `manufacturer`    | Shown in the Home app. Cosmetic only.                                                                                                                                                  | `"Philips"` |
+| `serialNumber`    | Shown in the Home app. Cosmetic only.                                                                                                                                                  | `"000000"`  |
+| `humidifier`      | Expose a separate humidifier accessory to HomeKit.                                                                                                                                     | `false`     |
+| `light`           | Expose device lights as lightbulbs to HomeKit.                                                                                                                                         | `false`     |
+| `temperature`     | Expose device temperature as a temperature sensor to HomeKit.                                                                                                                          | `false`     |
+| `humidity`        | Expose device humidity as a humidity sensor to HomeKit.                                                                                                                                | `false`     |
+| `allergicFunc`    | Does this device support the 'allergic' function?                                                                                                                                      | `false`     |
+| `sleepSpeed`      | Adds a 'sleep' step below the lowest fan speed.[^sleep-speed]                                                                                                                          | `false`     |
+| `preFilter`       | Expose pre-filter status to HomeKit.                                                                                                                                                   | `false`     |
+| `carbonFilter`    | Expose active carbon filter status to HomeKit.                                                                                                                                         | `false`     |
+| `hepaFilter`      | Expose HEPA/NanoProtect filter status to HomeKit.                                                                                                                                      | `false`     |
+
+</details>
+
+<details>
+<summary>Full config.json example</summary>
+
+The same file lives in the repository as
+[`example-config.json`](https://github.com/atdr/homebridge-philipsair-platform/blob/main/example-config.json).
 
 ```json
 {
+  "bridge": {
+    "name": "Homebridge",
+    "username": "0E:15:CC:8A:E9:1E",
+    "port": 51609,
+    "pin": "983-44-986"
+  },
+  "plugins": ["@atdr/homebridge-philipsair-platform"],
+  "accessories": [],
   "platforms": [
     {
       "platform": "PhilipsAirPlatform",
@@ -129,54 +206,19 @@ Anything with a parent PID of `1` is a leftover, so `kill` it; rebooting clears 
       "devices": [
         {
           "active": true,
-          "name": "Livingroom Philips",
-          "manufacturer": "Philips",
-          "model": "AC3829",
-          "serialNumber": "000000",
-          "host": "192.168.178.111",
+          "model": "AC0850",
+          "name": "Bedroom Purifier",
+          "host": "10.0.1.16",
           "port": 5683,
           "refreshInterval": 60,
-          "light": true,
-          "temperature": true,
-          "humidity": true,
-          "humidifier": true,
-          "allergicFunc": true,
-          "sleepSpeed": true
-        }
-      ]
-    }
-  ]
-}
-```
-
-### AC0850
-
-```json
-{
-  "platforms": [
-    {
-      "platform": "PhilipsAirPlatform",
-      "name": "PhilipsAirPlatform",
-      "aioairctrlPath": "",
-      "debug": false,
-      "cliDebug": false,
-      "warn": true,
-      "error": true,
-      "extendedError": true,
-      "devices": [
-        {
-          "active": true,
-          "name": "Air Purifier",
           "manufacturer": "Philips",
-          "model": "AC0850",
           "serialNumber": "000000",
-          "host": "192.168.1.142",
           "humidifier": false,
           "light": false,
           "temperature": false,
           "humidity": false,
-          "sleepSpeed": false,
           "allergicFunc": false,
+          "sleepSpeed": false,
           "preFilter": false,
           "carbonFilter": false,
           "hepaFilter": true
@@ -187,102 +229,72 @@ Anything with a parent PID of `1` is a leftover, so `kill` it; rebooting clears 
 }
 ```
 
-| Fields            | Description                                                            | Default                | Required |
-| ----------------- | ---------------------------------------------------------------------- | ---------------------- | -------- |
-| **platform**      | Must always be `PhilipsAirPlatform`.                                   | `"PhilipsAirPlatform"` | Yes      |
-| name              | For logging purposes.                                                  | `"PhilipsAirPlatform"` | No       |
-| aioairctrlPath    | Full path to the `aioairctrl` executable, if not on PATH.              | _(PATH lookup)_        | No       |
-| debug             | Logs every device status and command. Very noisy.                      | `false`                | No       |
-| cliDebug          | Adds aioairctrl's own debug log to the plugin's. *6                    | `false`                | No       |
-| warn              | Reports problems the plugin recovered from.                            | `true`                 | No       |
-| error             | Reports the underlying error behind a problem. *4                      | `true`                 | No       |
-| extendedError     | Enables additional output (detailed error) in the log.                 | `true`                 | No       |
-| **devices**       | Array of Philips air purifiers.                                        |                        | Yes      |
-| - active          | Set `false` to skip this device without deleting it.                   | `true`                 | No       |
-| - name            | Your own label for the device in the Home app. Not the model ID. *1    |                        | Yes      |
-| - **host**        | IP address or hostname of your device. Give it a fixed address. *2     |                        | Yes      |
-| - port            | Port of your device.                                                   | `5683`                 | No       |
-| - refreshInterval | Shortest wait after a reading before asking for another. `0` disables. | `60`                   | No       |
-| - manufacturer    | Set the manufacturer name for display in the Home app.                 | `"Philips"`            | No       |
-| - model           | Model ID of the device; selects the speed/control mapping. *3          | `"Air Purifier"`       | Yes      |
-| - serialNumber    | Set the serial number for display in the Home app.                     | `"000000"`             | No       |
-| - humidifier      | Expose a separate humidifier accessory to HomeKit.                     | `false`                | No       |
-| - light           | Expose device lights as lightbulbs to HomeKit.                         | `false`                | No       |
-| - temperature     | Expose device temperature as temperature sensor to HomeKit.            | `false`                | No       |
-| - humidity        | Expose device humidity as humidity sensor to HomeKit.                  | `false`                | No       |
-| - allergicFunc    | Does this device support 'allergic' function?                          | `false`                | No       |
-| - sleepSpeed      | Adds a 'sleep' step below the lowest speed. *5                         | `false`                | No       |
-| - preFilter       | Expose pre-filter status to HomeKit.                                   | `false`                | No       |
-| - carbonFilter    | Expose active carbon filter status to HomeKit.                         | `false`                | No       |
-| - hepaFilter      | Expose HEPA/NanoProtect filter status to HomeKit.                      | `false`                | No       |
+</details>
 
-For a full config.json, please look at [Example Config](https://github.com/atdr/homebridge-philipsair-platform/blob/main/example-config.json) for more details.
+[^cli-debug]: Only has an effect while `debug` is on, and it is the noisier half of the two: on a tested AC0850 the CLI's own records were about three quarters of the log. Turn it on when the problem is `aioairctrl` itself, such as a Python install that never finishes a sync, and leave it off when the problem is a device.
 
-## Notes
+[^always-reported]: Faults that stop the plugin working at all, such as an `aioairctrl` it cannot run, are always reported, whatever this is set to.
 
-1. This is your label in the Home app, nothing more. Putting the model ID here instead of in `model` is the commonest configuration mistake with this plugin, and it leaves you with a device whose controls do nothing. The plugin warns when it spots one, but it is worth getting right.
-2. The plugin never rediscovers the device, so a DHCP address that changes when the lease renews breaks a working config. Set a reservation on your router, or use a hostname your network resolves reliably.
-3. The ID printed on the device, without the regional suffix: `AC0850/11` means `AC0850`. This is what selects the speed and register mapping, so a wrong or missing value is what leaves a device visible in the Home app with controls that do nothing. Models outside the tested list fall back to a default mapping, which suits many purifiers but is not guaranteed to drive yours. The field is required in the config UI; a config written before it became required still loads and falls back to the default mapping.
-4. Faults that stop the plugin working at all, such as an `aioairctrl` it cannot run, are always reported, whatever this is set to.
-5. Ignored for models that have their own speed mapping (see the tested devices list); those use the right speeds automatically, and the plugin warns when the option cannot do anything.
-6. Only has an effect while `debug` is on, and it is the noisier half of the two: on a tested AC0850 the CLI's own records were about three quarters of the log. Turn it on when the problem is `aioairctrl` itself, such as a Python install that never finishes a sync, and leave it off when the problem is a device.
+[^sleep-speed]: Ignored for models that have their own speed mapping. Those use the right speeds automatically, and the plugin warns when the option cannot do anything.
 
-Not every device supports every control. The AC0850 reports no auto/manual mode and no child lock, so neither is offered in the Home app for that model; power, fan speed, air quality and the filter status are unaffected.
+## Device support
 
-## Tested devices
+The `model` field selects how the plugin encodes power, mode and fan speed, because Philips models
+do not agree on any of the three. Support falls into three tiers.
 
-The following devices have been tested with this plugin and confirm that they work without problems:
+**Tested.** A dedicated mapping in the plugin, verified against real hardware:
 
 - AC3036
 - AC1715
 - AC0850
 
-Not yet confirmed with new configuration approach:
+**Mapped but unverified.** Inherited from the upstream projects and offered in the config
+typeahead, but not confirmed since this plugin's configuration was reworked:
 
 - AC3829
 
-## Supported clients
+**Everything else** runs a default mapping. It suits many purifiers, but nothing guarantees it fits
+yours: the symptom of a mismatch is an accessory that appears in the Home app with controls that do
+nothing. The plugin compares the first status a device sends against the mapping in force and
+reports a mismatch in the log, so it usually tells you when it has guessed wrong.
 
-This plugin has been verified to work with the following apps/systems:
+**To get your model added**, open a
+[model support request](https://github.com/atdr/homebridge-philipsair-platform/issues/new?template=model_support.yml)
+with a status dump from your device:
 
-- iOS > 13
-- Apple Home
-- All 3rd party apps like Elgato Eve etc
-- Homebridge v1.8 or v2
-- Node v20.18, v22.10, or v24 (matching the `engines` field in package.json)
+```bash
+aioairctrl -H 10.0.1.16 -P 5683 status -J
+```
 
-## TODO
-
-- [ ] FakeGato Support
-
-## Contributing
-
-> This project is based on <https://github.com/seydx/homebridge-philipsair-platform>, which was heavily inspired by <https://github.com/NikDevx/homebridge-philips-air>. Credit for the mappable config parameters goes to <https://github.com/we5/homebridge-philipsair-platform/tree/refactor/use-config-mappings>
-
-You can contribute to this homebridge plugin in following ways:
-
-- Report issues and help verify fixes as they are checked in.
-- Review the source code changes.
-- Contribute bug fixes.
-- Contribute changes to extend the capabilities
-- Pull requests are accepted.
-
-See [CONTRIBUTING](https://github.com/atdr/homebridge-philipsair-platform/blob/main/CONTRIBUTING.md)
+That dump is what the mapping is derived from, so a request with one attached can usually be acted
+on straight away.
 
 ## Troubleshooting
 
-If you have any issues with the plugin then you can run this plugin in debug mode, which will provide some additional information. This might be useful for debugging issues. Just open your config ui and set debug to true!
+Set `debug` to true in the plugin config, reproduce the problem, then find your symptom below. Each
+entry names the log message that goes with it. Remember to switch `debug` off again afterwards.
 
 ### The device appears in the Home app but none of its controls work
 
-The accessory is there, its tiles respond to taps, and the purifier ignores every one of them. This is almost always the `model` field.
+<details>
+<summary>Almost always the model field. Three things to check.</summary>
 
-Philips models encode power, mode and fan speed differently, and the plugin picks the encoding from `model`. When that field is missing, misspelled, or holds a display name rather than an ID, the plugin falls back to a default mapping and sends commands your device has no registers for. Nothing reports an error: commands go out over an unacknowledged protocol and the device simply discards the ones it does not understand.
+The accessory is there, its tiles respond to taps, and the purifier ignores every one of them.
+
+Philips models encode power, mode and fan speed differently, and the plugin picks the encoding from
+`model`. When that field is missing, misspelled, or holds a display name rather than an ID, the
+plugin falls back to a default mapping and sends commands your device has no registers for. Nothing
+reports an error: commands go out over an unacknowledged protocol and the device simply discards the
+ones it does not understand.
 
 Check all three of these:
 
-1. `model` holds the ID printed on the device, without the regional suffix. `AC0850/11` means `AC0850`. It is not a display name such as `Air Purifier` or `Bedroom`. Case and stray spaces do not matter, and the suffix is ignored.
-2. The model ID is not sitting in `name` instead. `name` is only the label shown in the Home app. If the plugin finds a model ID it recognises there while `model` names nothing it recognises, it uses it anyway and warns, so the device works while the config is still wrong:
+1. `model` holds the ID printed on the device, without the regional suffix. `AC0850/11` means
+   `AC0850`. It is not a display name such as `Air Purifier` or `Bedroom`. Case and stray spaces do
+   not matter, and the suffix is ignored.
+2. The model ID is not sitting in `name` instead. `name` is only the label shown in the Home app. If
+   the plugin finds a model ID it recognises there while `model` names nothing it recognises, it
+   uses it anyway and warns, so the device works while the config is still wrong:
 
    ```text
    AC0850: "AC0850" in the device name looks like a model ID, and no model is configured. Using the AC0850 command set. Move it to the model field to silence this.
@@ -294,49 +306,73 @@ Check all three of these:
    Bedroom: Using the AC0850 command set.
    ```
 
-   A device that instead reports `No tested mapping for model "..."`, or `No model is configured`, is running on the default mapping. That is expected for a model outside the tested list, and a bug in your config if your model is on it.
+   A device that instead reports `No tested mapping for model "..."`, or `No model is configured`,
+   is running on the default mapping. That is expected for a model outside the tested list, and a
+   bug in your config if your model is on it.
 
-The plugin also checks the config against the device itself. The first status a device sends is compared with the mapping in force, and one that answers in registers the mapping cannot read is reported:
+The plugin also checks the config against the device itself. The first status a device sends is
+compared with the mapping in force, and one that answers in registers the mapping cannot read is
+reported:
 
 ```text
 Bedroom: This device reports registers this model mapping does not know (D01102, D03102, D0310A, D0310C), and they match the AC0850 mapping. Its controls will not work until the model is set to AC0850 in the plugin config. Until then the AC0850 command set will be used from the next restart.
 ```
 
-It remembers what it identified, so a device with no usable model configured picks up the right mapping by itself from the next restart, and says so each time it starts:
+It remembers what it identified, so a device with no usable model configured picks up the right
+mapping by itself from the next restart, and says so each time it starts:
 
 ```text
 Bedroom: Using the AC0850 command set instead of the default, detected from this device's own status on an earlier run.
 ```
 
-Expect the Home app to change at the restart that adopts a model. A mapping knows which controls a model has no register for, so tiles the previous run offered can disappear. That is the plugin matching what the device can actually do, not a fault.
+Expect the Home app to change at the restart that adopts a model. A mapping knows which controls a
+model has no register for, so tiles the previous run offered can disappear. That is the plugin
+matching what the device can actually do, not a fault.
 
-That is a fallback, not a fix. Setting `model` correctly is what makes the plugin get the device right on its first run, including which services it offers in the Home app.
+That is a fallback, not a fix. Setting `model` correctly is what makes the plugin get the device
+right on its first run, including which services it offers in the Home app.
 
-If the model is right and the controls still do nothing, set `debug` to true, copy a logged status line, and open an issue with it.
+If the model is right and the controls still do nothing, set `debug` to true, copy a logged status
+line, and open an issue with it.
+
+</details>
 
 ### Cannot run aioairctrl
 
-At startup the plugin runs `aioairctrl --help` once to check the CLI works before any device tries to use it. If that fails it reports the cause, what it ran, and how to fix it, then carries on loading — so the accessories still appear, but none of them will work until the install is fixed. The message names one of three causes.
+<details>
+<summary>The startup check failed. The message names one of three causes.</summary>
 
-**Not installed, or not on the PATH.** The commonest case. The report includes the PATH it searched, which is usually the answer: pipx installs to `~/.local/bin`, and service accounts frequently do not search it. Install the CLI for the user that runs Homebridge, then confirm it:
+At startup the plugin runs `aioairctrl --help` once to check the CLI works before any device tries
+to use it. If that fails it reports the cause, what it ran, and how to fix it, then carries on
+loading — so the accessories still appear, but none of them will work until the install is fixed.
+
+**Not installed, or not on the PATH.** The commonest case. The report includes the PATH it searched,
+which is usually the answer: pipx installs to `~/.local/bin`, and service accounts frequently do not
+search it. Install the CLI for the user that runs Homebridge, then confirm it:
 
 ```bash
 pipx install aioairctrl
 sudo -u homebridge aioairctrl --help
 ```
 
-If the command works for you but not for that user, run `which aioairctrl` and set the `aioairctrlPath` platform option to the full path it prints.
+If the command works for you but not for that user, run `which aioairctrl` and set the
+`aioairctrlPath` platform option to the full path it prints.
 
-**Found, but not executable.** The file is where the config says it is, and the Homebridge user may not run it. This is ownership or permissions, not a missing install — reinstalling will not help:
+**Found, but not executable.** The file is where the config says it is, and the Homebridge user may
+not run it. This is ownership or permissions, not a missing install — reinstalling will not help:
 
 ```bash
 ls -l /path/from/your/config
 chmod +x /path/from/your/config
 ```
 
-If `aioairctrlPath` points at a directory rather than the executable itself, the plugin says so explicitly.
+If `aioairctrlPath` points at a directory rather than the executable itself, the plugin says so
+explicitly.
 
-**Starts, but its Python environment is broken.** The command exists and dies immediately; the plugin quotes the CLI's own output. `ModuleNotFoundError: No module named 'aioairctrl'` means the executable survived an install its libraries did not, which happens when the CLI and its dependencies went to different interpreters or users. Reinstall it:
+**Starts, but its Python environment is broken.** The command exists and dies immediately; the
+plugin quotes the CLI's own output. `ModuleNotFoundError: No module named 'aioairctrl'` means the
+executable survived an install its libraries did not, which happens when the CLI and its
+dependencies went to different interpreters or users. Reinstall it:
 
 ```bash
 pipx reinstall aioairctrl
@@ -344,50 +380,225 @@ pipx reinstall aioairctrl
 
 Note that `aioairctrl` needs Python 3.12 or newer.
 
-> The shell commands above assume a Unix-like host (Linux, macOS, a Raspberry Pi). On Windows the diagnosis is the same, but run the equivalent checks under the account Homebridge runs as.
->
-> This report is always shown, even with the `error` log option switched off — those options control per-device operational logging, not whether the plugin tells you it cannot work at all.
+The shell commands above assume a Unix-like host (Linux, macOS, a Raspberry Pi). On Windows the
+diagnosis is the same, but run the equivalent checks under the account Homebridge runs as.
+
+This report is always shown, even with the `error` log option switched off — those options control
+per-device operational logging, not whether the plugin tells you it cannot work at all.
+
+</details>
 
 ### The polling process exited with code N without returning any status
 
-`aioairctrl` was found and started, but died three times in a row without producing anything. The plugin logs the command's own error output on the next line, minus the progress messages the CLI writes when `cliDebug` is enabled (those stay in the debug log). A Python traceback such as `ModuleNotFoundError: No module named 'aioairctrl'` means the executable exists but the Python environment behind it is incomplete, which happens when the CLI and its dependencies were installed for a different interpreter or user. Reinstall it as described under Installation, then confirm it runs for the Homebridge user:
+<details>
+<summary>aioairctrl started and died three times running. Usually a broken Python environment.</summary>
+
+`aioairctrl` was found and started, but died three times in a row without producing anything. The
+plugin logs the command's own error output on the next line, minus the progress messages the CLI
+writes when `cliDebug` is enabled (those stay in the debug log). A Python traceback such as
+`ModuleNotFoundError: No module named 'aioairctrl'` means the executable exists but the Python
+environment behind it is incomplete, which happens when the CLI and its dependencies were installed
+for a different interpreter or user. Reinstall it as described under Quick start, then confirm it
+runs for the Homebridge user:
 
 ```bash
 sudo -u homebridge aioairctrl -H <device-ip> -P 5683 status-observe -J
 ```
 
+</details>
+
 ### No status received from the device
 
-The device accepted the subscription and then sent nothing for three restarts in a row, counted from the last reading rather than from the current subscription, so around fifteen minutes of silence. A device that has never answered at all is reported on the first of them, because that one is usually an address or a power problem rather than a device having a quiet moment. This only appears for a purifier that is switched on, or one that has never answered at all — a purifier that has reported itself switched off is expected to go quiet, and the plugin waits for it without complaining. Check that `host` and `port` are right, that the purifier is powered on and on the same network, and that nothing else is already talking to it. An address that used to work and stopped is usually a DHCP lease that renewed onto a different one: check the purifier's current address on your router and set a reservation for it. These purifiers serve **one connection at a time**, so a leftover process (see Upgrading above) or another integration polling the same device will starve the plugin. The plugin keeps retrying and logs `Device is responding again` once status resumes.
+<details>
+<summary>The device took the subscription and then went quiet. Check the address, the power, and what else is talking to it.</summary>
+
+The device accepted the subscription and then sent nothing for three restarts in a row, counted from
+the last reading rather than from the current subscription, so around fifteen minutes of silence. A
+device that has never answered at all is reported on the first of them, because that one is usually
+an address or a power problem rather than a device having a quiet moment.
+
+This only appears for a purifier that is switched on, or one that has never answered at all — a
+purifier that has reported itself switched off is expected to go quiet, and the plugin waits for it
+without complaining.
+
+Check that `host` and `port` are right, that the purifier is powered on and on the same network, and
+that nothing else is already talking to it. An address that used to work and stopped is usually a
+DHCP lease that renewed onto a different one: check the purifier's current address on your router and
+set a reservation for it. These purifiers serve **one connection at a time**, so a leftover process
+(see [Upgrading from v1.1.0 or earlier](#upgrading-from-v110-or-earlier)) or another integration
+polling the same device will starve the plugin. The plugin keeps retrying and logs
+`Device is responding again` once status resumes.
+
+</details>
 
 ### The state in the Home app is out of date
 
-These purifiers report spontaneously only while their values are changing, so a device sitting idle can stay quiet for several minutes at a time. The plugin therefore asks for a fresh reading `refreshInterval` seconds after the last one, by re-subscribing, which is what prompts the device to answer. A purifier that is switched **off** is a case of its own: some models answer only every few minutes, or not at all for half an hour, and nothing the plugin does makes them answer sooner. Its reported state stays `off` throughout, and the plugin stops asking so often rather than restarting and warning in a loop. The interval is a floor rather than a fixed cadence. Re-subscribing is a trade: it prompts a reading, and on some devices it costs far more than simply waiting would have. On a tested AC0850 a subscription left alone was answered every 9 seconds, while a replacement one took 140 seconds at the median, so a fixed 60 second refresh made the Home app **staler**, not fresher. The plugin therefore times each re-subscription it asks for, and where one costs more than the wait it replaced it waits longer next time, up to the point where it stops asking altogether and leaves the device to report on its own. A device that answers a fresh subscription promptly keeps the interval you configured. The default of 60 seconds suits every device tested so far; raise it if your device reports often enough on its own, or set it to `0` to switch the refresh off entirely and rely on the device alone. Values below 15 seconds are treated as 15, because a device generally needs longer than that to answer a fresh subscription.
+<details>
+<summary>These purifiers report on their own schedule. The refresh interval is a floor, not a cadence.</summary>
+
+These purifiers report spontaneously only while their values are changing, so a device sitting idle
+can stay quiet for several minutes at a time. The plugin therefore asks for a fresh reading
+`refreshInterval` seconds after the last one, by re-subscribing, which is what prompts the device to
+answer.
+
+A purifier that is switched **off** is a case of its own: some models answer only every few minutes,
+or not at all for half an hour, and nothing the plugin does makes them answer sooner. Its reported
+state stays `off` throughout, and the plugin stops asking so often rather than restarting and warning
+in a loop.
+
+The interval is a floor rather than a fixed cadence. Re-subscribing is a trade: it prompts a reading,
+and on some devices it costs far more than simply waiting would have. On a tested AC0850 a
+subscription left alone was answered every 9 seconds, while a replacement one took 140 seconds at the
+median, so a fixed 60 second refresh made the Home app **staler**, not fresher. The plugin therefore
+times each re-subscription it asks for, and where one costs more than the wait it replaced it waits
+longer next time, up to the point where it stops asking altogether and leaves the device to report on
+its own. A device that answers a fresh subscription promptly keeps the interval you configured.
+
+The default of 60 seconds suits every device tested so far; raise it if your device reports often
+enough on its own, or set it to `0` to switch the refresh off entirely and rely on the device alone.
+Values below 15 seconds are treated as 15, because a device generally needs longer than that to
+answer a fresh subscription.
+
+</details>
 
 ### The device did not apply a command
 
-The plugin sent a command, the purifier answered twice, and both answers still show the old value. Commands are sent over an unacknowledged protocol, so a command that never arrives, or that arrives while the device's radio is asleep, produces no error anywhere. The plugin resends it once before reporting this, and the Home app is corrected from the same status that showed the command had not taken effect. Commands are sent strictly one at a time, because these purifiers serve only one connection and two arriving together were measured losing one of them at a sleeping device.
+<details>
+<summary>The command was sent, resent, and the device still reports the old value.</summary>
 
-These devices report on their own schedule rather than answering a command, so a status that arrives in the first few seconds after one was sent was composed before the device could act on it and still carries the old value. Such a status is not counted either way, which is why this message needs the device to keep reporting the old value rather than merely to report it once.
+The plugin sent a command, the purifier answered twice, and both answers still show the old value.
+Commands are sent over an unacknowledged protocol, so a command that never arrives, or that arrives
+while the device's radio is asleep, produces no error anywhere. The plugin resends it once before
+reporting this, and the Home app is corrected from the same status that showed the command had not
+taken effect. Commands are sent strictly one at a time, because these purifiers serve only one
+connection and two arriving together were measured losing one of them at a sleeping device.
 
-An occasional message is normal on a busy or distant network. If it happens every time for one control, the command is probably wrong for your model rather than lost: set `debug` to true, copy the logged `CMD: aioairctrl ...` line, run it yourself, and open an issue with what the device reports afterwards.
+These devices report on their own schedule rather than answering a command, so a status that arrives
+in the first few seconds after one was sent was composed before the device could act on it and still
+carries the old value. Such a status is not counted either way, which is why this message needs the
+device to keep reporting the old value rather than merely to report it once.
+
+An occasional message is normal on a busy or distant network. If it happens every time for one
+control, the command is probably wrong for your model rather than lost: set `debug` to true, copy
+the logged `CMD: aioairctrl ...` line, run it yourself, and open an issue with what the device
+reports afterwards.
+
+</details>
 
 ### The device never answered a command sent while it was off
 
-Turning a purifier on normally wakes it, and it answers within seconds even after a long silence, so a wake-up command that has produced no answer at all was most likely never received. The plugin cannot tell that apart from an ordinary quiet spell straight away, though, so it holds such a write open for as long as it already tolerates silence from an off device, rather than the few minutes it expects from one that was talking, and sends the command a second time along the way. If the device does speak at any point and is still off, the ordinary resend above takes over. This message appears only when nothing at all has been heard for the whole of that window, and the Home app is put back to the last state the device actually reported.
+<details>
+<summary>A wake-up command went out and nothing came back at all. Usually a packet lost in transit.</summary>
 
-The usual cause is a command lost in transit, which is unremarkable once in a while on a busy or distant network. Repeatedly, and for one device only, points at signal strength or an address problem, so check where the purifier stands and what address it currently has. Turning a purifier off almost never produces this, because a running device answers quickly enough to contradict a lost command. It is the arrive-home automation that turns one **on** that this exists for.
+Turning a purifier on normally wakes it, and it answers within seconds even after a long silence, so
+a wake-up command that has produced no answer at all was most likely never received. The plugin
+cannot tell that apart from an ordinary quiet spell straight away, though, so it holds such a write
+open for as long as it already tolerates silence from an off device, rather than the few minutes it
+expects from one that was talking, and sends the command a second time along the way. If the device
+does speak at any point and is still off, the ordinary resend above takes over. This message appears
+only when nothing at all has been heard for the whole of that window, and the Home app is put back to
+the last state the device actually reported.
+
+The usual cause is a command lost in transit, which is unremarkable once in a while on a busy or
+distant network. Repeatedly, and for one device only, points at signal strength or an address
+problem, so check where the purifier stands and what address it currently has. Turning a purifier off
+almost never produces this, because a running device answers quickly enough to contradict a lost
+command. It is the arrive-home automation that turns one **on** that this exists for.
+
+</details>
 
 ### The purifier could not be reached at all
 
-`aioairctrl got no answer from <host>:<port> within 12s and was stopped.` Sending a command is not a single packet: the CLI opens a session with the device first, and if nothing answers, that wait never ends by itself. The plugin therefore stops the attempt, reports it, and puts the Home app back to the last state the device actually reported, rather than leaving a switch showing a command that went nowhere. The cap sits a few seconds above HomeKit's own 9 second write timeout on purpose. HomeKit gives up first, returns the switch to where it was and marks the accessory as not responding; the plugin's correction follows a few seconds later and settles the parts HomeKit does not manage itself, so the tile stops showing a change in progress. The not responding mark stays until the purifier next answers, which is the honest signal that it did not.
+<details>
+<summary>`aioairctrl got no answer from host:port within 12s and was stopped.`</summary>
 
-This means the device is not reachable, not that the install is broken: a purifier switched off at the mains or unplugged, one that has moved to another network, or one whose address has changed. An address that used to work and stopped is usually a DHCP lease that renewed onto a different one, so check the purifier's current address on your router and set a reservation for it. If the address is right and the device is powered, check that nothing else is holding its single connection, as in the section above.
+Sending a command is not a single packet: the CLI opens a session with the device first, and if
+nothing answers, that wait never ends by itself. The plugin therefore stops the attempt, reports it,
+and puts the Home app back to the last state the device actually reported, rather than leaving a
+switch showing a command that went nowhere.
+
+The cap sits a few seconds above HomeKit's own 9 second write timeout on purpose. HomeKit gives up
+first, returns the switch to where it was and marks the accessory as not responding; the plugin's
+correction follows a few seconds later and settles the parts HomeKit does not manage itself, so the
+tile stops showing a change in progress. The not responding mark stays until the purifier next
+answers, which is the honest signal that it did not.
+
+This means the device is not reachable, not that the install is broken: a purifier switched off at
+the mains or unplugged, one that has moved to another network, or one whose address has changed. An
+address that used to work and stopped is usually a DHCP lease that renewed onto a different one, so
+check the purifier's current address on your router and set a reservation for it. If the address is
+right and the device is powered, check that nothing else is holding its single connection, as in the
+section above.
+
+</details>
 
 ### aioairctrl rejected the command
 
-The `aioairctrl` CLI refused to send the command, so it never reached the device. The plugin logs the CLI's own text after this message, and `Cannot encode value 'X' as int` is the usual one: it means the value is not a number but the command asked for integer encoding. The plugin no longer builds such a command itself, so if you see this, the model mapping is sending a word where your device's register expects a number — please open an issue with the logged `CMD:` line.
+<details>
+<summary>The CLI refused to send it, so it never reached the device. Please report this one.</summary>
 
-## Disclaimer
+The `aioairctrl` CLI refused to send the command, so it never reached the device. The plugin logs
+the CLI's own text after this message, and `Cannot encode value 'X' as int` is the usual one: it
+means the value is not a number but the command asked for integer encoding. The plugin no longer
+builds such a command itself, so if you see this, the model mapping is sending a word where your
+device's register expects a number — please open an issue with the logged `CMD:` line.
 
-All product and company names are trademarks™ or registered® trademarks of their respective holders. Use of them does not imply any affiliation with or endorsement by them.
+</details>
+
+### Reporting a problem
+
+<details>
+<summary>What to include so the report can be acted on.</summary>
+
+Open a [bug report](https://github.com/atdr/homebridge-philipsair-platform/issues/new?template=bug_report.yml).
+The form asks for everything below, and a report with all of it can usually be diagnosed without a
+round trip:
+
+- Your device's **model ID**, as printed on the device
+- The plugin, Homebridge and Node versions
+- The log covering the problem, with `debug` switched on
+- Your `config.json` platform block, with addresses redacted if you prefer
+
+</details>
+
+## Upgrading from v1.1.0 or earlier
+
+<details>
+<summary>Your accessory may be re-added once, and a leftover polling process may need killing.</summary>
+
+Older releases registered accessories under a different internal plugin identifier, so the first
+restart after upgrading may remove and re-add your device in HomeKit once. The accessory keeps its
+name, but you may need to reassign its room and any scenes or automations that reference it.
+
+v1.1.0 and earlier also did not stop their polling process on shutdown, so upgrading can leave one
+behind. Purifiers serve **one connection at a time**, so the leftover process competes with the new
+one and the device looks unresponsive for as long as it survives. It is reparented to `init` and will
+not stop on its own. After upgrading, check for one:
+
+```bash
+ps -eo pid,ppid,args | grep '[a]ioairctrl\|[p]yaircontrol'
+```
+
+Anything with a parent PID of `1` is a leftover, so `kill` it; rebooting clears it too. Later
+releases stop their own process on shutdown, so this is a one-time step.
+
+</details>
+
+## Contributing
+
+Bug reports, device status dumps for unsupported models, and pull requests are all welcome. See
+[CONTRIBUTING.md](https://github.com/atdr/homebridge-philipsair-platform/blob/main/CONTRIBUTING.md)
+for the development setup, the quality gates, and the commit conventions.
+
+## Credits
+
+This project is based on <https://github.com/seydx/homebridge-philipsair-platform>, which was heavily
+inspired by <https://github.com/NikDevx/homebridge-philips-air>. Credit for the mappable config
+parameters goes to <https://github.com/we5/homebridge-philipsair-platform/tree/refactor/use-config-mappings>.
+Device communication is handled by [`aioairctrl`](https://pypi.org/project/aioairctrl/).
+
+## License
+
+[MIT](https://github.com/atdr/homebridge-philipsair-platform/blob/main/LICENSE). All product and
+company names are trademarks™ or registered® trademarks of their respective holders; use of them
+does not imply any affiliation with or endorsement by them.

@@ -25,34 +25,49 @@ const platformProps = Object.keys(schema.properties);
 const structuralKeys = new Set(['platform']);
 const deviceProps = Object.keys(schema.properties.devices.items.properties);
 
-//First column of every Markdown table row, stripped of the formatting the
-//README uses for field names: `| - **host** |` -> `host`.
+//The body of a '## Heading' section, up to the next top-level heading. Anchored
+//to the start of a line so a '### ' subheading inside the section does not end
+//the slice, which a plain indexOf('## ') would do.
+const section = (heading) => {
+  const start = readme.indexOf(`## ${heading}\n`);
+  assert.notEqual(start, -1, `README has no '## ${heading}' section`);
+  const rest = readme.slice(start + heading.length + 4);
+  const end = rest.search(/^## /m);
+  return end === -1 ? rest : rest.slice(0, end);
+};
+
+//Field tables live under '## Configuration' only. Scoping the parse there keeps
+//an unrelated table elsewhere in the README from being read as a config option.
+const configSection = section('Configuration');
+const deviceSupportSection = section('Device support');
+
+//First column of every Markdown table row in the configuration section, stripped
+//of the formatting the README uses for field names: '| `host` |' -> 'host'.
 const readmeFieldCells = new Set(
-  readme
+  configSection
     .split('\n')
     .filter((line) => line.trimStart().startsWith('|'))
     .map((line) => line.split('|')[1] ?? '')
     .map((cell) => cell.replace(/[`*-]/g, '').trim())
 );
 
-//Body of the '## Tested devices' section, up to the next heading.
-const testedDevicesStart = readme.indexOf('## Tested devices');
-assert.notEqual(testedDevicesStart, -1, "README has no '## Tested devices' section");
-const testedDevicesSection = readme.slice(testedDevicesStart, readme.indexOf('## ', testedDevicesStart + 1));
+//Fenced ```json blocks in the README. There should be exactly one, the full
+//config example, and it has to stay in step with example-config.json.
+const jsonBlocks = [...readme.matchAll(/```json\n([\s\S]*?)```/g)].map((match) => match[1]);
 
 describe('docs', () => {
-  it('documents every config.schema.json property in the README field table', () => {
+  it('documents every config.schema.json property in the README field tables', () => {
     for (const prop of platformProps) {
       assert.ok(
         readmeFieldCells.has(prop),
-        `platform option '${prop}' is in config.schema.json but missing from the README field table`
+        `platform option '${prop}' is in config.schema.json but missing from the README field tables`
       );
     }
 
     for (const prop of deviceProps) {
       assert.ok(
         readmeFieldCells.has(prop),
-        `device option '${prop}' is in config.schema.json but missing from the README field table`
+        `device option '${prop}' is in config.schema.json but missing from the README field tables`
       );
     }
   });
@@ -61,8 +76,8 @@ describe('docs', () => {
     const knownOptions = new Set([...platformProps, ...deviceProps, ...structuralKeys]);
 
     for (const cell of readmeFieldCells) {
-      //skip the 'Fields' header cell and the empty cell from the separator row
-      if (!cell || cell === 'Fields') {
+      //skip the header cells and the empty cell from each separator row
+      if (!cell || cell === 'Option') {
         continue;
       }
       assert.ok(
@@ -95,11 +110,20 @@ describe('docs', () => {
     }
   });
 
-  it('lists every model with a dedicated mapping in the README tested-devices section', () => {
+  it('keeps the README config example identical to example-config.json', () => {
+    assert.equal(jsonBlocks.length, 1, 'README should contain exactly one ```json block, the full config example');
+    assert.deepEqual(
+      JSON.parse(jsonBlocks[0]),
+      exampleConfig,
+      'the README config example has drifted from example-config.json'
+    );
+  });
+
+  it('lists every model with a dedicated mapping in the README device-support section', () => {
     for (const model of mappedModels) {
       assert.ok(
-        testedDevicesSection.includes(model),
-        `model ${model} from accessories.models.js is missing from the README 'Tested devices' section`
+        deviceSupportSection.includes(model),
+        `model ${model} from accessories.models.js is missing from the README 'Device support' section`
       );
     }
   });
