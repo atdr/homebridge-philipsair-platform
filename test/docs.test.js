@@ -197,6 +197,19 @@ describe('docs', () => {
     deviceTables.forEach((table) => check(table, deviceOrder, 'README device options table'));
   });
 
+  it('defines every footnote the README references', () => {
+    const defined = new Set([...readme.matchAll(/^\[\^([^\]]+)\]:/gm)].map((match) => match[1]));
+    const referenced = new Set([...readme.matchAll(/\[\^([^\]]+)\](?!:)/g)].map((match) => match[1]));
+
+    for (const name of referenced) {
+      assert.ok(defined.has(name), `README references footnote [^${name}] but never defines it`);
+    }
+
+    for (const name of defined) {
+      assert.ok(referenced.has(name), `README defines footnote [^${name}] but never references it`);
+    }
+  });
+
   it('lists every model with a dedicated mapping in the README device-support section', () => {
     for (const model of mappedModels) {
       assert.ok(

@@ -146,6 +146,12 @@ Each entry in the `devices` array is one purifier. Three fields are required:
 
 For a complete `config.json`, see [`example-config.json`](https://github.com/atdr/homebridge-philipsair-platform/blob/main/example-config.json) in the repository.
 
+[^cli-debug]: Only has an effect while `debug` is on, and it is the noisier half of the two: on a tested AC0850 the CLI's own records were about three quarters of the log. Turn it on when the problem is `aioairctrl` itself, such as a Python install that never finishes a sync, and leave it off when the problem is a device.
+
+[^always-reported]: Faults that stop the plugin working at all, such as an `aioairctrl` it cannot run, are always reported, whatever this is set to.
+
+[^sleep-speed]: Ignored for models that have their own speed mapping. Those use the right speeds automatically, and the plugin warns when the option cannot do anything.
+
 ## Device support
 
 The `model` field selects how the plugin encodes power, mode and fan speed, because Philips models do not agree on any of the three. Support falls into three tiers.
