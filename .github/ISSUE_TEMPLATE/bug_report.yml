@@ -11,7 +11,8 @@ body:
         [Troubleshooting](https://github.com/atdr/homebridge-philipsair-platform#troubleshooting). It covers the
         common log messages and, in particular, an accessory whose controls do nothing.
 
-        Write plainly: short sentences and concrete detail are worth more here than a long write-up.
+        Please write in plain English: short sentences, everyday words, and exactly what you saw. There is no need
+        to write it up formally.
 
   - type: checkboxes
     id: preflight

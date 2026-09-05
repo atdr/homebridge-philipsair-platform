@@ -46,18 +46,72 @@ const section = (heading) => {
 const configSection = section('Configuration');
 const deviceSupportSection = section('Device support');
 
-//First column of every Markdown table row in the configuration section, stripped
-//of the formatting the README uses for field names: '| `host` |' -> 'host'.
-const readmeFieldCells = new Set(
-  configSection
-    .split('\n')
-    .filter((line) => line.trimStart().startsWith('|'))
-    .map((line) => line.split('|')[1] ?? '')
-    .map((cell) => cell.replace(/[`*-]/g, '').trim())
+//The body of a '### Heading' subsection within an already sliced section.
+const subsection = (text, heading) => {
+  const start = text.indexOf(`### ${heading}\n`);
+  assert.notEqual(start, -1, `README has no '### ${heading}' subsection`);
+  const rest = text.slice(start + heading.length + 5);
+  const end = rest.search(/^#{2,3} /m);
+  return end === -1 ? rest : rest.slice(0, end);
+};
+
+//Each Markdown table in a slice, as an ordered list of the option names in its
+//first column, stripped of the formatting the README uses: '| `host` |' -> 'host'.
+//A run of table rows ends at the first line that is not one, so the required and
+//optional device tables stay separate.
+const tables = (text) => {
+  const found = [];
+  let current = null;
+  for (const line of text.split('\n')) {
+    if (!line.trimStart().startsWith('|')) {
+      current = null;
+      continue;
+    }
+    if (!current) {
+      current = [];
+      found.push(current);
+    }
+    //the separator row reduces to '' once the dashes are stripped
+    const cell = (line.split('|')[1] ?? '').replace(/[`*-]/g, '').trim();
+    if (cell && cell !== 'Option') {
+      current.push(cell);
+    }
+  }
+  return found;
+};
+
+const platformTables = tables(subsection(configSection, 'Platform options'));
+const deviceTables = tables(subsection(configSection, 'Device options'));
+const readmeFieldCells = new Set([...platformTables, ...deviceTables].flat());
+
+//Every option key named in config.schema.json's 'layout', in the order the
+//Homebridge UI renders it. Sections are flattened: the README does not reproduce
+//the UI's grouping, only its ordering, which is what this collects.
+const layoutKeys = (node, out = []) => {
+  if (Array.isArray(node)) {
+    node.forEach((child) => layoutKeys(child, out));
+  } else if (typeof node === 'string') {
+    out.push(node);
+  } else if (node && typeof node === 'object') {
+    if (typeof node.key === 'string') {
+      out.push(node.key);
+    }
+    if (node.items) {
+      layoutKeys(node.items, out);
+    }
+  }
+  return out;
+};
+
+const allLayoutKeys = layoutKeys(JSON.parse(readFile('config.schema.json')).layout);
+const positions = (keys) => new Map(keys.map((key, index) => [key, index]));
+const platformOrder = positions(allLayoutKeys.filter((key) => !key.includes('[')));
+const deviceOrder = positions(
+  allLayoutKeys.map((key) => /^devices\[\]\.(\w+)$/.exec(key)?.[1]).filter((key) => key !== undefined)
 );
 
-//Fenced ```json blocks in the README. There should be exactly one, the full
-//config example, and it has to stay in step with example-config.json.
+//Fenced ```json blocks in the README. There should be none: the full config
+//example lives in example-config.json and the README links to it.
 const jsonBlocks = [...readme.matchAll(/```json\n([\s\S]*?)```/g)].map((match) => match[1]);
 
 describe('docs', () => {
@@ -115,13 +169,32 @@ describe('docs', () => {
     }
   });
 
-  it('keeps the README config example identical to example-config.json', () => {
-    assert.equal(jsonBlocks.length, 1, 'README should contain exactly one ```json block, the full config example');
-    assert.deepEqual(
-      JSON.parse(jsonBlocks[0]),
-      exampleConfig,
-      'the README config example has drifted from example-config.json'
+  it('links example-config.json from the README rather than reprinting it', () => {
+    assert.equal(
+      jsonBlocks.length,
+      0,
+      'README should link example-config.json, not carry a ```json copy that can drift from it'
     );
+    assert.match(
+      configSection,
+      /\[`example-config\.json`\]\(\S*example-config\.json\)/,
+      "README '## Configuration' section should link example-config.json"
+    );
+  });
+
+  it('orders each README option table the way the Homebridge UI does', () => {
+    const check = (table, order, label) => {
+      const indices = table.map((option) => order.get(option)).filter((index) => index !== undefined);
+      for (let i = 1; i < indices.length; i += 1) {
+        assert.ok(
+          indices[i] > indices[i - 1],
+          `${label} lists '${table[i]}' out of the order config.schema.json's layout puts it in`
+        );
+      }
+    };
+
+    platformTables.forEach((table) => check(table, platformOrder, 'README platform options table'));
+    deviceTables.forEach((table) => check(table, deviceOrder, 'README device options table'));
   });
 
   it('lists every model with a dedicated mapping in the README device-support section', () => {

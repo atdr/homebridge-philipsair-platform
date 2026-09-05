@@ -22,7 +22,7 @@
       "debug": {
         "title": "Debug Log",
         "type": "boolean",
-        "description": "Logs every device status and command. Switch this on before reporting a problem, and off again afterwards. It is very noisy."
+        "description": "Logs every device status and command. Switch this on before reporting a problem, and off again afterwards."
       },
       "cliDebug": {
         "title": "aioairctrl Debug Log",

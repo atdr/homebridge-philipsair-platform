@@ -136,71 +136,15 @@ Each entry in the `devices` array is one purifier. Three fields are required:
 | `light`           | Expose device lights as lightbulbs to HomeKit.                                                                                                                                         | `false`     |
 | `temperature`     | Expose device temperature as a temperature sensor to HomeKit.                                                                                                                          | `false`     |
 | `humidity`        | Expose device humidity as a humidity sensor to HomeKit.                                                                                                                                | `false`     |
-| `allergicFunc`    | Does this device support the 'allergic' function?                                                                                                                                      | `false`     |
 | `sleepSpeed`      | Adds a 'sleep' step below the lowest fan speed.[^sleep-speed]                                                                                                                          | `false`     |
+| `allergicFunc`    | Does this device support the 'allergic' function?                                                                                                                                      | `false`     |
 | `preFilter`       | Expose pre-filter status to HomeKit.                                                                                                                                                   | `false`     |
 | `carbonFilter`    | Expose active carbon filter status to HomeKit.                                                                                                                                         | `false`     |
 | `hepaFilter`      | Expose HEPA/NanoProtect filter status to HomeKit.                                                                                                                                      | `false`     |
 
 </details>
 
-<details>
-<summary>Full config.json example</summary>
-
-The same file lives in the repository as [`example-config.json`](https://github.com/atdr/homebridge-philipsair-platform/blob/main/example-config.json).
-
-```json
-{
-  "bridge": {
-    "name": "Homebridge",
-    "username": "0E:15:CC:8A:E9:1E",
-    "port": 51609,
-    "pin": "983-44-986"
-  },
-  "accessories": [],
-  "platforms": [
-    {
-      "platform": "PhilipsAirPlatform",
-      "name": "PhilipsAirPlatform",
-      "aioairctrlPath": "",
-      "debug": false,
-      "cliDebug": false,
-      "warn": true,
-      "error": true,
-      "extendedError": true,
-      "devices": [
-        {
-          "active": true,
-          "model": "AC0850",
-          "name": "Bedroom Purifier",
-          "host": "10.0.1.16",
-          "port": 5683,
-          "refreshInterval": 60,
-          "manufacturer": "Philips",
-          "serialNumber": "000000",
-          "humidifier": false,
-          "light": false,
-          "temperature": false,
-          "humidity": false,
-          "allergicFunc": false,
-          "sleepSpeed": false,
-          "preFilter": false,
-          "carbonFilter": false,
-          "hepaFilter": true
-        }
-      ]
-    }
-  ]
-}
-```
-
-</details>
-
-[^cli-debug]: Only has an effect while `debug` is on, and it is the noisier half of the two: on a tested AC0850 the CLI's own records were about three quarters of the log. Turn it on when the problem is `aioairctrl` itself, such as a Python install that never finishes a sync, and leave it off when the problem is a device.
-
-[^always-reported]: Faults that stop the plugin working at all, such as an `aioairctrl` it cannot run, are always reported, whatever this is set to.
-
-[^sleep-speed]: Ignored for models that have their own speed mapping. Those use the right speeds automatically, and the plugin warns when the option cannot do anything.
+For a complete `config.json`, see [`example-config.json`](https://github.com/atdr/homebridge-philipsair-platform/blob/main/example-config.json) in the repository.
 
 ## Device support
 
