@@ -14,6 +14,6 @@
 - [ ] Docs updated in this PR, if this changes a config option, a module, or a supported device
 - [ ] Tests added or updated, if this changes behaviour
 
-## Verification
+## Test plan
 
-<!-- How you know it works. For a device change, say which model you tested against and what you observed. -->
+<!-- On a draft: what you intend to test, so it can be argued with before you spend the time. On a PR ready for review: what you tested and what you saw. For a device change, name the model you ran against. -->

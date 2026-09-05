@@ -156,10 +156,12 @@ For a complete `config.json`, see [`example-config.json`](https://github.com/atd
 
 The `model` field selects how the plugin encodes power, mode and fan speed, because Philips models do not agree on any of the three. Support falls into three tiers.
 
-| Tier            | Tested                                               | Mapped, unverified                                                                                                                                              | Everything else                                                                     |
-| --------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| **Description** | A dedicated mapping, verified against real hardware. | A dedicated mapping inherited from the upstream projects and offered in the config typeahead, but not confirmed since this plugin's configuration was reworked. | The default mapping. It suits many purifiers, but nothing guarantees it fits yours. |
-| **Models**      | AC0850, AC1715, AC3036                               | AC3829                                                                                                                                                          | Anything else                                                                       |
+| Tier            | Tested                                        | Mapped, unverified                                | Everything else                                |
+| --------------- | --------------------------------------------- | ------------------------------------------------- | ---------------------------------------------- |
+| **Description** | Dedicated mapping, verified on real hardware. | Dedicated mapping, inherited and never confirmed. | Default mapping. Often fits, never guaranteed. |
+| **Models**      | AC0850, AC1715, AC3036                        | AC3829                                            | Anything else                                  |
+
+The model dropdown in the Homebridge UI offers every model with a mapping of its own, tested or not. Anything else falls back to the default.
 
 The symptom of a mapping that does not fit is an accessory that appears in the Home app with controls that do nothing. The plugin compares the first status a device sends against the mapping in force and reports a mismatch in the log, so it usually tells you when it has guessed wrong.
 
