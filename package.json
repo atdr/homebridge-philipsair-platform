@@ -54,6 +54,10 @@
     {
       "type": "github",
       "url": "https://github.com/sponsors/atdr"
+    },
+    {
+      "type": "individual",
+      "url": "https://paypal.me/atdr"
     }
   ],
   "homepage": "https://github.com/atdr/homebridge-philipsair-platform",

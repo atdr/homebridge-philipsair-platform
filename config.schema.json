@@ -2,7 +2,7 @@
   "pluginAlias": "PhilipsAirPlatform",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Homebridge plugin for Philips air purifiers and humidifiers.\n\n**Before this plugin can talk to any device**, the [`aioairctrl`](https://pypi.org/project/aioairctrl/) command-line tool must be installed **for the user that runs Homebridge** \u2014 this plugin runs it to speak the encrypted protocol the purifiers use. It is not installed automatically:\n\n```\npipx install aioairctrl\n```\n\nThen check it works for the Homebridge user: `sudo -u homebridge aioairctrl --help`. If it only runs for another user, or lives outside that user's PATH (pipx installs to `~/.local/bin`, which services often do not search), run `which aioairctrl` and put the full path into **aioairctrl Path** below.\n\nThe plugin checks this at startup and explains what to fix in the Homebridge log if it cannot run the command.",
+  "headerDisplay": "Homebridge plugin for Philips air purifiers and humidifiers.\n\n**Before this plugin can talk to any device**, the [`aioairctrl`](https://pypi.org/project/aioairctrl/) command-line tool must be installed **for the user that runs Homebridge**, because this plugin runs it to speak the encrypted protocol the purifiers use. It is not installed automatically:\n\n```\npipx install aioairctrl\n```\n\nThen check it works for the Homebridge user: `sudo -u homebridge aioairctrl --help`. If it only runs for another user, or lives outside that user's PATH (pipx installs to `~/.local/bin`, which services often do not search), run `which aioairctrl` and put the full path into **aioairctrl Path** below.\n\nThe plugin checks this at startup and explains what to fix in the Homebridge log if it cannot run the command.",
   "footerDisplay": "For documentation please see [GitHub repository](https://github.com/atdr/homebridge-philipsair-platform)",
   "schema": {
     "type": "object",
@@ -22,7 +22,7 @@
       "debug": {
         "title": "Debug Log",
         "type": "boolean",
-        "description": "Logs every device status and command. Switch this on before reporting a problem, and off again afterwards \u2014 it is very noisy."
+        "description": "Logs every device status and command. Switch this on before reporting a problem, and off again afterwards."
       },
       "cliDebug": {
         "title": "aioairctrl Debug Log",

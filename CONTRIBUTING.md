@@ -1,6 +1,20 @@
 # Contributing
 
-Pull requests are welcome from everyone.
+Bug reports, device status dumps and pull requests are all welcome.
+
+- **Something is broken?** Check [Troubleshooting](README.md#troubleshooting) first,
+  then open a
+  [bug report](https://github.com/atdr/homebridge-philipsair-platform/issues/new?template=bug_report.yml).
+  The form asks for the model ID and a debug log, which is what a diagnosis usually
+  turns on.
+- **Your model is not supported?** Open a
+  [model support request](https://github.com/atdr/homebridge-philipsair-platform/issues/new?template=model_support.yml)
+  with an `aioairctrl -H <ip> -P 5683 status -J` dump. That dump is what a new mapping
+  in `src/accessories/accessories.models.js` is derived from.
+- **Sending code?** Read on.
+
+Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Security issues go through the [security policy](SECURITY.md), not a public issue.
 
 ## Development setup
 
@@ -11,8 +25,9 @@ npm install
 ```
 
 `npm run watch` links the plugin and starts a local Homebridge (`nodemon.json` controls
-the invocation). Device communication needs the [`aioairctrl`](https://pypi.org/project/aioairctrl/)
-CLI — see the README installation section.
+the invocation). Device communication needs the
+[`aioairctrl`](https://pypi.org/project/aioairctrl/) CLI, covered in the README
+installation section.
 
 ## Quality gates
 
@@ -36,18 +51,30 @@ development ones, since linters and commit tooling never ship to users. A red
 
 Commit messages and PR titles follow [Conventional Commits](https://www.conventionalcommits.org/)
 (`type(scope): summary`) with types `feat`, `fix`, `refactor`, `test`, `docs`, `chore`,
-or `ci`. A husky `commit-msg` hook and CI both enforce this — releases are cut
+or `ci`. A husky `commit-msg` hook and CI both enforce this. Releases are cut
 automatically by release-please from the commit history, so the type you pick decides
 the version bump. Keep each commit to one logical change.
+
+## Docs
+
+A change that adds, removes, or alters a config option, a module, or a supported device
+updates the affected docs in the same PR. `config.schema.json` and `example-config.json`
+are the source of truth for user configuration, and the README tracks both.
+
+`test/config.schema.test.js` and `test/docs.test.js` enforce the parts of this that
+can be checked mechanically, so CI catches the drift rather than a reviewer having to
+grep for it. Each opens with a comment saying what it covers and what a failure means.
+When a new invariant can be checked that way, prefer adding a check to writing a prose
+rule.
 
 ## Prerelease builds
 
 To get a build in front of a tester without cutting a release, run the
 **Release Please** workflow from the Actions tab (Run workflow) and give it:
 
-- **version** — a prerelease version such as `1.2.0-beta.1`. The workflow refuses
+- **version**: a prerelease version such as `1.2.0-beta.1`. The workflow refuses
   anything without a prerelease suffix.
-- **dist_tag** — the npm tag to publish under, `beta` by default. It refuses `latest`.
+- **dist_tag**: the npm tag to publish under, `beta` by default. It refuses `latest`.
 
 Testers then install it explicitly, and nobody else picks it up, because Homebridge
 installs the `latest` tag:
@@ -87,7 +114,3 @@ A prerelease can also come through the normal release path, from a
 publishes it rather than refusing it, under a tag taken from the version's own
 identifier (`1.2.0-beta.1` publishes to `beta`). Either way, `latest` only ever points
 at a stable version.
-
-## Credits
-
-> This project is based on <https://github.com/seydx/homebridge-philipsair-platform>, which was heavily inspired by <https://github.com/NikDevx/homebridge-philips-air>. Credit for the mappable config parameters goes to <https://github.com/we5/homebridge-philipsair-platform/tree/refactor/use-config-mappings>
