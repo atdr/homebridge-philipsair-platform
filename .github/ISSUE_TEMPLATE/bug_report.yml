@@ -92,7 +92,8 @@ body:
     id: aioairctrl-version
     attributes:
       label: aioairctrl version
-      description: Output of `aioairctrl --version`, run as the user Homebridge runs as.
+      description: Output of `pip show aioairctrl`, or `pipx list` if you installed it with pipx. Run it as the
+        user Homebridge runs as. The CLI has no `--version` flag of its own.
       placeholder: '0.3.1'
     validations:
       required: false

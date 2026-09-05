@@ -157,7 +157,6 @@ The same file lives in the repository as [`example-config.json`](https://github.
     "port": 51609,
     "pin": "983-44-986"
   },
-  "plugins": ["@atdr/homebridge-philipsair-platform"],
   "accessories": [],
   "platforms": [
     {
