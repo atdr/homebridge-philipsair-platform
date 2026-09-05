@@ -207,17 +207,13 @@ The same file lives in the repository as [`example-config.json`](https://github.
 
 The `model` field selects how the plugin encodes power, mode and fan speed, because Philips models do not agree on any of the three. Support falls into three tiers.
 
-**Tested.** A dedicated mapping in the plugin, verified against real hardware:
+| Tier                   | Models                 | What you get                                                                                                                                                    |
+| ---------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Tested**             | AC0850, AC1715, AC3036 | A dedicated mapping, verified against real hardware.                                                                                                            |
+| **Mapped, unverified** | AC3829                 | A dedicated mapping inherited from the upstream projects and offered in the config typeahead, but not confirmed since this plugin's configuration was reworked. |
+| **Everything else**    | any other model        | A default mapping. It suits many purifiers, but nothing guarantees it fits yours.                                                                               |
 
-- AC3036
-- AC1715
-- AC0850
-
-**Mapped but unverified.** Inherited from the upstream projects and offered in the config typeahead, but not confirmed since this plugin's configuration was reworked:
-
-- AC3829
-
-**Everything else** runs a default mapping. It suits many purifiers, but nothing guarantees it fits yours: the symptom of a mismatch is an accessory that appears in the Home app with controls that do nothing. The plugin compares the first status a device sends against the mapping in force and reports a mismatch in the log, so it usually tells you when it has guessed wrong.
+The symptom of a mapping that does not fit is an accessory that appears in the Home app with controls that do nothing. The plugin compares the first status a device sends against the mapping in force and reports a mismatch in the log, so it usually tells you when it has guessed wrong.
 
 **To get your model added**, open a [model support request](https://github.com/atdr/homebridge-philipsair-platform/issues/new?template=model_support.yml) with a status dump from your device:
 
@@ -229,9 +225,13 @@ That dump is what the mapping is derived from, so a request with one attached ca
 
 ## Troubleshooting
 
-Set `debug` to true in the plugin config, reproduce the problem, then find your symptom below. Each entry names the log message that goes with it. Remember to switch `debug` off again afterwards.
+Turn on **Debug Log** in the plugin settings in the Homebridge UI, or set `debug` to `true` in the platform block of `config.json`, then restart Homebridge and reproduce the problem. Switch it off again afterwards: it logs every status and every command, and it is very noisy.
 
-### The device appears in the Home app but none of its controls work
+[Symptoms](#symptoms) covers what you see in the Home app. [Log messages](#log-messages) covers what the plugin writes to the Homebridge log, one entry per message.
+
+### Symptoms
+
+#### The device appears in the Home app but none of its controls work
 
 <details>
 <summary>Almost always the model field. Three things to check.</summary>
@@ -277,7 +277,24 @@ If the model is right and the controls still do nothing, set `debug` to true, co
 
 </details>
 
-### Cannot run aioairctrl
+#### The state in the Home app is out of date
+
+<details>
+<summary>These purifiers report on their own schedule. The refresh interval is a floor, not a cadence.</summary>
+
+These purifiers report spontaneously only while their values are changing, so a device sitting idle can stay quiet for several minutes at a time. The plugin therefore asks for a fresh reading `refreshInterval` seconds after the last one, by re-subscribing, which is what prompts the device to answer.
+
+A purifier that is switched **off** is a case of its own: some models answer only every few minutes, or not at all for half an hour, and nothing the plugin does makes them answer sooner. Its reported state stays `off` throughout, and the plugin stops asking so often rather than restarting and warning in a loop.
+
+The interval is a floor rather than a fixed cadence. Re-subscribing is a trade: it prompts a reading, and on some devices it costs far more than simply waiting would have. On a tested AC0850 a subscription left alone was answered every 9 seconds, while a replacement one took 140 seconds at the median, so a fixed 60 second refresh made the Home app **staler**, not fresher. The plugin therefore times each re-subscription it asks for, and where one costs more than the wait it replaced it waits longer next time, up to the point where it stops asking altogether and leaves the device to report on its own. A device that answers a fresh subscription promptly keeps the interval you configured.
+
+The default of 60 seconds suits every device tested so far; raise it if your device reports often enough on its own, or set it to `0` to switch the refresh off entirely and rely on the device alone. Values below 15 seconds are treated as 15, because a device generally needs longer than that to answer a fresh subscription.
+
+</details>
+
+### Log messages
+
+#### Cannot run aioairctrl
 
 <details>
 <summary>The startup check failed. The message names one of three causes.</summary>
@@ -316,7 +333,7 @@ This report is always shown, even with the `error` log option switched off. Thos
 
 </details>
 
-### The polling process exited with code N without returning any status
+#### The polling process exited with code N without returning any status
 
 <details>
 <summary>aioairctrl started and died three times running. Usually a broken Python environment.</summary>
@@ -329,7 +346,7 @@ sudo -u homebridge aioairctrl -H <device-ip> -P 5683 status-observe -J
 
 </details>
 
-### No status received from the device
+#### No status received from the device
 
 <details>
 <summary>The device took the subscription and then went quiet. Check the address, the power, and what else is talking to it.</summary>
@@ -342,22 +359,7 @@ Check that `host` and `port` are right, that the purifier is powered on and on t
 
 </details>
 
-### The state in the Home app is out of date
-
-<details>
-<summary>These purifiers report on their own schedule. The refresh interval is a floor, not a cadence.</summary>
-
-These purifiers report spontaneously only while their values are changing, so a device sitting idle can stay quiet for several minutes at a time. The plugin therefore asks for a fresh reading `refreshInterval` seconds after the last one, by re-subscribing, which is what prompts the device to answer.
-
-A purifier that is switched **off** is a case of its own: some models answer only every few minutes, or not at all for half an hour, and nothing the plugin does makes them answer sooner. Its reported state stays `off` throughout, and the plugin stops asking so often rather than restarting and warning in a loop.
-
-The interval is a floor rather than a fixed cadence. Re-subscribing is a trade: it prompts a reading, and on some devices it costs far more than simply waiting would have. On a tested AC0850 a subscription left alone was answered every 9 seconds, while a replacement one took 140 seconds at the median, so a fixed 60 second refresh made the Home app **staler**, not fresher. The plugin therefore times each re-subscription it asks for, and where one costs more than the wait it replaced it waits longer next time, up to the point where it stops asking altogether and leaves the device to report on its own. A device that answers a fresh subscription promptly keeps the interval you configured.
-
-The default of 60 seconds suits every device tested so far; raise it if your device reports often enough on its own, or set it to `0` to switch the refresh off entirely and rely on the device alone. Values below 15 seconds are treated as 15, because a device generally needs longer than that to answer a fresh subscription.
-
-</details>
-
-### The device did not apply a command
+#### The device did not apply a command
 
 <details>
 <summary>The command was sent, resent, and the device still reports the old value.</summary>
@@ -370,7 +372,7 @@ An occasional message is normal on a busy or distant network. If it happens ever
 
 </details>
 
-### The device never answered a command sent while it was off
+#### The device never answered a command sent while it was off
 
 <details>
 <summary>A wake-up command went out and nothing came back at all. Usually a packet lost in transit.</summary>
@@ -381,10 +383,10 @@ The usual cause is a command lost in transit, which is unremarkable once in a wh
 
 </details>
 
-### The purifier could not be reached at all
+#### aioairctrl got no answer from the device
 
 <details>
-<summary>`aioairctrl got no answer from host:port within 12s and was stopped.`</summary>
+<summary>The command timed out before the device opened a session. It is not reachable.</summary>
 
 Sending a command is not a single packet: the CLI opens a session with the device first, and if nothing answers, that wait never ends by itself. The plugin therefore stops the attempt, reports it, and puts the Home app back to the last state the device actually reported, rather than leaving a switch showing a command that went nowhere.
 
@@ -394,7 +396,7 @@ This means the device is not reachable, not that the install is broken: a purifi
 
 </details>
 
-### aioairctrl rejected the command
+#### aioairctrl rejected the command
 
 <details>
 <summary>The CLI refused to send it, so it never reached the device. Please report this one.</summary>
@@ -440,7 +442,12 @@ Bug reports, device status dumps for unsupported models, and pull requests are a
 
 ## Credits
 
-This project is based on <https://github.com/seydx/homebridge-philipsair-platform>, which was heavily inspired by <https://github.com/NikDevx/homebridge-philips-air>. Credit for the mappable config parameters goes to <https://github.com/we5/homebridge-philipsair-platform/tree/refactor/use-config-mappings>. Device communication is handled by [`aioairctrl`](https://pypi.org/project/aioairctrl/).
+This plugin stands on other people's work:
+
+- [seydx/homebridge-philipsair-platform](https://github.com/seydx/homebridge-philipsair-platform), the project this one is based on.
+- [NikDevx/homebridge-philips-air](https://github.com/NikDevx/homebridge-philips-air), originally by Sunoo, which seydx's plugin drew heavily on.
+- [we5/homebridge-philipsair-platform](https://github.com/we5/homebridge-philipsair-platform/tree/refactor/use-config-mappings), for the mappable config parameters.
+- [`aioairctrl`](https://github.com/kongo09/aioairctrl), maintained by kongo09 and written by [betaboon](https://github.com/betaboon/aioairctrl), which does all of the talking to the device.
 
 ## License
 

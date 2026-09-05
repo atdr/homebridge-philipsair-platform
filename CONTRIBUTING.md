@@ -61,16 +61,9 @@ A change that adds, removes, or alters a config option, a module, or a supported
 updates the affected docs in the same PR. `config.schema.json` and `example-config.json`
 are the source of truth for user configuration, and the README tracks both.
 
-Two `node:test` suites enforce the parts that can be checked mechanically, so CI
-catches the drift rather than a reviewer having to grep for it:
-
-- `test/config.schema.test.js` checks that the model typeahead covers every mapped
-  model.
-- `test/docs.test.js` checks that the README field tables, the device-support list,
-  and the README's config example all track `config.schema.json`,
-  `accessories.models.js` and `example-config.json`.
-
-Each suite explains its own invariants in comments, so start there when a check fails.
+`test/config.schema.test.js` and `test/docs.test.js` enforce the parts of this that
+can be checked mechanically, so CI catches the drift rather than a reviewer having to
+grep for it. Each opens with a comment saying what it covers and what a failure means.
 When a new invariant can be checked that way, prefer adding a check to writing a prose
 rule.
 
