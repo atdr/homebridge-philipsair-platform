@@ -1,9 +1,14 @@
 'use strict';
 
-//Drift guards that keep the human-facing docs in step with the source of truth
-//(config.schema.json and accessories.models.js). Same shape as
-//config.schema.test.js: read the files, assert the invariant. If a check here
-//fails, the fix is almost always to update the doc, not to weaken the test.
+//Drift guards that keep README.md in step with the source of truth
+//(config.schema.json, example-config.json and accessories.models.js). They cover
+//the three parts of the README that go stale silently: the config option tables,
+//the full config example, and the list of models with a dedicated mapping.
+//
+//Same shape as config.schema.test.js: read the files, assert the invariant. If a
+//check here fails, the fix is almost always to update the doc, not to weaken the
+//test. Each check names the README section it reads, so a restructure that moves
+//or renames a heading has to update the slice here too.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

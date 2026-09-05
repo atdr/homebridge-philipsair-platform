@@ -1,5 +1,11 @@
 'use strict';
 
+//Drift guards for config.schema.json, the file the Homebridge UI renders. They
+//check that the schema keeps up with the code: the model typeahead offers every
+//model that has a mapping, and the setup text quotes the command preflight.js
+//actually runs. A failure here means the schema is stale, not that the check is
+//too strict. docs.test.js does the same job for README.md.
+
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
