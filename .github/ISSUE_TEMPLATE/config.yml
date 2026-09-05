@@ -3,6 +3,3 @@ contact_links:
   - name: Homebridge support
     url: https://discord.gg/kqNCe2D
     about: Questions about Homebridge itself, rather than this plugin, are answered faster on the Homebridge Discord.
-  - name: Security vulnerability
-    url: https://github.com/atdr/homebridge-philipsair-platform/security/advisories/new
-    about: Report privately through GitHub Security Advisories. Please do not open a public issue.
