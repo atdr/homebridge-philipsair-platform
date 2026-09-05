@@ -1,0 +1,63 @@
+name: Model support request
+description: Ask for a Philips model to be supported, or report wrong speeds and controls on one
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Models outside the tested list run a default mapping. It suits many purifiers, but where it does not
+        fit, the device appears in the Home app with controls that do nothing or fan speeds that land on the
+        wrong setting.
+
+        A mapping is derived from what the device itself reports, so the status dump below is the whole
+        request. With one attached this can usually be acted on straight away.
+
+  - type: input
+    id: model
+    attributes:
+      label: Device model
+      description: The ID printed on the device label, without the regional suffix. `AC0850/11` means `AC0850`.
+      placeholder: AC2889
+    validations:
+      required: true
+
+  - type: textarea
+    id: status-dump
+    attributes:
+      label: Status dump
+      description: |
+        Run `aioairctrl -H <device-ip> -P 5683 status -J` with the purifier switched **on** and Homebridge
+        stopped (these purifiers serve one connection at a time). Allow up to 90 seconds for a reply.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: symptoms
+    attributes:
+      label: What does not work
+      description: |
+        Which controls misbehave, and how. For fan speeds, saying which Home app step lands on which speed on
+        the device is the most useful thing you can give.
+    validations:
+      required: true
+
+  - type: textarea
+    id: capabilities
+    attributes:
+      label: What the device can do
+      description: |
+        Optional but helpful: the fan speeds and modes on the unit itself, and whether it has a humidifier,
+        a child lock, a display light, or a filter reset.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: testing
+    attributes:
+      label: Testing
+      options:
+        - label: I can run further commands against this device and report what happens
+          required: false
+        - label: I can install a prerelease build to verify a mapping before it ships
+          required: false

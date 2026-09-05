@@ -1,0 +1,104 @@
+name: Bug report
+description: Something in the plugin does not work as it should
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this.
+
+        Before filing, please check [Troubleshooting](https://github.com/atdr/homebridge-philipsair-platform#troubleshooting) —
+        it covers the common log messages and, in particular, an accessory whose controls do nothing.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before reporting
+      options:
+        - label: The `model` field in my plugin config holds the model ID printed on the device (not a display name, and not left in `name`)
+          required: true
+        - label: I am running the latest version of the plugin
+          required: true
+        - label: I searched the existing issues for this problem
+          required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Device model
+      description: The ID printed on the device label, without the regional suffix. `AC0850/11` means `AC0850`.
+      placeholder: AC0850
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what the plugin did instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Homebridge log
+      description: |
+        Set **Debug Log** to true in the plugin config, restart Homebridge, reproduce the problem, and paste the
+        log covering it. Include the plugin's startup lines — they name the command set in use. Remember to switch
+        debug off again afterwards.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Plugin configuration
+      description: Your `PhilipsAirPlatform` block from `config.json`. Redact addresses if you would rather not share them.
+      render: json
+    validations:
+      required: false
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: Shown on the plugin's card on the Homebridge UI Plugins page.
+    validations:
+      required: true
+
+  - type: input
+    id: homebridge-version
+    attributes:
+      label: Homebridge version
+      description: Shown on the Homebridge UI status page.
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version
+      description: Output of `node --version`.
+      placeholder: v22.11.0
+    validations:
+      required: true
+
+  - type: input
+    id: aioairctrl-version
+    attributes:
+      label: aioairctrl version
+      description: Output of `aioairctrl --version`, run as the user Homebridge runs as.
+      placeholder: '0.3.1'
+    validations:
+      required: false
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: Include the hardware if it is a Pi or a NAS.
+      placeholder: Raspberry Pi OS 12 on a Pi 4
+    validations:
+      required: true

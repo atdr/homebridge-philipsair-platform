@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest a capability or an improvement
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Asking for a device model to be supported? Use the **Model support request** form instead — it
+        collects the status dump a mapping is built from.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that the plugin makes hard or impossible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: What you would like to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered
+      description: Other plugins, automations, or workarounds, and why they fall short.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Screenshots, links, or the device models this would apply to.
+    validations:
+      required: false
