@@ -5,8 +5,11 @@ body:
   - type: markdown
     attributes:
       value: |
-        Asking for a device model to be supported? Use the **Model support request** form instead — it
-        collects the status dump a mapping is built from.
+        Asking for a device model to be supported? Use the
+        [model support request](https://github.com/atdr/homebridge-philipsair-platform/issues/new?template=model_support.yml)
+        form instead. It collects the status dump a mapping is built from.
+
+        Write plainly: short sentences and concrete detail are worth more here than a long write-up.
 
   - type: textarea
     id: problem

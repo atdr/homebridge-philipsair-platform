@@ -7,8 +7,11 @@ body:
       value: |
         Thanks for taking the time to report this.
 
-        Before filing, please check [Troubleshooting](https://github.com/atdr/homebridge-philipsair-platform#troubleshooting) —
-        it covers the common log messages and, in particular, an accessory whose controls do nothing.
+        Before filing, please check
+        [Troubleshooting](https://github.com/atdr/homebridge-philipsair-platform#troubleshooting). It covers the
+        common log messages and, in particular, an accessory whose controls do nothing.
+
+        Write plainly: short sentences and concrete detail are worth more here than a long write-up.
 
   - type: checkboxes
     id: preflight
@@ -45,7 +48,7 @@ body:
       label: Homebridge log
       description: |
         Set **Debug Log** to true in the plugin config, restart Homebridge, reproduce the problem, and paste the
-        log covering it. Include the plugin's startup lines — they name the command set in use. Remember to switch
+        log covering it. Include the plugin's startup lines, which name the command set in use. Remember to switch
         debug off again afterwards.
       render: shell
     validations:

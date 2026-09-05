@@ -1,3 +1,5 @@
+<!-- Write plainly: short sentences, concrete detail, no filler. A reviewer should be able to tell what changed and why in under a minute. -->
+
 ## What changed
 
 <!-- One or two sentences. The PR title becomes the commit on main, so keep it conventional: type(scope): summary -->

@@ -12,6 +12,8 @@ body:
         A mapping is derived from what the device itself reports, so the status dump below is the whole
         request. With one attached this can usually be acted on straight away.
 
+        Write plainly: short sentences and concrete detail are worth more here than a long write-up.
+
   - type: input
     id: model
     attributes:
