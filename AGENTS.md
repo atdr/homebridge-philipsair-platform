@@ -68,7 +68,7 @@ commitlint rules (`type(scope): summary`).
 **Releases** are automated with release-please: a `feat` commit drives a minor bump, a
 `fix` a patch. Do not bump the version or edit the changelog by hand.
 
-**Prereleases** are published by hand from their own workflow: run **Publish Prerelease**
+**Prereleases** are published by hand from their own workflow: run **publish-prerelease**
 from the Actions tab (`workflow_dispatch`) with a prerelease version and an npm dist-tag.
 The bump happens on the runner only, so `main`, `CHANGELOG.md`, and the open release PR
 are untouched, and the tag is never `latest`. Details in CONTRIBUTING.md; invariants are
@@ -98,6 +98,23 @@ script. It blocks on `npm audit --omit=dev` (production dependencies are the onl
 that reach a user's install) and reports the full tree with `continue-on-error`, so a
 development advisory annotates the run without failing it. Dependabot alerts remain the
 signal of record for the development tree. `test/ci-workflow.test.js` guards the split.
+
+### Workflow naming and timeouts
+
+GitHub labels a check `<workflow name> / <job name>` and never shows the filename, so
+every workflow's top-level `name:` is the filename stem (`ci`, `claude`,
+`publish-release`, `publish-prerelease`, `stale`) and the job carries the description
+instead. This makes every check readable back to its source file without guessing.
+
+Every job also sets `timeout-minutes`: GitHub's default is six hours, and the failure
+that matters is a stall (`npm ci`/`npm publish` hanging on a network fetch), not an
+error. 10 minutes is the default; `pr-title` gets 5 (cheapest job in the repo); `claude`
+gets 30 (it runs an actual Claude Code session, not a fixed script).
+
+**Exception:** `Analyze (actions)` / `Analyze (javascript-typescript)` / `CodeQL` come
+from code scanning default setup, a repo setting rather than a file in
+`.github/workflows`, so GitHub owns their names and timeouts and neither convention
+reaches them.
 
 ### Confirm the full check set ran before merging
 

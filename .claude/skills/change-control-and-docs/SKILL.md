@@ -63,7 +63,7 @@ what the gates catch at runtime is not covered here.
   TypeScript 7 required config and JSDoc changes (commit 4292672).
 - **The CI audit job mirrors that same split** and is not one of the six gates: it blocks
   on `npm audit --omit=dev` and reports the full tree with `continue-on-error`, so a red
-  "Dependency audit" annotation on a green job is the development tree, not a regression
+  "dependency audit" annotation on a green job is the development tree, not a regression
   in the PR. Both steps use `--package-lock-only`, so nothing is installed from the tree
   being audited. `test/ci-workflow.test.js` asserts the production step can never become
   non-blocking; fix the workflow, not the test. A dev advisory that Dependabot

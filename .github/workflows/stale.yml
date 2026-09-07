@@ -1,4 +1,4 @@
-name: Stale issues
+name: stale
 
 on:
   schedule:
@@ -9,7 +9,9 @@ permissions:
 
 jobs:
   stale:
+    name: close inactive issues and PRs
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/stale@v11
         with:

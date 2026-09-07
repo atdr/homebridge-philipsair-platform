@@ -1,4 +1,4 @@
-name: CI
+name: ci
 
 permissions:
   contents: read
@@ -16,6 +16,7 @@ jobs:
     name: Node ${{ matrix.node-version }}
     if: github.event_name == 'push' || github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -40,9 +41,10 @@ jobs:
   # advisories are Node-independent. --package-lock-only audits the resolved
   # tree without an install.
   audit:
-    name: Dependency audit
+    name: dependency audit
     if: github.event_name == 'push' || github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -60,9 +62,10 @@ jobs:
         continue-on-error: true
 
   commitlint:
-    name: Commit messages
+    name: commit messages
     if: github.event_name == 'pull_request' && github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
@@ -78,6 +81,7 @@ jobs:
     name: PR title
     if: github.event_name == 'pull_request' && github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

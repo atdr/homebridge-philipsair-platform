@@ -45,7 +45,7 @@ npm run test          # node:test unit suite
 CI additionally runs a dependency audit, which has no local equivalent. It blocks on
 high severity advisories in production dependencies and merely reports them for
 development ones, since linters and commit tooling never ship to users. A red
-"Dependency audit" annotation with the job still green is that second, advisory step.
+"dependency audit" annotation with the job still green is that second, advisory step.
 
 ## Commits and pull requests
 
@@ -70,7 +70,7 @@ rule.
 ## Prerelease builds
 
 To get a build in front of a tester without cutting a release, run the
-**Publish Prerelease** workflow from the Actions tab (Run workflow) and give it:
+**publish-prerelease** workflow from the Actions tab (Run workflow) and give it:
 
 - **version**: a prerelease version such as `1.2.0-beta.1`. The workflow refuses
   anything without a prerelease suffix.
