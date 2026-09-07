@@ -1,11 +1,6 @@
-name: Release Please
+name: Publish Prerelease
 
 on:
-  push:
-    branches: [main]
-  # Manual prerelease publishing. Kept in this file because npm's trusted
-  # publisher is pinned to one workflow filename per package, so a separate
-  # workflow would fail OIDC authentication.
   workflow_dispatch:
     inputs:
       version:
@@ -17,56 +12,13 @@ on:
         default: beta
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
-  release-please:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-    steps:
-      - uses: googleapis/release-please-action@v5
-        id: release
-        with:
-          release-type: node
-
-  publish:
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-latest
-    environment: npm # scopes the OIDC token so npm's trusted publisher can require it
-    permissions:
-      contents: read
-      id-token: write # OIDC for npm trusted publishing (provenance is automatic)
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          # trusted publishing needs npm >= 11.5.1, bundled with Node >= 24.5
-          node-version: 24.x
-          registry-url: https://registry.npmjs.org
-      - run: npm ci
-      # npm tags whatever it publishes 'latest' unless --tag is passed; it infers
-      # nothing from a prerelease suffix. A prerelease only reaches this job from a
-      # deliberate Release-As footer, so publish it under its own identifier
-      # (1.2.0-beta.1 -> beta) rather than refusing it.
-      - name: Publish
-        run: |
-          version=$(node -p 'require("./package.json").version')
-          case "$version" in
-            *-*)
-              tag=$(node -p 'process.argv[1].match(/-([a-z]+)/i)?.[1] ?? "next"' "$version")
-              npm publish --tag "$tag"
-              ;;
-            *) npm publish ;;
-          esac
-
   publish-prerelease:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    environment: npm # scopes the OIDC token so npm's trusted publisher can require it
+    environment: npm-prerelease # scopes the OIDC token so npm's trusted publisher can require it
     permissions:
       contents: read
       id-token: write # OIDC for npm trusted publishing (provenance is automatic)
