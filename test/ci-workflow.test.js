@@ -12,7 +12,7 @@ const { describe, it } = require('node:test');
 
 const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'ci.yml'), 'utf8');
 
-//Same job splitting as test/release-workflow.test.js: job keys are the only
+//Same job splitting as test/publish-release-workflow.test.js: job keys are the only
 //two-space-indented keys with no inline value, so a heading regex suffices
 //without a YAML parser (this repo ships no runtime dependencies).
 const jobs = (() => {

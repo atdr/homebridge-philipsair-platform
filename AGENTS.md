@@ -68,11 +68,12 @@ commitlint rules (`type(scope): summary`).
 **Releases** are automated with release-please: a `feat` commit drives a minor bump, a
 `fix` a patch. Do not bump the version or edit the changelog by hand.
 
-**Prereleases** are published by hand from the same workflow: run **Release Please** from
-the Actions tab (`workflow_dispatch`) with a prerelease version and an npm dist-tag. The
-bump happens on the runner only, so `main`, `CHANGELOG.md`, and the open release PR are
-untouched, and the tag is never `latest`. Details in CONTRIBUTING.md; invariants are
-guarded by `test/release-workflow.test.js`.
+**Prereleases** are published by hand from their own workflow: run **Publish Prerelease**
+from the Actions tab (`workflow_dispatch`) with a prerelease version and an npm dist-tag.
+The bump happens on the runner only, so `main`, `CHANGELOG.md`, and the open release PR
+are untouched, and the tag is never `latest`. Details in CONTRIBUTING.md; invariants are
+guarded by `test/publish-prerelease-workflow.test.js` (the stable release path is guarded
+by `test/publish-release-workflow.test.js`).
 
 ## Quality checks
 
@@ -172,4 +173,4 @@ Because it is generated, it is exempt from this repo's formatters: `.prettierign
 it and `lint:md` passes `--ignore CHANGELOG.md`. Do not remove either. `prepublishOnly`
 runs both gates before every publish, so a formatting rule release-please does not follow
 fails the release itself — that is how the v1.2.0 publish was blocked after its GitHub
-release had already been cut. Guarded by `test/release-workflow.test.js`.
+release had already been cut. Guarded by `test/publish-release-workflow.test.js`.

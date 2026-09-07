@@ -70,7 +70,7 @@ rule.
 ## Prerelease builds
 
 To get a build in front of a tester without cutting a release, run the
-**Release Please** workflow from the Actions tab (Run workflow) and give it:
+**Publish Prerelease** workflow from the Actions tab (Run workflow) and give it:
 
 - **version**: a prerelease version such as `1.2.0-beta.1`. The workflow refuses
   anything without a prerelease suffix.
@@ -84,7 +84,7 @@ npm install @atdr/homebridge-philipsair-platform@beta
 ```
 
 Run workflow lets you pick the branch, so a prerelease can come from a PR branch before
-it merges (the branch needs this workflow file in it). The version bump happens on the
+it merges (the branch needs `publish-prerelease.yml` in it). The version bump happens on the
 runner and is never committed, so `main`, `CHANGELOG.md`, and any open release-please PR
 are untouched, and the eventual `1.2.0` release still sorts above every `1.2.0-beta.n`.
 The six checks above still run, via `prepublishOnly`.

@@ -24,24 +24,29 @@ what the gates catch at runtime is not covered here.
   (AGENTS.md states the rule; this is the mechanism behind it).
 - **Releasing = merging the release-please PR.** After changes merge to `main`,
   release-please opens/updates a release PR; merging it tags the release and triggers
-  `npm publish` in `.github/workflows/release-please.yml`.
-- **Prereleases are a manual dispatch of the same workflow.** `workflow_dispatch` on
-  `.github/workflows/release-please.yml` takes a `version` and a `dist_tag`, bumps the
-  version on the runner with `--no-git-tag-version`, and publishes under that tag. It
-  lives in that file rather than its own because npm allows **one trusted publisher per
-  package, pinned to a workflow filename** — a second workflow would fail OIDC auth until
-  the publisher is repointed on npmjs.com. The guards (no stable version, never `latest`,
-  never committed, inputs read via `env`) are asserted by `test/release-workflow.test.js`;
-  fix the workflow, not the test. Note `npm publish` tags whatever it publishes `latest`
-  unless `--tag` is passed: npm does not infer anything from the `-beta.1` suffix. For
-  the same reason the release `publish` job branches on the version and derives a tag
-  from the prerelease identifier (`1.2.0-beta.1` → `beta`), so a deliberate
+  `npm publish` in `.github/workflows/publish-release.yml`.
+- **Prereleases are a manual dispatch of their own workflow**,
+  `.github/workflows/publish-prerelease.yml`. `workflow_dispatch` takes a `version` and a
+  `dist_tag`, bumps the version on the runner with `--no-git-tag-version`, and publishes
+  under that tag. It used to share a file with the release path because npm pins a
+  trusted publisher to a single workflow filename, but npm now supports up to 10 trusted
+  publishers per package, so each workflow has its own entry: `publish-release.yml`
+  requires the `npm-release` GitHub environment (branch-restricted to `main`) and
+  `publish-prerelease.yml` requires `npm-prerelease` (unrestricted, so a beta can be
+  dispatched from a PR branch to test it before merge). The guards (no stable version,
+  never `latest`, never committed, inputs read via `env`) are asserted by
+  `test/publish-prerelease-workflow.test.js`; fix the workflow, not the test. Note
+  `npm publish` tags whatever it publishes `latest` unless `--tag` is passed: npm does
+  not infer anything from the `-beta.1` suffix. For the same reason the release `publish`
+  job (guarded by `test/publish-release-workflow.test.js`) branches on the version and
+  derives a tag from the prerelease identifier (`1.2.0-beta.1` → `beta`), so a deliberate
   `Release-As: 1.2.0-beta.1` footer publishes correctly instead of moving `latest`.
 - **npm publishing uses trusted publishing (OIDC)** — GitHub Actions authenticates to
   npm directly; there is no `NPM_TOKEN` secret to leak or rotate, and provenance is
-  automatic (PR #3). If publishing breaks, the trusted-publisher configuration lives on
-  npmjs.com under the package settings (maintainer account required — agents cannot fix
-  this side).
+  automatic (PR #3). Each publish job also declares a GitHub `environment:` so its OIDC
+  token carries an environment claim npm can require, on top of the workflow filename
+  match. If publishing breaks, the trusted-publisher configuration lives on npmjs.com
+  under the package settings (maintainer account required — agents cannot fix this side).
 - **One logical change per commit** exists so a bad change can be reverted without
   collateral (AGENTS.md); the release automation above amplifies the cost of tangled
   commits.
@@ -99,7 +104,8 @@ are in `testing-and-validation`.
 Verified against the repo at commit c5742dc, 2026-08-17. Re-verify:
 
 ```bash
-grep -n "release-please\|npm publish\|id-token" .github/workflows/release-please.yml  # release + OIDC path
+grep -n "release-please\|npm publish\|id-token\|environment" .github/workflows/publish-release.yml      # release + OIDC path
+grep -n "npm publish\|id-token\|environment" .github/workflows/publish-prerelease.yml                    # prerelease + OIDC path
 grep -n "type-enum" commitlint.config.js                                              # allowed commit types
 grep -n "npm run\|npm test\|npm audit" .github/workflows/ci.yml                       # the six gates + audit job
 cat .husky/commit-msg                                                                 # local commitlint hook
