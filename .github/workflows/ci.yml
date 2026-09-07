@@ -41,7 +41,7 @@ jobs:
   # advisories are Node-independent. --package-lock-only audits the resolved
   # tree without an install.
   audit:
-    name: Dependency audit
+    name: dependency audit
     if: github.event_name == 'push' || github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -62,7 +62,7 @@ jobs:
         continue-on-error: true
 
   commitlint:
-    name: Commit messages
+    name: commit messages
     if: github.event_name == 'pull_request' && github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
     timeout-minutes: 10
