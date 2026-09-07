@@ -1,4 +1,4 @@
-name: Publish Prerelease
+name: publish-prerelease
 
 on:
   workflow_dispatch:
@@ -16,8 +16,10 @@ permissions:
 
 jobs:
   publish-prerelease:
+    name: publish prerelease to npm
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: npm-prerelease # scopes the OIDC token so npm's trusted publisher can require it
     permissions:
       contents: read
@@ -56,8 +58,10 @@ jobs:
     # exactly what has landed since. Runs after the publish so the tag only ever
     # marks a version that reached npm, and lives in its own job so the
     # publishing job's token stays read-only.
+    name: tag the published commit
     needs: publish-prerelease
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:

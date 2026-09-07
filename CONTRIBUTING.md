@@ -70,7 +70,7 @@ rule.
 ## Prerelease builds
 
 To get a build in front of a tester without cutting a release, run the
-**Publish Prerelease** workflow from the Actions tab (Run workflow) and give it:
+**publish-prerelease** workflow from the Actions tab (Run workflow) and give it:
 
 - **version**: a prerelease version such as `1.2.0-beta.1`. The workflow refuses
   anything without a prerelease suffix.
