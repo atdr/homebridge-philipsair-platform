@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.3.0...v1.3.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* **service:** set TargetAirPurifierState to AUTO before restricting validValues ([#97](https://github.com/atdr/homebridge-philipsair-platform/issues/97)) ([e684fc0](https://github.com/atdr/homebridge-philipsair-platform/commit/e684fc05eb08d09a351d2b84c01051196c3c86ef))
+
 ## [1.3.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.2.1...v1.3.0) (2026-09-05)
 
 
