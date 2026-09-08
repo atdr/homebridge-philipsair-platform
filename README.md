@@ -397,6 +397,7 @@ This plugin stands on other people's work:
 - [seydx/homebridge-philipsair-platform](https://github.com/seydx/homebridge-philipsair-platform), the project this one is based on.
 - [NikDevx/homebridge-philips-air](https://github.com/NikDevx/homebridge-philips-air), originally by Sunoo, which seydx's plugin drew heavily on.
 - [we5/homebridge-philipsair-platform](https://github.com/we5/homebridge-philipsair-platform/tree/refactor/use-config-mappings), for the mappable config parameters.
+- [kandelvijaya/homebridge-philipsair-platform](https://github.com/kandelvijaya/homebridge-philipsair-platform), for AC1715 speed and power mode fixes.
 - [`aioairctrl`](https://github.com/kongo09/aioairctrl), maintained by kongo09 and written by [betaboon](https://github.com/betaboon/aioairctrl), which does all of the talking to the device.
 
 ## License
