@@ -71,9 +71,12 @@ class Accessory {
     //so a model with no mode register keeps it pinned to AUTO instead. The Home
     //app then stops offering an auto/manual switch that could never take effect
     if (!this.handler.supports('mode')) {
-      this.purifierService.getCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState).setProps({
-        validValues: [this.api.hap.Characteristic.TargetAirPurifierState.AUTO],
-      });
+      this.purifierService
+        .getCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState)
+        .updateValue(this.api.hap.Characteristic.TargetAirPurifierState.AUTO)
+        .setProps({
+          validValues: [this.api.hap.Characteristic.TargetAirPurifierState.AUTO],
+        });
     }
 
     if (this.handler.supports('cl')) {
