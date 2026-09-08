@@ -74,9 +74,9 @@ jobs:
         # for the prerelease, it could outrank the last stable Release and become
         # the base release-please bumps from because release-please does not filter
         # prereleases out of the Releases API. Bare tags are only its third-choice
-        # fallback, unreachable while a release PR or Release exists, so they are inert. The
-        # 'prerelease/' prefix is belt-and-braces, and keeps `git tag -l 'v*'`
-        # meaning released versions.
+        # fallback, unreachable while a release PR or Release exists, so they are
+        # inert. The 'prerelease/' prefix is belt-and-braces, and keeps
+        # `git tag -l 'v*'` meaning released versions.
         run: |
           gh api "repos/$GITHUB_REPOSITORY/git/refs" \
             -f "ref=refs/tags/prerelease/$VERSION" \
