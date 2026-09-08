@@ -25,9 +25,10 @@ coverage
 *.tgz
 
 # Environment variables
-.env
-.env.test
-.env*.local
+.env*
+credentials.json
+*.pem
+*.key
 
 # Editors and OS
 .idea/

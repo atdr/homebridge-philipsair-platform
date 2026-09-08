@@ -72,7 +72,7 @@ rule.
 To get a build in front of a tester without cutting a release, run the
 **publish-prerelease** workflow from the Actions tab (Run workflow) and give it:
 
-- **version**: a prerelease version such as `1.2.0-beta.1`. The workflow refuses
+- **version**: a prerelease version such as `X.Y.Z-beta.N`. The workflow refuses
   anything without a prerelease suffix.
 - **dist_tag**: the npm tag to publish under, `beta` by default. It refuses `latest`.
 
