@@ -70,11 +70,11 @@ jobs:
           VERSION: ${{ inputs.version }}
           DIST_TAG: ${{ inputs.dist_tag }}
           GH_TOKEN: ${{ github.token }}
-        # A plain ref, never a GitHub Release: release-please reads the Releases
-        # API to find the last release and does not filter out prereleases, so a
-        # prerelease GitHub Release could outrank the last stable Release and become
-        # the base it bumps from. Bare tags are only its third-choice fallback, unreachable
-        # while a release PR or Release exists, so they are inert. The
+        # A plain ref, never a GitHub Release: if this workflow created a Release
+        # for the prerelease, it could outrank the last stable Release and become
+        # the base release-please bumps from because release-please does not filter
+        # prereleases out of the Releases API. Bare tags are only its third-choice
+        # fallback, unreachable while a release PR or Release exists, so they are inert. The
         # 'prerelease/' prefix is belt-and-braces, and keeps `git tag -l 'v*'`
         # meaning released versions.
         run: |
