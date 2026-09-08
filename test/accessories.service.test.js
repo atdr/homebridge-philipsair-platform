@@ -58,6 +58,11 @@ describe('accessories.service', () => {
       [hap.Characteristic.TargetAirPurifierState.AUTO],
       'the auto/manual switch was left switchable on a model with no mode register'
     );
+    assert.equal(
+      purifier.getCharacteristic(hap.Characteristic.TargetAirPurifierState).value,
+      hap.Characteristic.TargetAirPurifierState.AUTO,
+      'the characteristic was left holding a value outside its own validValues'
+    );
   });
 
   it('takes the lock back off a cached accessory that still has one', () => {
