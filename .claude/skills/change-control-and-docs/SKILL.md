@@ -56,10 +56,13 @@ what the gates catch at runtime is not covered here.
   exists because npm never publishes `package-lock.json`, so consumers resolve their own
   tree from the ranges in `package.json`: only a direct production bump changes what they
   install. There are no runtime dependencies today, so every bump is currently `chore`.
-  Dev minor/patch updates are grouped, as are dev security advisories (a group needs
-  `applies-to: security-updates` to cover advisories at all; the default is version
-  updates only). Majors and production advisories arrive individually for isolated review
-  (commit bce7dc3). Major toolchain bumps sometimes need real fixes — e.g.
+  Dev minor/patch updates are grouped; majors and every security advisory arrive
+  individually for isolated review (commit bce7dc3). **Do not group security updates.** A
+  group carrying `applies-to: security-updates` used to batch the development ones, and
+  it filtered a high `js-yaml` advisory out of its own update job while still reporting
+  success, so the alert sat open with nothing to show for it (alert 14, September 2026).
+  Grouping bought little against that: advisories arrive here one at a time, nine of the
+  ten after the initial backfill alone. `test/dependabot-config.test.js` guards it. Major toolchain bumps sometimes need real fixes — e.g.
   TypeScript 7 required config and JSDoc changes (commit 4292672).
 - **The CI audit job mirrors that same split** and is not one of the six gates: it blocks
   on `npm audit --omit=dev` and reports the full tree advisory-only, so a red
