@@ -45,7 +45,8 @@ npm run test          # node:test unit suite
 CI additionally runs a dependency audit, which has no local equivalent. It blocks on
 high severity advisories in production dependencies and merely reports them for
 development ones, since linters and commit tooling never ship to users. A red
-"dependency audit" annotation with the job still green is that second, advisory step.
+"Development dependency advisory" annotation on an otherwise green job is that second,
+advisory step saying so out loud, not a broken build.
 
 ## Commits and pull requests
 

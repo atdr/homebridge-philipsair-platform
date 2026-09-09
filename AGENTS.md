@@ -95,9 +95,12 @@ easiest to cover.
 
 CI also runs a **dependency audit** job that is not one of the six and has no local
 script. It blocks on `npm audit --omit=dev` (production dependencies are the only ones
-that reach a user's install) and reports the full tree with `continue-on-error`, so a
-development advisory annotates the run without failing it. Dependabot alerts remain the
-signal of record for the development tree. `test/ci-workflow.test.js` guards the split.
+that reach a user's install) and reports the full tree advisory-only, so a development
+advisory surfaces as an `::error` annotation the step raises itself, on a run that stays
+green. Red on green is deliberate: it is incongruous enough to get read, where a warning
+would sink into the standing deprecation noise. Dependabot alerts remain the signal of
+record for the development tree, and a bump there clears the annotation.
+`test/ci-workflow.test.js` guards the split.
 
 ### Coverage
 
