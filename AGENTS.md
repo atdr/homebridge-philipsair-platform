@@ -99,6 +99,37 @@ that reach a user's install) and reports the full tree with `continue-on-error`,
 development advisory annotates the run without failing it. Dependabot alerts remain the
 signal of record for the development tree. `test/ci-workflow.test.js` guards the split.
 
+### Coverage
+
+CI also runs a **coverage** job, which like the audit is not one of the six gates. It
+re-runs the suite under V8 instrumentation to produce `lcov.info` and uploads it to
+Codecov, which supplies the README badge, per-PR comments, and history. The Node matrix
+is what proves the suite passes; coverage only reports on it. Codecov's own status
+checks are set `informational` in `codecov.yml` so they can never block a merge, and the
+upload step is `continue-on-error` because an outage there says nothing about the change
+under review. The coverage run itself stays blocking.
+
+Unlike the audit it has a local script, and CI calls that script rather than its own
+command line so the two cannot drift:
+
+```bash
+npm run coverage      # needs Node >= 22.5; writes lcov.info (gitignored)
+```
+
+Two flags in it are load-bearing and worth not "tidying away":
+
+- `--test-coverage-include` twice, pinned to the `files` array in `package.json`, so the
+  measurement is exactly what ships. Without it V8 reports every file that was loaded,
+  which pulls in `test/`, the fixture shims, and any `.claude/worktrees/` checkout.
+- `--require ./src/platform.js --require ./index.js`. V8 reports **nothing at all** for a
+  file no test ever required, rather than reporting it at 0%. Neither of those two is
+  required by any test, so dropping the preload does not lower the score. It deletes the
+  least-covered files from the report, raising it.
+
+`npm run coverage` is deliberately absent from `prepublishOnly`: `--test-coverage-include`
+needs Node 22.5, and this package still supports the `^20.18` floor, where node exits on
+the unknown flag. `test/coverage.test.js` guards all of the above.
+
 ### Workflow naming and timeouts
 
 GitHub labels a check `<workflow name> / <job name>` and never shows the filename, so
