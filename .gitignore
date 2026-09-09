@@ -12,8 +12,10 @@ yarn-error.log*
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Coverage
+# (*.lcov does not match lcov.info, which `npm run coverage` writes)
 coverage
 *.lcov
+lcov.info
 .nyc_output
 
 # Caches

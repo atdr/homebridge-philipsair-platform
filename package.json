@@ -14,6 +14,7 @@
     "lint:md": "markdownlint '**/*.md' --dot --ignore node_modules --ignore CHANGELOG.md --ignore .claude/worktrees",
     "lint:md:fix": "markdownlint '**/*.md' --dot --ignore node_modules --ignore .claude/worktrees --fix",
     "test": "node --test",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='index.js' --require ./src/platform.js --require ./index.js --test-reporter=lcov --test-reporter-destination=lcov.info --test-reporter=spec --test-reporter-destination=stdout",
     "watch": "npm link && nodemon",
     "prepublishOnly": "npm run typecheck && npm run lint && npm run format:check && npm run check && npm run lint:md && npm run test",
     "prepare": "husky"
