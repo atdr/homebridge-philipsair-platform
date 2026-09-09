@@ -5,14 +5,24 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-    # `prefix` covers production dependencies, `prefix-development` the rest.
-    # This package publishes a tarball and npm never includes package-lock.json,
-    # so consumers resolve their own tree from the ranges in package.json: only a
-    # direct production bump reaches them. Those land as `fix` so release-please
-    # cuts a patch with a changelog line. Dev tooling stays `chore` and
-    # release-silent. The scope lives in the prefix, so no `include: scope`.
+    # `prefix` covers production dependencies, `prefix-development` the rest. This
+    # package publishes a tarball and npm never includes package-lock.json, so
+    # consumers resolve their own tree from the ranges in package.json: only a direct
+    # production bump reaches them, which is why that case earns a `fix` and a patch
+    # release. The scope lives in the prefix, so no `include: scope`.
+    #
+    # Both are `chore` today because there are no runtime dependencies, so no bump can
+    # reach a user and none should cut a release. `prefix` is not simply unused in the
+    # meantime: Dependabot cannot tell that a transitive dependency belongs to the dev
+    # tree, so it falls back to `prefix` for those, and js-yaml (a linter's transitive
+    # dependency, via commitlint and cosmiconfig) arrived as `fix(deps)` on PR #109 and
+    # would have cut a release for a lockfile change nobody installs.
+    #
+    # Restore `prefix: fix(deps)` when a runtime dependency is first declared.
+    # test/dependabot-config.test.js fails on the PR that declares one, so this is
+    # enforced rather than remembered.
     commit-message:
-      prefix: fix(deps)
+      prefix: chore(deps)
       prefix-development: chore(deps)
     # Security updates are enabled in repo settings, not here, and are deliberately
     # left ungrouped. A group with `applies-to: security-updates` used to batch the
