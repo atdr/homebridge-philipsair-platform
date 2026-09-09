@@ -62,11 +62,17 @@ what the gates catch at runtime is not covered here.
   (commit bce7dc3). Major toolchain bumps sometimes need real fixes — e.g.
   TypeScript 7 required config and JSDoc changes (commit 4292672).
 - **The CI audit job mirrors that same split** and is not one of the six gates: it blocks
-  on `npm audit --omit=dev` and reports the full tree with `continue-on-error`, so a red
-  "dependency audit" annotation on a green job is the development tree, not a regression
-  in the PR. Both steps use `--package-lock-only`, so nothing is installed from the tree
-  being audited. `test/ci-workflow.test.js` asserts the production step can never become
-  non-blocking; fix the workflow, not the test. A dev advisory that Dependabot
+  on `npm audit --omit=dev` and reports the full tree advisory-only, so a red
+  "Development dependency advisory" annotation on a green job is the development tree, not
+  a regression in the PR. That step swallows npm audit's exit code and raises the
+  annotation itself rather than using `continue-on-error`, which cannot change the
+  runner's own "Process completed with exit code 1" and leaves it explaining nothing. It
+  stays an `::error` rather than a `::warning` on purpose: red on green is incongruous
+  enough to get read, and a Dependabot bump clears it (the reasoning is in the `ci.yml`
+  comment). Both steps use `--package-lock-only`, so nothing is installed from
+  the tree being audited. `test/ci-workflow.test.js` asserts the production step can never
+  become non-blocking and the advisory step can never go silent; fix the workflow, not the
+  test. A dev advisory that Dependabot
   auto-dismisses still shows up here, and is cleared by hand with
   `npm update <pkg> --package-lock-only` (commit 5389f52).
 

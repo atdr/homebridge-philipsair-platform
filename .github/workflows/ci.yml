@@ -86,8 +86,25 @@ jobs:
       # Advisory only. Linters and commit tooling never ship, so a DoS in one
       # should not block unrelated PRs. Dependabot alerts stay the signal of
       # record for the dev tree; this surfaces them during review.
-      - run: npm audit --audit-level=high --package-lock-only
-        continue-on-error: true
+      #
+      # The step swallows npm audit's exit code itself rather than deferring to
+      # continue-on-error. Both leave the job green, but continue-on-error cannot
+      # touch the annotation: the runner raises its own 'Process completed with
+      # exit code 1' the moment the process exits, and only the conclusion beneath
+      # it gets rewritten. That notice explains nothing, so a reader who spots it
+      # has to come here to find out whether CI is broken.
+      #
+      # ::error rather than ::warning is deliberate. A red annotation on a green
+      # job is incongruous enough that someone stops and reads it, which is the
+      # entire job of this step; a warning sinks into the standing noise of
+      # deprecation notices and gets scrolled past. It does not become wallpaper,
+      # because a Dependabot bump clears the advisory and the annotation with it.
+      # Guarded by test/ci-workflow.test.js.
+      - name: audit development tree (advisory)
+        run: |
+          if ! npm audit --audit-level=high --package-lock-only; then
+            echo "::error title=Development dependency advisory::npm audit found a high advisory in the development tree. This does not block: development dependencies never reach a user's install, and the job is green on purpose. Dependabot alerts are the signal of record; the report above says which package."
+          fi
 
   commitlint:
     name: commit messages

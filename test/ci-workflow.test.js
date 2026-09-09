@@ -1,9 +1,10 @@
 'use strict';
 
 //Drift guards for the dependency audit in .github/workflows/ci.yml. The two
-//audit steps differ only in a flag and a continue-on-error, so an edit that
-//loses the distinction would leave CI looking green while nothing blocks a
-//vulnerable runtime dependency from reaching a user's Homebridge install.
+//audit steps differ only in a flag and in how each treats a non-zero exit, so an
+//edit that loses the distinction would leave CI looking green while nothing
+//blocks a vulnerable runtime dependency from reaching a user's Homebridge
+//install.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -36,9 +37,9 @@ const auditSteps = () => {
   assert.ok(audit, 'no audit job in ci.yml');
   //One entry per '- run:' step, each carrying the lines that follow it.
   return audit
-    .split(/^ {6}- (?=run:|uses:)/m)
+    .split(/^ {6}- (?=run:|uses:|name:)/m)
     .slice(1)
-    .filter((step) => step.startsWith('run:'));
+    .filter((step) => /^ *run:/m.test(step));
 };
 
 describe('CI dependency audit', () => {
@@ -56,10 +57,24 @@ describe('CI dependency audit', () => {
   it('keeps the full-tree audit advisory only', () => {
     const advisory = auditSteps().filter((step) => step.includes('npm audit') && !step.includes('--omit=dev'));
     assert.equal(advisory.length, 1, 'expected exactly one full-tree audit step');
+    //The step swallows npm audit's exit code rather than being forgiven by
+    //continue-on-error, so that the annotation it leaves behind is one this repo wrote.
+    //continue-on-error cannot change the runner's own 'exit code 1' notice, only the
+    //conclusion beneath it, and that notice explains nothing.
     assert.match(
       advisory[0],
-      /continue-on-error:\s*true/,
+      /if ! npm audit/,
       'a dev-tree advisory must not block unrelated PRs; Dependabot alerts are the signal of record'
+    );
+    //Deliberately ::error, not ::warning. A red annotation on a green job is incongruous
+    //enough to get read, which is the whole job of this step; a warning sinks into the
+    //standing noise of deprecation notices. It is not permanent wallpaper either, because
+    //a Dependabot bump clears it.
+    assert.match(advisory[0], /::error title=/, 'a swallowed advisory must still surface, or the step is useless');
+    assert.doesNotMatch(
+      advisory[0],
+      /continue-on-error/,
+      'the step handles its own exit code; continue-on-error would also mask a broken wrapper'
     );
   });
 
