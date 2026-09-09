@@ -55,7 +55,13 @@ what the gates catch at runtime is not covered here.
   release-silent; production bumps are `fix(deps)` and cut a patch release. The split
   exists because npm never publishes `package-lock.json`, so consumers resolve their own
   tree from the ranges in `package.json`: only a direct production bump changes what they
-  install. There are no runtime dependencies today, so every bump is currently `chore`.
+  install. There are no runtime dependencies today, so **both prefixes are `chore(deps)`**
+  and no npm bump can cut a release. That is not belt and braces: Dependabot cannot tell
+  that a transitive dependency belongs to the dev tree, so it falls back to `prefix` for
+  those, and a `js-yaml` security bump arrived as `fix(deps)` on PR #109. Restore
+  `prefix: fix(deps)` when a runtime dependency is first declared;
+  `test/dependabot-config.test.js` ties the two together and fails on the PR that declares
+  one, so the revert is enforced rather than remembered.
   Dev minor/patch updates are grouped; majors and every security advisory arrive
   individually for isolated review (commit bce7dc3). **Do not group security updates.** A
   group carrying `applies-to: security-updates` used to batch the development ones, and
