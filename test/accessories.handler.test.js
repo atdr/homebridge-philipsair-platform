@@ -1,10 +1,15 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const path = require('node:path');
 const { describe, it } = require('node:test');
 
 const logger = require('../src/utils/logger');
 const Handler = require('../src/accessories/accessories.handler');
+
+const fixture = (name) => path.join(__dirname, 'fixtures', name);
+const BROKEN_SHIM = fixture('fake-aioairctrl-broken');
+const MISSING = fixture('definitely-not-installed-aioairctrl');
 
 const noop = () => {};
 logger.configure({ info: noop, warn: noop, error: noop }, {});
@@ -244,6 +249,34 @@ describe('set argument construction', () => {
     const handler = makeHandler({ model: 'AC0850' });
     assert.ok(!handler.setArgs(['D0310A=2', 'mode=P']).includes('-I'));
     assert.ok(handler.setArgs(['D0310A=2', 'D0310C=17']).includes('-I'));
+  });
+});
+
+describe('runCMD execFile failures', () => {
+  //these go through execFile directly, unlike longPoll's spawn() path (covered
+  //by the -broken shim's use in accessories.handler.lifecycle.test.js): a
+  //`set` command hits this path, and no existing shim variant drove it
+  it('reports a missing binary as unrunnable, the same as a spawn failure would', async () => {
+    const handler = makeHandler({ aioairctrlPath: MISSING });
+
+    await assert.rejects(() => handler.runCMD(['--help']), /not found/);
+  });
+
+  it('rejects with the raw error for a command that fails for no known reason', async () => {
+    //an installed, executable binary (so not ENOENT/EACCES) that simply exits
+    //non-zero: neither the unrunnable-binary case nor a timeout
+    const handler = makeHandler({ aioairctrlPath: BROKEN_SHIM });
+
+    await assert.rejects(
+      () => handler.runCMD(['set', 'pwr=1']),
+      (/** @type {Error} */ err) => {
+        assert.ok(
+          !/not found|could not be executed/.test(err.message),
+          `got unrunnable-binary wording: ${err.message}`
+        );
+        return true;
+      }
+    );
   });
 });
 
