@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.2](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.3.1...v1.3.2) (2026-09-12)
+
+
+### Bug Fixes
+
+* **deps:** bump js-yaml from 4.3.1 to 4.3.2 ([#109](https://github.com/atdr/homebridge-philipsair-platform/issues/109)) ([6338ec0](https://github.com/atdr/homebridge-philipsair-platform/commit/6338ec053c38811e0d734ed8c1734d1a2c73a307))
+
 ## [1.3.1](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.3.0...v1.3.1) (2026-09-08)
 
 
