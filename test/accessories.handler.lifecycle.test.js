@@ -121,6 +121,100 @@ describe('processUpdate', () => {
     await handler.processUpdate(JSON.stringify({ ...status, wicksts: 2400 }));
     assert.deepEqual(updated(handler.wickFilterService, 'FilterLifeLevel'), [['FilterLifeLevel', 50]]);
   });
+
+  it('reports the temperature and humidity sensors when present', async () => {
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.temperatureService = makeService();
+    handler.humidityService = makeService();
+
+    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2', temp: 21.5, rh: 45 }));
+
+    assert.deepEqual(updated(handler.temperatureService, 'CurrentTemperature'), [['CurrentTemperature', 21.5]]);
+    assert.deepEqual(updated(handler.humidityService, 'CurrentRelativeHumidity'), [['CurrentRelativeHumidity', 45]]);
+  });
+
+  it('reports the light on and its brightness while powered on', async () => {
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.lightService = makeService();
+
+    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2', aqil: 50 }));
+
+    assert.deepEqual(updated(handler.lightService, 'On'), [['On', true]]);
+    assert.deepEqual(updated(handler.lightService, 'Brightness'), [['Brightness', 50]]);
+  });
+
+  it('reports the light off, without a brightness reading, while powered off', async () => {
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.lightService = makeService();
+
+    await handler.processUpdate(JSON.stringify({ pwr: '0', mode: 'P', cl: false, om: '2', aqil: 50 }));
+
+    assert.deepEqual(updated(handler.lightService, 'On'), [['On', false]]);
+    assert.equal(updated(handler.lightService, 'Brightness').length, 0, 'a powered-off device got a brightness push');
+  });
+
+  it('reports the humidifier state while actively humidifying', async () => {
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.humidifierService = makeService();
+
+    await handler.processUpdate(
+      JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2', func: 'PH', rh: 45, wl: 100, rhset: 50 })
+    );
+
+    assert.deepEqual(updated(handler.humidifierService, 'Active'), [['Active', 1]]);
+    assert.deepEqual(updated(handler.humidifierService, 'CurrentRelativeHumidity'), [['CurrentRelativeHumidity', 45]]);
+    assert.deepEqual(updated(handler.humidifierService, 'WaterLevel'), [['WaterLevel', 100]]);
+    assert.deepEqual(updated(handler.humidifierService, 'RelativeHumidityHumidifierThreshold'), [
+      ['RelativeHumidityHumidifierThreshold', 50],
+    ]);
+  });
+
+  it('switches back to purifier mode and forces the humidifier off when the tank runs dry', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.humidifierService = makeService();
+    handler.sendCMD = async () => {};
+
+    await handler.processUpdate(
+      JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2', func: 'PH', rh: 45, wl: 0, rhset: 50 })
+    );
+
+    assert.deepEqual(updated(handler.humidifierService, 'WaterLevel'), [['WaterLevel', 0]]);
+    //the reading-driven push, then the forced-off push once the empty tank is noticed
+    assert.deepEqual(updated(handler.humidifierService, 'Active'), [
+      ['Active', 1],
+      ['Active', 0],
+    ]);
+    assert.deepEqual(updated(handler.humidifierService, 'CurrentHumidifierDehumidifierState'), [
+      ['CurrentHumidifierDehumidifierState', 0],
+    ]);
+
+    handler.kill(true);
+  });
+
+  it('reports pre-filter, carbon-filter and HEPA-filter life and change indication', async () => {
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.preFilterService = makeService();
+    handler.carbonFilterService = makeService();
+    handler.hepaFilterService = makeService();
+
+    await handler.processUpdate(
+      JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2', fltsts0: 0, fltsts1: 2400, fltsts2: 4800 })
+    );
+
+    assert.deepEqual(updated(handler.preFilterService, 'FilterChangeIndication'), [['FilterChangeIndication', true]]);
+    assert.deepEqual(updated(handler.preFilterService, 'FilterLifeLevel'), [['FilterLifeLevel', 0]]);
+    assert.deepEqual(updated(handler.hepaFilterService, 'FilterLifeLevel'), [['FilterLifeLevel', 50]]);
+    assert.deepEqual(updated(handler.carbonFilterService, 'FilterLifeLevel'), [['FilterLifeLevel', 100]]);
+  });
 });
 
 describe('adaptive refresh', () => {
@@ -1720,5 +1814,573 @@ describe('write verification', { concurrency: 1 }, () => {
     assert.deepEqual(logs.warn, []);
 
     handler.kill(true);
+  });
+});
+
+describe('setHumidifierActive', () => {
+  const recordingHandler = (config = {}) => {
+    const handler = makeHandler(config);
+    handler.humidifierService = makeService();
+    /** @type {string[][]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args);
+    };
+    return { handler, sent };
+  };
+
+  it('turns the humidifier on, computing the threshold from the last reading', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    handler.obj = { func: 'PH', wl: 100, rhset: 50 };
+
+    await handler.setHumidifierActive(true);
+
+    assert.deepEqual(updated(handler.humidifierService, 'Active'), [['Active', 1]]);
+    assert.deepEqual(updated(handler.humidifierService, 'CurrentHumidifierDehumidifierState'), [
+      ['CurrentHumidifierDehumidifierState', 2],
+    ]);
+    assert.deepEqual(updated(handler.humidifierService, 'RelativeHumidityHumidifierThreshold'), [
+      ['RelativeHumidityHumidifierThreshold', 50],
+    ]);
+    assert.deepEqual(
+      sent.map((args) => args[args.length - 1]),
+      ['func=PH']
+    );
+
+    handler.kill(true);
+  });
+
+  it('reports an empty tank as 0%, not the mapped threshold', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const { handler } = recordingHandler();
+    handler.obj = { func: 'PH', wl: 0, rhset: 50 };
+
+    await handler.setHumidifierActive(true);
+
+    assert.deepEqual(updated(handler.humidifierService, 'CurrentHumidifierDehumidifierState'), [
+      ['CurrentHumidifierDehumidifierState', 0],
+    ]);
+    assert.deepEqual(updated(handler.humidifierService, 'RelativeHumidityHumidifierThreshold'), [
+      ['RelativeHumidityHumidifierThreshold', 0],
+    ]);
+
+    handler.kill(true);
+  });
+
+  it('turns the humidifier off', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    handler.obj = { func: 'PH', wl: 100, rhset: 50 };
+
+    await handler.setHumidifierActive(false);
+
+    assert.deepEqual(updated(handler.humidifierService, 'Active'), [['Active', 0]]);
+    assert.deepEqual(updated(handler.humidifierService, 'CurrentHumidifierDehumidifierState'), [
+      ['CurrentHumidifierDehumidifierState', 0],
+    ]);
+    assert.deepEqual(updated(handler.humidifierService, 'RelativeHumidityHumidifierThreshold'), [
+      ['RelativeHumidityHumidifierThreshold', 0],
+    ]);
+    assert.deepEqual(
+      sent.map((args) => args[args.length - 1]),
+      ['func=P']
+    );
+
+    handler.kill(true);
+  });
+});
+
+describe('setHumidifierTargetState', () => {
+  const recordingHandler = (config = {}) => {
+    const handler = makeHandler(config);
+    handler.humidifierService = makeService();
+    /** @type {string[][]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args);
+    };
+    return { handler, sent };
+  };
+
+  it('maps a mid-range percentage onto the nearest rhset rung, tank full', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    handler.obj = { func: 'P', wl: 100 };
+
+    await handler.setHumidifierTargetState(60);
+
+    assert.deepEqual(updated(handler.humidifierService, 'Active'), [['Active', 1]]);
+    assert.deepEqual(updated(handler.humidifierService, 'CurrentHumidifierDehumidifierState'), [
+      ['CurrentHumidifierDehumidifierState', 2],
+    ]);
+    assert.deepEqual(updated(handler.humidifierService, 'WaterLevel'), [['WaterLevel', 100]]);
+    assert.deepEqual(updated(handler.humidifierService, 'RelativeHumidityHumidifierThreshold'), [
+      ['RelativeHumidityHumidifierThreshold', 75],
+    ]);
+    assert.deepEqual(
+      sent.map((args) => args[args.length - 1]),
+      ['func=PH', 'rhset=60']
+    );
+
+    handler.kill(true);
+  });
+
+  it('maps a low percentage onto the lowest rhset rung', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    handler.obj = { func: 'P', wl: 100 };
+
+    await handler.setHumidifierTargetState(20);
+
+    assert.deepEqual(updated(handler.humidifierService, 'RelativeHumidityHumidifierThreshold'), [
+      ['RelativeHumidityHumidifierThreshold', 25],
+    ]);
+    assert.deepEqual(
+      sent.map((args) => args[args.length - 1]),
+      ['func=PH', 'rhset=40']
+    );
+
+    handler.kill(true);
+  });
+
+  it('maps a middling-low percentage onto the second rhset rung', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    handler.obj = { func: 'P', wl: 100 };
+
+    await handler.setHumidifierTargetState(40);
+
+    assert.deepEqual(updated(handler.humidifierService, 'RelativeHumidityHumidifierThreshold'), [
+      ['RelativeHumidityHumidifierThreshold', 50],
+    ]);
+    assert.deepEqual(
+      sent.map((args) => args[args.length - 1]),
+      ['func=PH', 'rhset=50']
+    );
+
+    handler.kill(true);
+  });
+
+  it('maps the top of the range onto the highest rhset rung', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    handler.obj = { func: 'P', wl: 100 };
+
+    await handler.setHumidifierTargetState(100);
+
+    assert.deepEqual(updated(handler.humidifierService, 'RelativeHumidityHumidifierThreshold'), [
+      ['RelativeHumidityHumidifierThreshold', 100],
+    ]);
+    assert.deepEqual(
+      sent.map((args) => args[args.length - 1]),
+      ['func=PH', 'rhset=70']
+    );
+
+    handler.kill(true);
+  });
+
+  it('turns the humidifier off at 0%, without touching WaterLevel', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const { handler, sent } = recordingHandler();
+    handler.obj = { func: 'PH', wl: 100 };
+
+    await handler.setHumidifierTargetState(0);
+
+    assert.deepEqual(updated(handler.humidifierService, 'Active'), [['Active', 0]]);
+    assert.equal(updated(handler.humidifierService, 'WaterLevel').length, 0, 'an off request pushed a water level');
+    assert.deepEqual(
+      sent.map((args) => args[args.length - 1]),
+      ['func=P', 'rhset=40']
+    );
+
+    handler.kill(true);
+  });
+
+  it('reports an empty tank rather than a full one', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const { handler } = recordingHandler();
+    handler.obj = { func: 'PH', wl: 0 };
+
+    await handler.setHumidifierTargetState(60);
+
+    assert.deepEqual(updated(handler.humidifierService, 'WaterLevel'), [['WaterLevel', 0]]);
+
+    handler.kill(true);
+  });
+});
+
+describe('setLightOn', () => {
+  it('turns the ring on at full cosmetic brightness', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+
+    await handler.setLightOn(true);
+
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I aqil=100', '-H 192.168.1.142 -P 5683 set uil=1']);
+    assert.equal(handler.settingLightState, false);
+  });
+
+  it('turns the ring off', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+
+    await handler.setLightOn(false);
+
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I aqil=0', '-H 192.168.1.142 -P 5683 set uil=0']);
+  });
+
+  it('does nothing while a brightness change is already in flight', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+    handler.settingBrightness = true;
+
+    await handler.setLightOn(true);
+
+    assert.deepEqual(sent, [], 'a light toggle raced a brightness drag instead of yielding to it');
+  });
+});
+
+describe('setLightBrightness', () => {
+  it('sets aqil to the requested level and turns the ring on', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+
+    await handler.setLightBrightness(75);
+
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I aqil=75', '-H 192.168.1.142 -P 5683 set uil=1']);
+  });
+
+  it('turns the ring off at 0', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+
+    await handler.setLightBrightness(0);
+
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I aqil=0', '-H 192.168.1.142 -P 5683 set uil=0']);
+  });
+
+  it('does nothing while the on/off state is already changing', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+    handler.settingLightState = true;
+
+    await handler.setLightBrightness(50);
+
+    assert.deepEqual(sent, [], 'a brightness drag raced a light toggle instead of yielding to it');
+  });
+});
+
+describe('setPurifierRotationSpeed mode reset', () => {
+  //every setPurifierRotationSpeed call above uses an AC0850-shaped config,
+  //which has no mode register; this is the common case, a model that has one
+  it('resets TargetAirPurifierState to AUTO on a model with a mode register', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.sendCMD = async () => {};
+
+    await handler.setPurifierRotationSpeed(50);
+
+    assert.deepEqual(updated(handler.purifierService, 'TargetAirPurifierState'), [['TargetAirPurifierState', 0]]);
+
+    handler.kill(true);
+  });
+});
+
+describe('resendInTurn ordering', () => {
+  it('resends contradicted writes in the order queued when no power-on write is pending', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.writeSettle = 0;
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+
+    await handler.setPurifierLockPhysicalControls(1);
+    await handler.setPurifierRotationSpeed(50);
+    sent.length = 0;
+
+    //the device answers, still disagreeing about both, with no power write in play
+    await handler.processUpdate(JSON.stringify({ pwr: '0', mode: 'M', cl: false, om: '1' }));
+    await delay(120);
+
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set cl=true', '-H 192.168.1.142 -P 5683 set om=2']);
+
+    handler.kill(true);
+  });
+});
+
+describe('revertOptimisticUpdate', () => {
+  it('reverts TargetAirPurifierState to the last known mode when a mode write is abandoned', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+
+    //the last known reading: manual mode
+    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'M', cl: false, om: '2' }));
+    handler.purifierService = makeService();
+
+    handler.sendCMD = async () => {
+      throw new Error('device unreachable');
+    };
+    await handler.setPurifierTargetState(1);
+
+    assert.deepEqual(updated(handler.purifierService, 'TargetAirPurifierState'), [
+      //the optimistic push, made before the write failed
+      ['TargetAirPurifierState', 1],
+      //the revert, back to the last known reading (mode: 'M')
+      ['TargetAirPurifierState', 0],
+    ]);
+
+    handler.kill(true);
+  });
+
+  it('reverts RotationSpeed to the last known speed when a speed write is abandoned', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+
+    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '1' }));
+    handler.purifierService = makeService();
+
+    handler.sendCMD = async () => {
+      throw new Error('device unreachable');
+    };
+    await handler.setPurifierRotationSpeed(100);
+
+    //setPurifierRotationSpeed never pushes RotationSpeed itself; only the revert does
+    assert.deepEqual(updated(handler.purifierService, 'RotationSpeed'), [['RotationSpeed', 100 / 3]]);
+
+    handler.kill(true);
+  });
+
+  it('reverts the humidifier characteristics when a func write is abandoned', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.humidifierService = makeService();
+
+    //the last known reading: not humidifying
+    await handler.processUpdate(
+      JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2', func: 'P', rh: 40, wl: 100 })
+    );
+    handler.humidifierService = makeService();
+
+    handler.sendCMD = async () => {
+      throw new Error('device unreachable');
+    };
+    await handler.setHumidifierActive(true);
+
+    assert.deepEqual(updated(handler.humidifierService, 'Active'), [
+      //the optimistic push
+      ['Active', 1],
+      //the revert: the device never confirmed it started humidifying
+      ['Active', 0],
+    ]);
+
+    handler.kill(true);
+  });
+});
+
+describe('repeated spawn/stop failures', () => {
+  it('stays quiet about a second failure of the same kind', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({ aioairctrlPath: SILENT_SHIM });
+    handler.accessory.getService = () => null;
+    handler.restartDelay = 5000;
+
+    handler.longPoll();
+    await delay(150);
+
+    handler.airControl.emit('error', new Error('kill ESRCH'));
+    await delay(20);
+    assert.equal(logs.warn.length, 1);
+    assert.equal(logs.error.length, 1);
+
+    //a second failure of the same kind (another failed stop) stays quiet
+    handler.airControl.emit('error', new Error('kill ESRCH again'));
+    await delay(20);
+
+    assert.equal(logs.warn.length, 1, 'a repeat of the same failure kind was logged again, expected silence');
+    assert.equal(logs.error.length, 1, 'a repeat of the same failure kind was logged again, expected silence');
+
+    handler.kill(true);
+    await delay(50);
+  });
+});
+
+describe('setter error handling', () => {
+  it('logs, rather than throws, when the lock command fails to send', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.sendCMD = async () => {
+      throw new Error('device unreachable');
+    };
+
+    await assert.doesNotReject(() => handler.setPurifierLockPhysicalControls(1));
+    assert.ok(logs.warn.some((line) => line.includes('An error occured during changing lock state!')));
+
+    handler.kill(true);
+  });
+
+  it('logs, rather than throws, when the humidifier target-state command fails to send', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({});
+    handler.humidifierService = makeService();
+    handler.obj = { func: 'P', wl: 100 };
+    handler.sendCMD = async () => {
+      throw new Error('device unreachable');
+    };
+
+    await assert.doesNotReject(() => handler.setHumidifierTargetState(60));
+    assert.ok(logs.warn.some((line) => line.includes('An error occured during changing target humidifer state!')));
+
+    handler.kill(true);
+  });
+
+  it('logs, rather than throws, when turning the light on fails to send', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({});
+    handler.sendCMD = async () => {
+      throw new Error('device unreachable');
+    };
+
+    await assert.doesNotReject(() => handler.setLightOn(true));
+    assert.ok(logs.warn.some((line) => line.includes('An error occured during changing light state!')));
+    assert.equal(handler.settingLightState, false, 'the in-flight flag was left set after the failure');
+  });
+
+  it('logs, rather than throws, when changing brightness fails to send', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({});
+    handler.sendCMD = async () => {
+      throw new Error('device unreachable');
+    };
+
+    await assert.doesNotReject(() => handler.setLightBrightness(50));
+    assert.ok(logs.warn.some((line) => line.includes('An error occured during changing light brightness!')));
+    assert.equal(handler.settingBrightness, false, 'the in-flight flag was left set after the failure');
+  });
+
+  it('logs when a resend itself fails to send', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+    handler.writeSettle = 0;
+
+    let calls = 0;
+    handler.sendCMD = async () => {
+      calls += 1;
+      if (calls > 1) {
+        throw new Error('device unreachable');
+      }
+    };
+
+    await handler.setPurifierActive(true);
+    await handler.processUpdate(JSON.stringify({ pwr: '0', mode: 'M', cl: false, om: '1' }));
+    await delay(50);
+
+    assert.ok(
+      logs.error.some((line) => line.includes('device unreachable')),
+      `a failed resend was never reported, got ${JSON.stringify(logs.error)}`
+    );
+
+    handler.kill(true);
+  });
+});
+
+describe('requestRefresh', () => {
+  it('does nothing without a running process to refresh', () => {
+    const handler = makeHandler({});
+
+    assert.doesNotThrow(() => handler.requestRefresh());
+    assert.equal(handler.refreshing, false);
   });
 });
