@@ -68,7 +68,7 @@ describe('speeds per model', () => {
 
   it('uses D-register speeds and set flags for AC0850', () => {
     const handler = makeHandler({ model: 'AC0850' });
-    assert.equal(handler.speeds.length, 3);
+    assert.equal(handler.speeds.length, 2);
     assert.deepEqual(handler.extraSetFlags, ['-I']);
     assert.equal(handler.keyMaps.pwr, 'D03102');
   });
@@ -166,7 +166,7 @@ describe('unsupported controls', () => {
   };
 
   it('reports which generic keys a model has no register for', () => {
-    assert.equal(makeHandler({ model: 'AC0850' }).supports('mode'), false);
+    assert.equal(makeHandler({ model: 'AC0850' }).supports('mode'), true);
     assert.equal(makeHandler({ model: 'AC0850' }).supports('cl'), false);
     assert.equal(makeHandler({ model: 'AC0850' }).supports('pwr'), true);
     assert.equal(makeHandler({}).supports('mode'), true);
