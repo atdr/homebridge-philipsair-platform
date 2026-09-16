@@ -53,9 +53,12 @@ const models = {
   AC0850: {
     speeds: [
       { D0310A: 2, D0310C: 17 },
-      { D0310A: 2, D0310C: 0 },
       { D0310A: 2, D0310C: 18 },
     ],
+    modeMaps: {
+      auto: { registers: { D0310A: 2, D0310C: 0 }, speed: 0 },
+      manual: { registers: { D0310A: 2, D0310C: 17 }, speed: 50 },
+    },
     keyMaps: {
       pwr: 'D03102',
       iaql: 'D03120',
@@ -64,12 +67,7 @@ const models = {
       flttotal1: 'D05408',
     },
     extraSetFlags: ['-I'],
-    //this model reports no register for either: not in its status dumps, and
-    //not among the registers mapped above when it was tested. So the plugin
-    //neither sends 'mode=...' / 'cl=...' nor offers the HomeKit controls that
-    //would. The composite speeds may already be how this model expresses mode.
-    //Issue #46 carries the hardware experiment that can overturn this.
-    unsupported: ['mode', 'cl'],
+    unsupported: ['cl'],
   },
 };
 
@@ -133,6 +131,7 @@ const modelConfig = (deviceConfig) => {
     valueMaps: model.valueMaps || {},
     extraSetFlags: model.extraSetFlags || [],
     unsupported: model.unsupported || [],
+    modeMaps: model.modeMaps,
   };
 };
 
