@@ -461,6 +461,12 @@ class Handler {
    * @returns {Promise<void>}
    */
   queueWrite(cmds, expectations, extraFlags = []) {
+    //Avoid merging power with other commands: the AC0850 ignores other commands
+    //merged with power
+    if ('pwr' in expectations) {
+      return this.sendTracked(this.setArgs(cmds, extraFlags), expectations);
+    }
+
     return new Promise((resolve, reject) => {
       this.writeBatch.push({ cmds, expectations, extraFlags, resolve, reject });
 
