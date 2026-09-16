@@ -20,7 +20,7 @@ In the Home app you get:
 - Optional **temperature** and **humidity** sensors
 - The device's own **lights** as lightbulbs
 
-Not every model exposes every control. The AC0850, for example, reports no auto/manual mode and no child lock, so neither is offered in the Home app for that model; power, fan speed, air quality and filter status are unaffected.
+Not every model exposes every control. The AC0850, for example, reports no child lock register, so that control is not offered in the Home app for that model; power, fan speed, auto/manual mode, air quality and filter status are unaffected.
 
 ## Requirements
 
