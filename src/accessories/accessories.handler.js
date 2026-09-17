@@ -726,6 +726,9 @@ class Handler {
         logger.info(`Purifier Rotation Speed: cmds: ${cmds.join(' ')}`, this.accessory.displayName);
 
         await this.queueWrite(cmds, this.speeds[speed - 1]);
+      } else {
+        //0% means off in HomeKit
+        await this.setPurifierActive(0);
       }
     } catch (err) {
       logger.warn('An error occured during changing purifier rotation speed!', this.accessory.displayName);
