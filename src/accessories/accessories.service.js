@@ -64,7 +64,7 @@ class Accessory {
 
     this.purifierService
       .getCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState)
-      .onGet(() => (this.handler.obj.mode === 'M' ? 0 : 1))
+      .onGet(() => (this.handler.inAutoMode() ? 1 : 0))
       .onSet(async (state) => await this.handler.setPurifierTargetState(state));
 
     //TargetAirPurifierState is required on this service and cannot be removed,

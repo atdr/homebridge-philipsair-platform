@@ -241,10 +241,11 @@ class Handler {
       );
     }
 
-    const { speeds, keyMaps, valueMaps, extraSetFlags, unsupported } = modelConfig(config);
+    const { speeds, keyMaps, valueMaps, modeMaps, extraSetFlags, unsupported } = modelConfig(config);
     this.speeds = speeds;
     this.keyMaps = keyMaps;
     this.valueMaps = valueMaps;
+    this.modeMaps = modeMaps;
     this.extraSetFlags = extraSetFlags;
     this.unsupported = new Set(unsupported);
 
@@ -659,7 +660,36 @@ class Handler {
     }
   }
 
+  inAutoMode() {
+    if (this.modeMaps) {
+      return Object.entries(this.modeMaps.auto.registers).every(
+        ([cmd, value]) => String(this.obj[cmd]) === String(value)
+      );
+    }
+    return this.obj.mode !== 'M';
+  }
+
   async setPurifierTargetState(state) {
+    if (this.modeMaps) {
+      try {
+        const target = state ? this.modeMaps.auto : this.modeMaps.manual;
+        const cmds = Object.entries(target.registers).map(([cmd, value]) => this.handleCommand(cmd, value));
+
+        this.purifierService.updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, target.speed);
+        if (state != 0) {
+          this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, state);
+        }
+
+        logger.info(`Purifier Mode: ${state ? 'auto' : 'manual'}`, this.accessory.displayName);
+
+        await this.queueWrite(cmds, target.registers);
+      } catch (err) {
+        logger.warn('An error occured during changing target purifier state!', this.accessory.displayName);
+        logger.error(err, this.accessory.displayName);
+      }
+      return;
+    }
+
     if (!this.supports('mode')) {
       logger.debug(`This model has no mode register, ignoring purifier mode ${state}`, this.accessory.displayName);
       return;
@@ -1436,8 +1466,9 @@ class Handler {
           .updateCharacteristic(Characteristic.CurrentAirPurifierState, on ? 2 : 0);
       }
 
-      if (key === 'mode' && this.supports('mode')) {
-        this.purifierService.updateCharacteristic(Characteristic.TargetAirPurifierState, this.obj.mode === 'M' ? 0 : 1);
+      const modeKey = this.modeMaps ? key in this.modeMaps.auto.registers : key === 'mode';
+      if (modeKey && this.supports('mode')) {
+        this.purifierService.updateCharacteristic(Characteristic.TargetAirPurifierState, this.inAutoMode() ? 1 : 0);
       }
 
       //the speed is spread across whichever keys the model maps it to, so ask
@@ -2029,7 +2060,7 @@ class Handler {
       if (this.supports('mode')) {
         this.purifierService.updateCharacteristic(
           this.api.hap.Characteristic.TargetAirPurifierState,
-          this.obj.mode === 'M' ? 0 : 1
+          this.inAutoMode() ? 1 : 0
         );
       }
 
