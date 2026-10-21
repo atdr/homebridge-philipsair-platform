@@ -166,23 +166,42 @@ describe('unsupported controls', () => {
   };
 
   it('reports which generic keys a model has no register for', () => {
-    assert.equal(makeHandler({ model: 'AC0850' }).supports('mode'), true);
+    assert.equal(makeHandler({ model: 'AC0850' }).supports('mode'), false);
     assert.equal(makeHandler({ model: 'AC0850' }).supports('cl'), false);
     assert.equal(makeHandler({ model: 'AC0850' }).supports('pwr'), true);
     assert.equal(makeHandler({}).supports('mode'), true);
     assert.equal(makeHandler({}).supports('cl'), true);
   });
 
-  it('sends no mode or lock command to a model without those registers', async () => {
-    const { handler, sent } = recording({ model: 'AC0850' });
+  it('reports an auto/manual concept with or without a mode register', () => {
+    //the AC0850 has no 'mode' register, but its modeMaps put Auto on D0310C
+    assert.equal(makeHandler({ model: 'AC0850' }).supportsMode(), true);
+    assert.equal(makeHandler({}).supportsMode(), true);
 
-    await handler.setPurifierTargetState(1);
+    const modeless = makeHandler({ model: 'AC0850' });
+    modeless.modeMaps = undefined;
+    assert.equal(modeless.supportsMode(), false);
+  });
+
+  it('sends no lock command to a model without that register', async (t) => {
+    const { handler, sent } = recording({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
     await handler.setPurifierLockPhysicalControls(1);
 
     assert.deepEqual(sent, [], 'a command was sent for a register the model does not have');
     assert.equal(handler.pendingWrites.size, 0);
+  });
 
-    handler.kill(true);
+  it('sends no mode command to a model with no mode at all', async (t) => {
+    const { handler, sent } = recording({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.modeMaps = undefined;
+
+    await handler.setPurifierTargetState(1);
+
+    assert.deepEqual(sent, [], 'a mode command was sent for a model with no mode');
+    assert.equal(handler.pendingWrites.size, 0);
   });
 
   it('still sends both on a model that has them', async () => {

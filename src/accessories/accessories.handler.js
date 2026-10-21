@@ -634,6 +634,16 @@ class Handler {
     return !this.unsupported.has(key);
   }
 
+  /**
+   * Whether the model has an auto/manual concept HomeKit's
+   * TargetAirPurifierState can drive: a 'mode' register, or `modeMaps` naming
+   * the registers that mean Auto on a model without one (the AC0850). Kept
+   * apart from `supports('mode')`, which still means the register itself.
+   */
+  supportsMode() {
+    return !!this.modeMaps || this.supports('mode');
+  }
+
   handleCommand(key, value) {
     value = this.valueMaps[key] ? this.valueMaps[key][value] : value;
     key = this.keyMaps[key] || key;
@@ -762,8 +772,8 @@ class Handler {
 
       if (speed > 0) {
         //MANUAL is not a value this characteristic accepts on a model with no
-        //mode register: accessories.service.js constrains it to AUTO there
-        if (this.supports('mode')) {
+        //mode: accessories.service.js constrains it to AUTO there
+        if (this.supportsMode()) {
           this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, 0);
         }
 
@@ -1507,7 +1517,7 @@ class Handler {
       }
 
       const modeKey = this.modeMaps ? key in this.modeMaps.auto.registers : key === 'mode';
-      if (modeKey && this.supports('mode')) {
+      if (modeKey && this.supportsMode()) {
         this.purifierService.updateCharacteristic(Characteristic.TargetAirPurifierState, this.inAutoMode() ? 1 : 0);
       }
 
@@ -2097,7 +2107,7 @@ class Handler {
 
       //pushing these from a key the model never reports would push a default,
       //not a reading: 'mode' absent reads as AUTO and 'cl' absent as unlocked
-      if (this.supports('mode')) {
+      if (this.supportsMode()) {
         this.purifierService.updateCharacteristic(
           this.api.hap.Characteristic.TargetAirPurifierState,
           this.inAutoMode() ? 1 : 0

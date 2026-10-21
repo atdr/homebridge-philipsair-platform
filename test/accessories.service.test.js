@@ -64,23 +64,65 @@ describe('accessories.service', () => {
     ]);
   });
 
-  it('offers neither control on a model with no register for them', () => {
+  it('offers auto/manual but no lock on the AC0850, whose mode lives in its speed register', () => {
     const purifier = wire({ model: 'AC0850' });
 
     assert.ok(
       !purifier.testCharacteristic(hap.Characteristic.LockPhysicalControls),
       'a child lock was exposed for a model that has no child lock register'
     );
+    assert.deepEqual(purifier.getCharacteristic(hap.Characteristic.TargetAirPurifierState).props.validValues, [
+      hap.Characteristic.TargetAirPurifierState.MANUAL,
+      hap.Characteristic.TargetAirPurifierState.AUTO,
+    ]);
+  });
+
+  it('pins the auto/manual switch to AUTO on a model with no mode at all', () => {
+    const accessory = Object.assign(
+      new hap.Accessory('Modeless Purifier', hap.uuid.generate('service-test-modeless')),
+      {
+        context: { config: { host: '192.168.1.142', port: 5683, model: 'AC0850' } },
+      }
+    );
+    const handler = new Handler(fakeApi, accessory);
+    handler.longPoll = noop;
+    //no model ships like this today: the AC0850 without its modeMaps
+    handler.modeMaps = undefined;
+
+    new Accessory(fakeApi, accessory, handler);
+    const purifier = accessory.getService(hap.Service.AirPurifier);
+
     assert.deepEqual(
       purifier.getCharacteristic(hap.Characteristic.TargetAirPurifierState).props.validValues,
       [hap.Characteristic.TargetAirPurifierState.AUTO],
-      'the auto/manual switch was left switchable on a model with no mode register'
+      'the auto/manual switch was left switchable on a model with no mode'
     );
     assert.equal(
       purifier.getCharacteristic(hap.Characteristic.TargetAirPurifierState).value,
       hap.Characteristic.TargetAirPurifierState.AUTO,
       'the characteristic was left holding a value outside its own validValues'
     );
+  });
+
+  it('unpins the auto/manual switch on a cached AC0850 paired before it had one', () => {
+    const accessory = Object.assign(new hap.Accessory('Cached AC0850', hap.uuid.generate('service-test-pinned')), {
+      context: { config: { host: '192.168.1.142', port: 5683, model: 'AC0850' } },
+    });
+
+    //props are part of what Homebridge caches, so the old AUTO-only pin survives a restart
+    const purifier = accessory.addService(hap.Service.AirPurifier, 'Cached AC0850', 'purifier');
+    purifier
+      .getCharacteristic(hap.Characteristic.TargetAirPurifierState)
+      .setProps({ validValues: [hap.Characteristic.TargetAirPurifierState.AUTO] });
+
+    const handler = new Handler(fakeApi, accessory);
+    handler.longPoll = noop;
+    new Accessory(fakeApi, accessory, handler);
+
+    assert.deepEqual(purifier.getCharacteristic(hap.Characteristic.TargetAirPurifierState).props.validValues, [
+      hap.Characteristic.TargetAirPurifierState.MANUAL,
+      hap.Characteristic.TargetAirPurifierState.AUTO,
+    ]);
   });
 
   it('takes the lock back off a cached accessory that still has one', () => {

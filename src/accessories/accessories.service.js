@@ -68,15 +68,17 @@ class Accessory {
       .onSet(async (state) => await this.handler.setPurifierTargetState(state));
 
     //TargetAirPurifierState is required on this service and cannot be removed,
-    //so a model with no mode register keeps it pinned to AUTO instead. The Home
-    //app then stops offering an auto/manual switch that could never take effect
-    if (!this.handler.supports('mode')) {
-      this.purifierService
-        .getCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState)
-        .updateValue(this.api.hap.Characteristic.TargetAirPurifierState.AUTO)
-        .setProps({
-          validValues: [this.api.hap.Characteristic.TargetAirPurifierState.AUTO],
-        });
+    //so a model with no mode keeps it pinned to AUTO instead. The Home app then
+    //stops offering an auto/manual switch that could never take effect. Props
+    //are cached with the accessory, so a model that has a mode gets both values
+    //set back explicitly in case it was paired while pinned
+    const { AUTO, MANUAL } = this.api.hap.Characteristic.TargetAirPurifierState;
+    const targetState = this.purifierService.getCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState);
+
+    if (this.handler.supportsMode()) {
+      targetState.setProps({ validValues: [MANUAL, AUTO] });
+    } else {
+      targetState.updateValue(AUTO).setProps({ validValues: [AUTO] });
     }
 
     if (this.handler.supports('cl')) {

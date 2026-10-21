@@ -67,7 +67,12 @@ const models = {
       flttotal1: 'D05408',
     },
     extraSetFlags: ['-I'],
-    unsupported: ['cl'],
+    //this model reports no register for either: not in its status dumps, and
+    //not among the registers mapped above when it was tested. So the plugin
+    //never sends 'mode=...' / 'cl=...' and offers no child lock. Auto/manual
+    //is still offered, through modeMaps, because Auto lives in D0310C.
+    //Issue #46 carries the hardware experiment that can overturn this.
+    unsupported: ['mode', 'cl'],
   },
 };
 
