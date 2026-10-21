@@ -399,10 +399,13 @@ filter blocks in `processUpdate` skip on `undefined` (regression fixed in commit
 Defined in `src/accessories/accessories.models.js` (pure data; see
 `architecture-and-invariants` for why):
 
-1. **Default / legacy** (AC3829 and anything unlisted): generic keys are the wire keys.
+1. **Default / legacy** (anything unlisted): generic keys are the wire keys.
    Speeds are `om`-based: `['1','2','t']`, with `'s'` prepended when the device config
-   sets `sleepSpeed`. AC3036 is a variant: no key maps, but five `mode`/`om` composite
-   speed steps.
+   sets `sleepSpeed`. AC3036 and AC3829 are variants: no key maps, but five `mode`/`om`
+   composite speed steps each (the AC3829 ladder is from ruaan-deysel's
+   ha-philips-airpurifier, with its sleep step built in, so `sleepSpeed` does nothing).
+   The AC3829 also has `modeMaps: { auto: { mode: 'P' } }`: Auto matches none of its
+   speeds, so without it the slider would read 0% in Auto and Sleep would read as Auto.
 2. **AC1715-style**: wire keys are dashed registers (`pwr` → `D03-02`), values are
    words (`'ON'`, `'Auto General'`); `valueMaps.pwr` translates both directions. Speeds
    are `mode`-word steps.

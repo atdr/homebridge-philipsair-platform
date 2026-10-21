@@ -66,6 +66,24 @@ describe('speeds per model', () => {
     assert.deepEqual(handler.speeds[2], { mode: 'M', om: 1 });
   });
 
+  //the device reports om as a number or a string depending on firmware, and
+  //rotationSpeed compares stringified values, so both land on the same step
+  it('reads the AC3829 speed from mode and om, whichever type om arrives as', () => {
+    const handler = makeHandler({ model: 'AC3829' });
+
+    handler.obj = { mode: 'M', om: 3 };
+    assert.equal(handler.rotationSpeed(), 80);
+
+    handler.obj = { mode: 'M', om: '3' };
+    assert.equal(handler.rotationSpeed(), 80);
+
+    handler.obj = { mode: 'S', om: 's' };
+    assert.equal(handler.rotationSpeed(), 20);
+
+    handler.obj = { mode: 'M', om: 't' };
+    assert.equal(handler.rotationSpeed(), 100);
+  });
+
   it('uses D-register speeds and set flags for AC0850', () => {
     const handler = makeHandler({ model: 'AC0850' });
     assert.equal(handler.speeds.length, 2);
@@ -653,6 +671,48 @@ describe('AC0850 slider around Auto', () => {
 
     //HAP stores 100 itself once the speed's onSet returns; the restore must not show Sleep
     assert.notEqual(shown.RotationSpeed, 50);
+  });
+});
+
+describe('AC3829 mode and slider', () => {
+  //its speeds carry mode M (and S for sleep), so an Auto status matches none of
+  //them: without modeMaps the slider would read 0%, which #118 turns into off
+  it('reads a step, not 0%, in Auto', (t) => {
+    const { handler } = recordingWrites({ model: 'AC3829' });
+    t.after(() => handler.kill(true));
+
+    handler.obj = { pwr: '1', mode: 'P', om: '1' };
+
+    assert.equal(handler.inAutoMode(), true);
+    assert.notEqual(handler.rotationSpeed(), 0);
+  });
+
+  it('reads Sleep as a manual step', (t) => {
+    const { handler } = recordingWrites({ model: 'AC3829' });
+    t.after(() => handler.kill(true));
+
+    handler.obj = { pwr: '1', mode: 'S', om: 's' };
+
+    assert.equal(handler.inAutoMode(), false);
+    assert.equal(handler.rotationSpeed(), 20);
+  });
+
+  it('replays a scene captured in Sleep as Sleep', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC3829' });
+    t.after(() => handler.kill(true));
+
+    await Promise.all([handler.setPurifierTargetState(0), handler.setPurifierRotationSpeed(20)]);
+
+    assert.deepEqual(sent, ['mode=S om=s']);
+  });
+
+  it('switches to Auto with mode P', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC3829' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+
+    assert.deepEqual(sent, ['mode=P']);
   });
 });
 

@@ -156,12 +156,12 @@ For a complete `config.json`, see [`example-config.json`](https://github.com/atd
 
 The `model` field selects how the plugin encodes power, mode and fan speed, because Philips models do not agree on any of the three. Support falls into three tiers.
 
-| Tier            | Tested                                                 | Mapped, unverified                                | Everything else                                |
-| --------------- | ------------------------------------------------------ | ------------------------------------------------- | ---------------------------------------------- |
-| **Description** | Dedicated mapping, verified on real hardware.          | Dedicated mapping, inherited and never confirmed. | Default mapping. Often fits, never guaranteed. |
-| **Models**      | <ul><li>AC0850</li><li>AC1715</li><li>AC3036</li></ul> | <ul><li>AC3829</li></ul>                          | <ul><li>Any other model</li></ul>              |
+| Tier            | Supported, validated ★                                        | Supported                                                      | Other models                                   |
+| --------------- | ------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------- |
+| **Description** | As Supported, and also confirmed on hardware by this project. | Dedicated mapping, taken from a source with hardware evidence. | Default mapping. Often fits, never guaranteed. |
+| **Models**      | <ul><li>AC0850 ★</li></ul>                                    | <ul><li>AC1715</li><li>AC3036</li><li>AC3829</li></ul>         | <ul><li>Any other model</li></ul>              |
 
-The model dropdown in the Homebridge UI offers every model with a mapping of its own, tested or not. Anything else falls back to the default.
+A Supported mapping comes from the people who own the hardware: users and contributors of the [original plugin](https://github.com/seydx/homebridge-philipsair-platform), or the [ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier) Home Assistant integration. The model dropdown in the Homebridge UI offers every Supported model. Anything else falls back to the default.
 
 The symptom of a mapping that does not fit is an accessory that appears in the Home app with controls that do nothing. The plugin compares the first status a device sends against the mapping in force and reports a mismatch in the log, so it usually tells you when it has guessed wrong.
 
@@ -205,7 +205,7 @@ Check all three of these:
    Bedroom: Using the AC0850 command set.
    ```
 
-   A device that instead reports `No tested mapping for model "..."`, or `No model is configured`, is running on the default mapping. That is expected for a model outside the tested list, and a bug in your config if your model is on it.
+   A device that instead reports `No dedicated mapping for model "..."`, or `No model is configured`, is running on the default mapping. That is expected for a model in the Other models tier, and a bug in your config if your model is Supported.
 
 The plugin also checks the config against the device itself. The first status a device sends is compared with the mapping in force, and one that answers in registers the mapping cannot read is reported:
 

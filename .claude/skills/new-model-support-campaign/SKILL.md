@@ -1,6 +1,6 @@
 ---
 name: new-model-support-campaign
-description: Decision-gated runbook for adding or fixing support for a Philips purifier/humidifier model (a user reports an unsupported device, wrong speeds, or ineffective controls). Covers capturing a baseline status dump, identifying the wire dialect, deriving speed/key/value maps from observation, encoding them in accessories.models.js, and the live verification protocol before a model may be called tested. Load when a device model misbehaves or a new model is requested. Not for general runtime triage (debugging-and-operations) or protocol background (aioairctrl-and-device-protocol - read it alongside this).
+description: Decision-gated runbook for adding or fixing support for a Philips purifier/humidifier model (a user reports an unsupported device, wrong speeds, or ineffective controls). Covers capturing a baseline status dump, identifying the wire dialect, deriving speed/key/value maps from observation, encoding them in accessories.models.js, and the live verification protocol before a model may carry the README validated (★) mark. Load when a device model misbehaves or a new model is requested. Not for general runtime triage (debugging-and-operations) or protocol background (aioairctrl-and-device-protocol - read it alongside this).
 ---
 
 # New-model support campaign
@@ -102,10 +102,14 @@ rather than guessing.
 
 Each option carries an evidence obligation from Gates 3–4:
 
-1. **No entry needed** — dump shows default keys and the observed speed values are
-   exactly `om: '1'/'2'/'t'` (plus `'s'`). Evidence: Gate 3 table. Action: docs only —
-   add the model to the README tested list and the `config.schema.json` typeahead.
-2. **`sleepSpeed: true` config flag only** — as above plus an `om: 's'` position.
+1. **Empty entry** — dump shows default keys and the observed speed values are
+   exactly `om: '1'/'2'/'t'` (plus `'s'`). Evidence: Gate 3 table. Action: add an empty
+   entry (`AC2889: {}`) to `accessories.models.js`, then the model to the README
+   Supported tier and the `config.schema.json` typeahead. The entry is what makes the
+   model Supported (`test/docs.test.js` requires one for every Supported model); being
+   empty, it keeps the default speeds and the `sleepSpeed` option.
+2. **Empty entry plus `sleepSpeed: true` in the user's config** — as above plus an
+   `om: 's'` position.
 3. **`speeds`-only entry** (AC3036 shape) — default keys but different speed
    positions/registers. Evidence: full Gate 3 speed table.
 4. **`keyMaps`/`valueMaps` entry** (AC1715 shape) — dashed registers or word values.
@@ -134,7 +138,7 @@ see `change-control-and-docs`; write unit tests per `testing-and-validation` (co
 `test/accessories.models.test.js` and the `handleCommand`/`handleResponse` cases in
 `test/accessories.handler.test.js`).
 
-## Gate 6 — live verification protocol (before "tested" status)
+## Gate 6 — live verification protocol (before the validated ★ mark)
 
 The device owner runs the plugin build from your branch and confirms, from the Home
 app, with the observe stream or Homebridge debug log as the measurement:
@@ -154,9 +158,10 @@ device's actual reported state — back to Gate 3 for that position.
 
 Land via the normal PR flow (`change-control-and-docs`). In the PR: the Gate 1
 baseline, the Gate 3 table, Gate 4 outputs, and the Gate 6 checklist results. A model
-goes in the README "Tested devices" list only with Gate 6 evidence; with anything less
-it belongs in the "Not yet confirmed" list (the AC3829 precedent — listed but
-unconfirmed, README). Commit type: `feat` (it changes what devices users can run —
+goes in the README "Supported" tier with a mapping from a source with hardware evidence
+(its owner's Gate 3 dumps, a contributor, or ruaan-deysel/ha-philips-airpurifier). It
+earns the ★ and moves to "Supported, validated" only with Gate 6 evidence on hardware
+this project has run against; the AC1715, AC3036 and AC3829 are Supported without it. Commit type: `feat` (it changes what devices users can run —
 minor version bump).
 
 ## Provenance and maintenance
@@ -166,6 +171,6 @@ Verified against the repo at commit 36067a6, 2026-07-12. Re-verify:
 ```bash
 grep -n "extraSetFlags\|keyMaps\|valueMaps\|speeds" src/accessories/accessories.models.js  # encoding surface unchanged
 grep -n "rotationSpeed()" -A 8 src/accessories/accessories.handler.js                      # all-keys stringified matching
-grep -n "Tested devices\|Not yet confirmed" README.md                                       # promotion targets exist
+grep -n "Supported, validated\|Other models" README.md                                     # promotion targets exist
 node --test test/config.schema.test.js test/docs.test.js                                    # sync guards active
 ```
