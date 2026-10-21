@@ -61,9 +61,9 @@ describe('speeds per model', () => {
 
   it('uses mode-based speeds for AC3036', () => {
     const handler = makeHandler({ model: 'AC3036' });
-    assert.equal(handler.speeds.length, 5);
+    assert.equal(handler.speeds.length, 4);
     assert.deepEqual(handler.speeds[0], { mode: 'S' });
-    assert.deepEqual(handler.speeds[2], { mode: 'M', om: 1 });
+    assert.deepEqual(handler.speeds[1], { mode: 'M', om: 1 });
   });
 
   //the device reports om as a number or a string depending on firmware, and
@@ -443,7 +443,8 @@ describe('deviceKnownOff', () => {
 describe('rotationSpeed', () => {
   it('derives the HomeKit percentage from the matching speed entry', () => {
     const handler = makeHandler({});
-    handler.obj = { om: '2' };
+    //in Manual: in Auto the slider shows the last manual step instead
+    handler.obj = { mode: 'M', om: '2' };
     assert.equal(handler.rotationSpeed(), 2 * (100 / 3));
   });
 
@@ -584,7 +585,7 @@ describe('mode and speed in one scene', () => {
     t.after(() => handler.kill(true));
 
     await Promise.all([handler.setPurifierRotationSpeed(100), handler.setPurifierTargetState(1)]);
-    assert.deepEqual(sent, ['mode=P']);
+    assert.deepEqual(sent, ['mode=AG']);
 
     sent.length = 0;
     await Promise.all([handler.setPurifierTargetState(0), handler.setPurifierRotationSpeed(100)]);
@@ -713,6 +714,90 @@ describe('AC3829 mode and slider', () => {
     await handler.setPurifierTargetState(1);
 
     assert.deepEqual(sent, ['mode=P']);
+  });
+});
+
+describe('Auto on the selector for every model', () => {
+  //the AC0850 approach applied everywhere: Auto is written and read through
+  //modeMaps, the slider keeps the manual steps, and Manual restores the last one
+  const selector = (config) => {
+    const recorded = recordingWrites(config);
+    return { ...recorded, pending: () => [...recorded.handler.pendingWrites.keys()] };
+  };
+
+  it('writes AC1715 Auto as a word on D03-12, and reads it back', async (t) => {
+    const { handler, sent, pending } = selector({ model: 'AC1715' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    assert.deepEqual(sent, ['D03-12=Auto General']);
+    //expectations are generic key space, which is what the status maps back into
+    assert.deepEqual(pending(), ['mode']);
+
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-12': 'Auto General' });
+    assert.equal(handler.inAutoMode(), true);
+    assert.equal(handler.rotationSpeed(), 25);
+
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-12': 'Speed 2' });
+    assert.equal(handler.inAutoMode(), false);
+    assert.equal(handler.rotationSpeed(), 75);
+  });
+
+  it('restores the last AC1715 manual step on switching to Manual', async (t) => {
+    const { handler, sent, shown } = selector({ model: 'AC1715' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-12': 'Speed 2' });
+    handler.rotationSpeed();
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-12': 'Auto General' });
+
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['D03-12=Speed 2']);
+    assert.equal(shown.RotationSpeed, 75);
+  });
+
+  it('writes AC3036 Auto as AG and Manual as the last manual step', async (t) => {
+    const { handler, sent } = selector({ model: 'AC3036' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['mode=AG', 'mode=S']);
+
+    handler.handleResponse({ pwr: '1', mode: 'AG', om: 'a' });
+    assert.equal(handler.inAutoMode(), true);
+    assert.equal(handler.rotationSpeed(), 25);
+    handler.handleResponse({ pwr: '1', mode: 'M', om: '2' });
+    assert.equal(handler.inAutoMode(), false);
+    assert.equal(handler.rotationSpeed(), 75);
+  });
+
+  it('writes the default map Auto as P and Manual as M', async (t) => {
+    const { handler, sent } = selector({});
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['mode=P', 'mode=M']);
+  });
+
+  it('reads the default map in Auto as the last manual step, not the speed Auto chose', (t) => {
+    const { handler } = selector({});
+    t.after(() => handler.kill(true));
+
+    //before any status the selector reads AUTO and the slider the first step
+    assert.equal(handler.inAutoMode(), true);
+    assert.equal(handler.rotationSpeed(), 100 / 3);
+
+    handler.handleResponse({ pwr: '1', mode: 'M', om: '2' });
+    assert.equal(handler.inAutoMode(), false);
+    assert.equal(handler.rotationSpeed(), 200 / 3);
+
+    handler.handleResponse({ pwr: '1', mode: 'P', om: 't' });
+    assert.equal(handler.inAutoMode(), true);
+    assert.equal(handler.rotationSpeed(), 200 / 3);
   });
 });
 

@@ -27,18 +27,23 @@ describe('accessories.models', () => {
     );
   });
 
-  it('uses mode-based speeds for AC3036', () => {
+  it('uses mode-based speeds for AC3036, with Auto on the selector', () => {
     const model = modelConfig({ model: 'AC3036' });
 
-    assert.equal(model.speeds.length, 5);
-    assert.deepEqual(model.speeds[0], { mode: 'S' });
-    assert.deepEqual(model.speeds[2], { mode: 'M', om: 1 });
+    assert.deepEqual(model.speeds, [{ mode: 'S' }, { mode: 'M', om: 1 }, { mode: 'M', om: 2 }, { mode: 'T' }]);
+    assert.deepEqual(model.modeMaps, { auto: { mode: 'AG' } });
   });
 
-  it('maps keys and power values for AC1715', () => {
+  it('maps keys and power values for AC1715, with Auto on the selector', () => {
     const model = modelConfig({ model: 'AC1715' });
 
-    assert.equal(model.speeds.length, 5);
+    assert.deepEqual(model.speeds, [
+      { mode: 'Sleep' },
+      { mode: 'Gentle/Speed 1' },
+      { mode: 'Speed 2' },
+      { mode: 'Turbo' },
+    ]);
+    assert.deepEqual(model.modeMaps, { auto: { mode: 'Auto General' } });
     assert.equal(model.keyMaps.pwr, 'D03-02');
     assert.equal(model.valueMaps.pwr.ON, 1);
     assert.equal(model.valueMaps.pwr[0], 'OFF');
@@ -52,10 +57,28 @@ describe('accessories.models', () => {
     assert.deepEqual(model.extraSetFlags, ['-I']);
   });
 
-  it('puts AC0850 Auto on the speed registers and leaves other models without modeMaps', () => {
+  it('puts AC0850 Auto on the speed registers', () => {
     assert.deepEqual(modelConfig({ model: 'AC0850' }).modeMaps, { auto: { D0310A: 2, D0310C: 0 } });
-    assert.equal(modelConfig({}).modeMaps, undefined);
-    assert.equal(modelConfig({ model: 'AC3036' }).modeMaps, undefined);
+  });
+
+  it('gives the default map Auto P and Manual M', () => {
+    assert.deepEqual(modelConfig({}).modeMaps, { auto: { mode: 'P' }, manual: { mode: 'M' } });
+  });
+
+  //one mechanism for every model: Auto is on the selector, never a slider step
+  it('gives every mapped model an Auto that is not one of its speeds', () => {
+    for (const model of [undefined, ...modelConfig.mappedModels]) {
+      const { speeds, modeMaps } = modelConfig({ model });
+      const auto = Object.entries(modeMaps.auto);
+
+      assert.ok(auto.length > 0, `${model} declares no Auto`);
+      for (const speed of speeds) {
+        assert.ok(
+          !auto.every(([key, value]) => String(speed[key]) === String(value)),
+          `${model} has Auto as a speed: ${JSON.stringify(speed)}`
+        );
+      }
+    }
   });
 
   it('uses a sleep position and four manual om speeds for AC3829', () => {

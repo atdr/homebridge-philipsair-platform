@@ -80,7 +80,8 @@ describe('processUpdate', () => {
     const handler = makeHandler({});
     handler.purifierService = makeService();
 
-    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2' }));
+    //in Manual, where the slider shows the device's own speed
+    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'M', cl: false, om: '2' }));
 
     assert.deepEqual(updated(handler.purifierService, 'Active'), [['Active', 1]]);
     assert.deepEqual(updated(handler.purifierService, 'RotationSpeed'), [['RotationSpeed', 2 * (100 / 3)]]);

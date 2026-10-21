@@ -5,26 +5,39 @@
 //generic keys to model-specific registers; 'valueMaps' translate values in
 //both directions; 'extraSetFlags' are extra CLI flags for set commands;
 //'unsupported' lists generic keys the model has no register for at all;
-//'modeMaps' gives a model with no 'mode' register an auto/manual concept: its
-//'auto' entry holds the register values that mean Auto, and Manual has none of
-//its own (it restores the last of the 'speeds' the device was in).
-//Models not listed here use the default 'om' based speeds.
+//'modeMaps' is the model's auto/manual concept, the one mechanism behind
+//HomeKit's auto/manual selector on every model: its 'auto' entry holds the
+//register values that mean Auto, which is never one of the 'speeds'. Manual
+//restores the last of the 'speeds' the device was in, unless a 'manual' entry
+//names registers of its own.
+//Models not listed here use the default 'om' based speeds and modes.
 
 const DEFAULT_SPEEDS = [{ om: '1' }, { om: '2' }, { om: 't' }];
 const DEFAULT_SLEEP_SPEEDS = [{ om: 's' }, ...DEFAULT_SPEEDS];
 
+//the legacy 'mode' register: P is Auto, M manual. Manual
+//keeps writing M rather than restoring a speed, because the default speeds
+//write 'om' alone and nothing confirms that 'om' takes an unknown model out of
+//Auto; sending 'mode=M' beside a speed is a write no tested model has had
+const DEFAULT_MODE_MAPS = { auto: { mode: 'P' }, manual: { mode: 'M' } };
+
 const models = {
   AC3036: {
-    speeds: [{ mode: 'S' }, { mode: 'AG' }, { mode: 'M', om: 1 }, { mode: 'M', om: 2 }, { mode: 'T' }],
+    //Auto is AG (ruaan-deysel/ha-philips-airpurifier), and P is not an AC303x
+    //mode at all. It goes on the selector, leaving four slider steps: 25%
+    //Sleep, 50% and 75% the manual speeds, 100% Turbo
+    speeds: [{ mode: 'S' }, { mode: 'M', om: 1 }, { mode: 'M', om: 2 }, { mode: 'T' }],
+    modeMaps: {
+      auto: { mode: 'AG' },
+    },
   },
   AC1715: {
-    speeds: [
-      { mode: 'Sleep' },
-      { mode: 'Auto General' },
-      { mode: 'Gentle/Speed 1' },
-      { mode: 'Speed 2' },
-      { mode: 'Turbo' },
-    ],
+    //D03-12 takes the mode as words. Auto goes on the selector, leaving four
+    //slider steps: 25% Sleep, 50% and 75% the two speeds, 100% Turbo
+    speeds: [{ mode: 'Sleep' }, { mode: 'Gentle/Speed 1' }, { mode: 'Speed 2' }, { mode: 'Turbo' }],
+    modeMaps: {
+      auto: { mode: 'Auto General' },
+    },
     keyMaps: {
       pwr: 'D03-02',
       om: 'D03-13',
@@ -157,10 +170,14 @@ const resolveModel = (deviceConfig = {}) => {
   return { key: undefined, source: undefined, nameSuggests: undefined };
 };
 
+//an unmapped model gets the default modes; a mapped one only what it declares
+const modeMapsFor = (key) => (key && models[key] ? models[key].modeMaps : DEFAULT_MODE_MAPS);
+
 const modelConfig = (deviceConfig) => {
   //modelKey is stamped on by accessories.setup.js, which resolves once and logs
   //what it found; resolving again covers a config object built directly
-  const model = models[deviceConfig.modelKey || resolveModel(deviceConfig).key] || {};
+  const key = deviceConfig.modelKey || resolveModel(deviceConfig).key;
+  const model = models[key] || {};
 
   return {
     speeds: model.speeds || (deviceConfig.sleepSpeed ? DEFAULT_SLEEP_SPEEDS : DEFAULT_SPEEDS),
@@ -168,7 +185,7 @@ const modelConfig = (deviceConfig) => {
     valueMaps: model.valueMaps || {},
     extraSetFlags: model.extraSetFlags || [],
     unsupported: model.unsupported || [],
-    modeMaps: model.modeMaps,
+    modeMaps: modeMapsFor(key),
   };
 };
 
