@@ -1,6 +1,4 @@
-<p align="center">
-    <img src="https://raw.githubusercontent.com/atdr/homebridge-philipsair-platform/main/images/logo.png" alt="Plugin logo" height="200">
-</p>
+![homebridge-philipsair-platform: Philips air purifiers in Apple Home](https://raw.githubusercontent.com/atdr/homebridge-philipsair-platform/main/images/banner.png)
 
 # homebridge-philipsair-platform
 
