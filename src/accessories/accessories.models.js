@@ -53,6 +53,18 @@ const models = {
       },
     },
   },
+  AC3829: {
+    //speed ladder from ruaan-deysel/ha-philips-airpurifier (device_models.py):
+    //sleep is its own mode, and the manual speeds are om 1, 2, 3 and turbo.
+    //Its auto, allergen and manual modes match the generic P, A and M
+    speeds: [
+      { mode: 'S', om: 's' },
+      { mode: 'M', om: '1' },
+      { mode: 'M', om: '2' },
+      { mode: 'M', om: '3' },
+      { mode: 'M', om: 't' },
+    ],
+  },
   AC0850: {
     //D0310C is mode and speed in one register: 0 = Auto, 17 = Sleep,
     //18 = Turbo, always written with D0310A = 2. Auto goes on HomeKit's

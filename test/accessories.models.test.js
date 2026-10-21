@@ -58,9 +58,27 @@ describe('accessories.models', () => {
     assert.equal(modelConfig({ model: 'AC3036' }).modeMaps, undefined);
   });
 
+  it('uses a sleep position and four manual om speeds for AC3829', () => {
+    const model = modelConfig({ model: 'AC3829' });
+
+    assert.deepEqual(model.speeds, [
+      { mode: 'S', om: 's' },
+      { mode: 'M', om: '1' },
+      { mode: 'M', om: '2' },
+      { mode: 'M', om: '3' },
+      { mode: 'M', om: 't' },
+    ]);
+    assert.deepEqual(model.keyMaps, {});
+    assert.deepEqual(model.valueMaps, {});
+  });
+
   it('ignores sleepSpeed for models with explicit speeds', () => {
     const model = modelConfig({ model: 'AC0850', sleepSpeed: true });
     assert.equal(model.speeds.length, 2);
+
+    //the AC3829 table already has its sleep position, so the option adds none
+    assert.equal(modelConfig({ model: 'AC3829', sleepSpeed: true }).speeds.length, 5);
+    assert.equal(modelConfig.hasOwnSpeeds('AC3829'), true);
   });
 
   describe('normaliseModel', () => {
@@ -165,6 +183,7 @@ describe('accessories.models', () => {
     it('takes a device at its word when it names itself', () => {
       assert.deepEqual(modelConfig.identifyModel(selfIdentifying), { key: 'AC0850', certainty: 'reported' });
       assert.equal(modelConfig.identifyModel({ pwr: '1', om: '2', modelid: 'AC1715/10' }).key, 'AC1715');
+      assert.equal(modelConfig.identifyModel({ pwr: '1', om: '2', type: 'AC3829' }).key, 'AC3829');
     });
 
     //D01S03 and D01S04 are whatever the owner typed into the Philips app, and
@@ -176,8 +195,7 @@ describe('accessories.models', () => {
     });
 
     it('identifies nothing from a status that names no model this plugin maps', () => {
-      //AC3829 self-identifies, but has no mapping to switch to
-      assert.equal(modelConfig.identifyModel({ pwr: '1', om: '2', type: 'AC3829' }).key, undefined);
+      assert.equal(modelConfig.identifyModel({ pwr: '1', om: '2', type: 'AC2889' }).key, undefined);
       assert.equal(modelConfig.identifyModel({ pwr: '1' }).key, undefined);
       assert.equal(modelConfig.identifyModel({}).key, undefined);
     });

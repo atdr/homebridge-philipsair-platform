@@ -66,6 +66,24 @@ describe('speeds per model', () => {
     assert.deepEqual(handler.speeds[2], { mode: 'M', om: 1 });
   });
 
+  //the device reports om as a number or a string depending on firmware, and
+  //rotationSpeed compares stringified values, so both land on the same step
+  it('reads the AC3829 speed from mode and om, whichever type om arrives as', () => {
+    const handler = makeHandler({ model: 'AC3829' });
+
+    handler.obj = { mode: 'M', om: 3 };
+    assert.equal(handler.rotationSpeed(), 80);
+
+    handler.obj = { mode: 'M', om: '3' };
+    assert.equal(handler.rotationSpeed(), 80);
+
+    handler.obj = { mode: 'S', om: 's' };
+    assert.equal(handler.rotationSpeed(), 20);
+
+    handler.obj = { mode: 'M', om: 't' };
+    assert.equal(handler.rotationSpeed(), 100);
+  });
+
   it('uses D-register speeds and set flags for AC0850', () => {
     const handler = makeHandler({ model: 'AC0850' });
     assert.equal(handler.speeds.length, 2);
