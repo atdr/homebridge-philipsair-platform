@@ -1337,7 +1337,7 @@ describe('write verification', { concurrency: 1 }, () => {
 
     //the scene #77 was observed under: power and speed set together
     await handler.setPurifierActive(true);
-    await handler.setPurifierRotationSpeed(50);
+    await handler.setPurifierRotationSpeed(100);
     assert.deepEqual([...handler.pendingWrites.keys()], ['pwr', 'D0310A', 'D0310C']);
     sent.length = 0;
 
@@ -1347,7 +1347,7 @@ describe('write verification', { concurrency: 1 }, () => {
     //would fire that same command twice. the wake-up goes last: it has to be
     //the last thing a sleeping device hears if wake disturbance is what #77 saw
     assert.deepEqual(sent, [
-      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=0',
+      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=18',
       '-H 192.168.1.142 -P 5683 set -I D03102=1',
     ]);
     //these purifiers serve one connection, and the plugin already holds one
@@ -1667,10 +1667,10 @@ describe('write verification', { concurrency: 1 }, () => {
     //onSet calls, so nothing awaits one before making the other. Both are
     //integer-encodable, so they should be folded into one command rather
     //than sent (and possibly raced or dropped) as two
-    await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(50)]);
+    await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(100)]);
 
     assert.equal(overlapped, 1, 'a merged write is still one process on the wire');
-    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1 D0310A=2 D0310C=0']);
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1 D0310A=2 D0310C=18']);
     assert.deepEqual([...handler.pendingWrites.keys()], ['pwr', 'D0310A', 'D0310C']);
 
     const pending = [...handler.pendingWrites.values()];
@@ -1737,7 +1737,7 @@ describe('write verification', { concurrency: 1 }, () => {
 
     await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 17 }));
     await handler.setPurifierActive(true);
-    await handler.setPurifierRotationSpeed(50);
+    await handler.setPurifierRotationSpeed(100);
     sent.length = 0;
 
     //the device answers, still disagreeing about both commands
@@ -1746,7 +1746,7 @@ describe('write verification', { concurrency: 1 }, () => {
 
     assert.equal(overlapped, 1, 'two contradicted commands were resent at once');
     assert.deepEqual(sent, [
-      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=0',
+      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=18',
       '-H 192.168.1.142 -P 5683 set -I D03102=1',
     ]);
 
