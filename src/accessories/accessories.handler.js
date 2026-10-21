@@ -691,11 +691,20 @@ class Handler {
     }
   }
 
+  /**
+   * Whether the device is in Auto, as TargetAirPurifierState reports it. A
+   * device that has not answered yet reads as AUTO on both paths: the legacy
+   * one because an absent 'mode' is not 'M', the modeMaps one explicitly.
+   */
   inAutoMode() {
     if (this.modeMaps) {
-      return Object.entries(this.modeMaps.auto.registers).every(
-        ([cmd, value]) => String(this.obj[cmd]) === String(value)
-      );
+      const registers = Object.entries(this.modeMaps.auto.registers);
+
+      if (registers.every(([cmd]) => this.obj[cmd] === undefined)) {
+        return true;
+      }
+
+      return registers.every(([cmd, value]) => String(this.obj[cmd]) === String(value));
     }
     return this.obj.mode !== 'M';
   }

@@ -183,6 +183,20 @@ describe('unsupported controls', () => {
     assert.equal(modeless.supportsMode(), false);
   });
 
+  it('reads AUTO before the device has reported its mode, as a mode register does', () => {
+    const ac0850 = makeHandler({ model: 'AC0850' });
+    const legacy = makeHandler({});
+
+    //nothing heard yet: both paths have to agree on the default
+    assert.equal(legacy.inAutoMode(), true);
+    assert.equal(ac0850.inAutoMode(), true);
+
+    ac0850.obj = { D0310A: 2, D0310C: 17 };
+    assert.equal(ac0850.inAutoMode(), false);
+    ac0850.obj = { D0310A: 2, D0310C: 0 };
+    assert.equal(ac0850.inAutoMode(), true);
+  });
+
   it('sends no lock command to a model without that register', async (t) => {
     const { handler, sent } = recording({ model: 'AC0850' });
     t.after(() => handler.kill(true));
