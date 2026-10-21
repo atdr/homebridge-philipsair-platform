@@ -246,6 +246,24 @@ describe('docs', () => {
       assert.ok(supportedModels.includes(model), `README marks ${model} validated (★) outside the Supported tiers`);
     }
   });
+
+  //the slider layout is what a user sees of the speed table, and it changes
+  //whenever a step is added or Auto moves off the slider
+  it('gives every mapped model a README slider row with one step per speed', () => {
+    const rows = subsection(deviceSupportSection, 'Fan speed and Auto')
+      .split('\n')
+      .filter((line) => line.trimStart().startsWith('|'))
+      .map((line) => line.split('|').map((cell) => cell.trim()));
+    const modelConfig = require('../src/accessories/accessories.models');
+
+    for (const model of mappedModels) {
+      const row = rows.find((cells) => cells[1] === model);
+      assert.ok(row, `the README 'Fan speed and Auto' table has no row for ${model}`);
+
+      const steps = (row[2].match(/\d+%/g) || []).length;
+      assert.equal(steps, modelConfig({ model }).speeds.length, `the README slider row for ${model} is out of date`);
+    }
+  });
 });
 
 //The model format is documented in two places: the header comment of
@@ -272,6 +290,20 @@ describe('model format', () => {
   it('documents every field in the protocol skill dialect section', () => {
     for (const field of modelFields) {
       assert.ok(dialects.includes(`\`${field}`), `the protocol skill dialect section does not name \`${field}\``);
+    }
+  });
+
+  //modeMaps entries are a vocabulary of their own, including the default map's
+  it('documents every modeMaps entry in the header comment and the protocol skill', () => {
+    const modelConfig = require('../src/accessories/accessories.models');
+    const entries = new Set(
+      [undefined, ...modelConfig.mappedModels].flatMap((model) => Object.keys(modelConfig({ model }).modeMaps || {}))
+    );
+
+    assert.ok(entries.has('auto'), 'no model declares a modeMaps auto entry');
+    for (const entry of entries) {
+      assert.ok(header.includes(`'${entry}'`), `accessories.models.js header does not document modeMaps '${entry}'`);
+      assert.ok(dialects.includes(`\`${entry}\``), `the protocol skill dialect section does not name \`${entry}\``);
     }
   });
 

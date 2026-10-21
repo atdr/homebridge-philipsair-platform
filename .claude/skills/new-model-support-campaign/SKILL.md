@@ -124,10 +124,15 @@ Each option carries an evidence obligation from Gates 3–4:
    control. Evidence: the key absent from **every** Gate 3 dump, in every relevant device
    state, not merely a mapping you have not worked out. This removes a control from users'
    Home apps, so an unproven absence belongs in an issue, not in this field.
-7. **`modeMaps` entry** (AC0850 shape) — the model has no `mode` register, but one of its
-   speed registers also carries Auto. Evidence: Gate 3 dumps with the device in Auto and in
-   each manual speed, showing the Auto values, and a Gate 4 round-trip setting Auto. Auto
-   then leaves `speeds` and goes on the auto/manual selector.
+7. **`modeMaps` entry** (every mapped model with an Auto): the register values that mean
+   Auto, whether in a `mode` register (AC1715 `'Auto General'`, AC3036 `'AG'`) or in a speed
+   register (AC0850 `D0310C` 0). Evidence: Gate 3 dumps with the device in Auto and in each
+   manual speed, showing the Auto values, and a Gate 4 round-trip setting Auto. Auto never
+   goes in `speeds`: it is on the auto/manual selector, the slider keeps the manual steps,
+   and Manual restores the last one. `test/accessories.models.test.js` fails a model whose
+   Auto is also a speed. Add `manual` only when Manual must be written as a mode of its own
+   (the default map's `mode=M`), and `allergen` only for a plain allergen mode the device
+   was seen to accept, since that is what makes `allergicFunc` do anything.
 8. **Handler code change** — last resort, only when the dialect cannot be expressed as
    data in `accessories.models.js`. Stop and discuss with the maintainer first; this
    crosses from data into the fragile paths listed in `architecture-and-invariants`.

@@ -512,8 +512,8 @@ describe('rotation speed 0', () => {
     assert.equal(shown.CurrentAirPurifierState, 0);
   });
 
-  //a scene captured while the slider read 0% (a legacy model in auto mode, for
-  //one) stores RotationSpeed 0 beside Active 1, and HAP delivers the two in
+  //a scene captured while the slider read 0% (any model in Auto, before Auto
+  //left the slider) stores RotationSpeed 0 beside Active 1, and HAP delivers the two in
   //no guaranteed order
   for (const order of ['power first', 'speed first']) {
     it(`lets a power-on in the same scene win (${order})`, async (t) => {

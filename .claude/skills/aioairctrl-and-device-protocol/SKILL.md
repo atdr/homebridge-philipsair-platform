@@ -372,23 +372,23 @@ these on the way in (`handleResponse`) and from these on the way out (`handleCom
 Meanings below are as this repo uses them, verified against
 `processUpdate`/`set*` methods in `accessories.handler.js`:
 
-| Generic key     | Meaning in this repo                        | Values seen in code/tests                                                                                                   |
-| --------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `pwr`           | Power                                       | `'1'`/`'0'` (AC1715 device-side: `'ON'`/`'OFF'`, value-mapped)                                                              |
-| `mode`          | Operating mode                              | Set path: `'P'` (auto), `'M'` (manual), `'A'` (allergen, when `allergicFunc`). Read path: `mode === 'M'` → HomeKit "manual" |
-| `om`            | Fan speed register (default dialect)        | `'s'` (sleep), `'1'`, `'2'`, `'t'` (turbo)                                                                                  |
-| `cl`            | Child lock                                  | boolean                                                                                                                     |
-| `aqil`          | Display/light brightness                    | 0–100 (set with `-I`)                                                                                                       |
-| `uil`           | Buttons/UI light                            | `'1'`/`'0'`; on the AC1715, `D03-05` as `100`/`0` (set with `-I`, via `valueMaps.uil`)                                      |
-| `func`          | Function (humidifier-capable models)        | `'P'` purification, `'PH'` purification + humidification                                                                    |
-| `rhset`         | Target humidity                             | 40/50/60/70, mapped to HomeKit threshold 25/50/75/100                                                                       |
-| `wl`            | Water level                                 | 0 (empty) or 100 in the code's branches                                                                                     |
-| `iaql`          | Indoor allergen index                       | HomeKit AirQuality = `ceil(iaql / 3)` clamped 0–5                                                                           |
-| `pm25`          | PM2.5 density                               | clamped 0–1000                                                                                                              |
-| `rh` / `temp`   | Humidity % / temperature °C                 | clamped 0–100 / −270–100                                                                                                    |
-| `fltsts0/1/2`   | Filter hours remaining: pre / HEPA / carbon | 0 = "change now"; life% = `fltsts / flttotal`                                                                               |
-| `flttotal0/1/2` | Filter total hours                          | fallbacks when absent: 360 / 4800 / 4800                                                                                    |
-| `wicksts`       | Wick filter hours remaining                 | life% = `wicksts / 4800`                                                                                                    |
+| Generic key     | Meaning in this repo                        | Values seen in code/tests                                                                                                                                                                                                                      |
+| --------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pwr`           | Power                                       | `'1'`/`'0'` (AC1715 device-side: `'ON'`/`'OFF'`, value-mapped)                                                                                                                                                                                 |
+| `mode`          | Operating mode                              | Through `modeMaps` only. Default map: `'P'` Auto (`'A'` instead with `allergicFunc`), `'M'` Manual. AC3036: `'AG'` Auto. AC1715 (`D03-12`): `'Auto General'` Auto. Read path: the `modeMaps.auto` value → HomeKit AUTO, any other value MANUAL |
+| `om`            | Fan speed register (default dialect)        | `'s'` (sleep), `'1'`, `'2'`, `'t'` (turbo)                                                                                                                                                                                                     |
+| `cl`            | Child lock                                  | boolean                                                                                                                                                                                                                                        |
+| `aqil`          | Display/light brightness                    | 0–100 (set with `-I`)                                                                                                                                                                                                                          |
+| `uil`           | Buttons/UI light                            | `'1'`/`'0'`; on the AC1715, `D03-05` as `100`/`0` (set with `-I`, via `valueMaps.uil`)                                                                                                                                                         |
+| `func`          | Function (humidifier-capable models)        | `'P'` purification, `'PH'` purification + humidification                                                                                                                                                                                       |
+| `rhset`         | Target humidity                             | 40/50/60/70, mapped to HomeKit threshold 25/50/75/100                                                                                                                                                                                          |
+| `wl`            | Water level                                 | 0 (empty) or 100 in the code's branches                                                                                                                                                                                                        |
+| `iaql`          | Indoor allergen index                       | HomeKit AirQuality = `ceil(iaql / 3)` clamped 0–5                                                                                                                                                                                              |
+| `pm25`          | PM2.5 density                               | clamped 0–1000                                                                                                                                                                                                                                 |
+| `rh` / `temp`   | Humidity % / temperature °C                 | clamped 0–100 / −270–100                                                                                                                                                                                                                       |
+| `fltsts0/1/2`   | Filter hours remaining: pre / HEPA / carbon | 0 = "change now"; life% = `fltsts / flttotal`                                                                                                                                                                                                  |
+| `flttotal0/1/2` | Filter total hours                          | fallbacks when absent: 360 / 4800 / 4800                                                                                                                                                                                                       |
+| `wicksts`       | Wick filter hours remaining                 | life% = `wicksts / 4800`                                                                                                                                                                                                                       |
 
 A key missing from a status line is normal — devices only report what they have; the
 filter blocks in `processUpdate` skip on `undefined` (regression fixed in commit
@@ -401,14 +401,19 @@ Defined in `src/accessories/accessories.models.js` (pure data; see
 
 1. **Default / legacy** (anything unlisted): generic keys are the wire keys.
    Speeds are `om`-based: `['1','2','t']`, with `'s'` prepended when the device config
-   sets `sleepSpeed`. AC3036 and AC3829 are variants: no key maps, but five `mode`/`om`
-   composite speed steps each (the AC3829 ladder is from ruaan-deysel's
-   ha-philips-airpurifier, with its sleep step built in, so `sleepSpeed` does nothing).
-   The AC3829 also has `modeMaps: { auto: { mode: 'P' } }`: Auto matches none of its
-   speeds, so without it the slider would read 0% in Auto and Sleep would read as Auto.
+   sets `sleepSpeed`. Auto is `mode=P` (`A` with `allergicFunc`) and Manual `mode=M`, both
+   from the default `modeMaps`. AC3036 is a variant: no key maps, four `mode`/`om` composite
+   speed steps (`S`, `M`+`om` 1, `M`+`om` 2, `T`), and Auto `mode=AG` on the selector (`P`
+   is not an AC303x mode; ruaan-deysel/ha-philips-airpurifier). AC3829 is another: five
+   composite steps (`S`+`om` s, then `M`+`om` 1, 2, 3, t; the ladder is from ruaan-deysel's
+   ha-philips-airpurifier, with its sleep step built in, so `sleepSpeed` does nothing), and
+   Auto `mode=P` (`A` with `allergicFunc`) on the selector, so Sleep reads as manual.
 2. **AC1715-style**: wire keys are dashed registers (`pwr` → `D03-02`), values are
    words (`'ON'`, `'Auto General'`); `valueMaps.pwr` translates both directions. Speeds
-   are `mode`-word steps.
+   are `mode`-word steps (`Sleep`, `Gentle/Speed 1`, `Speed 2`, `Turbo`), and Auto is
+   `modeMaps.auto` `{ mode: 'Auto General' }`, written as `D03-12=Auto General` because
+   `handleCommand` maps the generic `mode` key like any other. It used to write `D03-12=P`/`M`,
+   which that register does not take.
 3. **AC0850-style**: wire keys are dash-less registers (`pwr` → `D03102`), values are
    numeric, every `set` asks for `-I` (`extraSetFlags`). Speeds are composite register
    pairs (`{ D0310A: 2, D0310C: 17|18 }`, Sleep and Turbo). `D0310C` is mode and speed in
@@ -457,13 +462,27 @@ method, the optimistic push, and the characteristic in `accessories.service.js`.
 here removes a control from users' Home apps, so it belongs on observed absence from a status
 dump, never on a mapping that merely has not been worked out yet.
 
-A fifth field, **`modeMaps`**, gives a model with no `mode` register an auto/manual concept
-anyway. Its only entry, `auto`, holds the register values that mean Auto (AC0850:
-`{ D0310A: 2, D0310C: 0 }`); Manual has no registers of its own and restores the last of the
-`speeds` the device was in or was sent (`Handler.lastManualSpeed`, Sleep until one is known).
-`Handler.supportsMode()` is true for a `modeMaps` model or one whose `mode` is not
-`unsupported`, and gates everything that means "has an auto/manual concept"; `supports('mode')`
-keeps meaning the register itself. Because Auto and the speeds share registers, a scene that
+A fifth field, **`modeMaps`**, is every model's auto/manual concept, and the only mechanism
+behind `TargetAirPurifierState`: there is no separate legacy `mode === 'M'` path. Its entries,
+in generic key space like everything else (so `keyMaps`/`valueMaps` apply on the way out and
+back), are:
+
+- `auto`: the register values that mean Auto. Never one of the `speeds`, so Auto is on the
+  selector and not the slider (AC0850 `{ D0310A: 2, D0310C: 0 }`, AC1715
+  `{ mode: 'Auto General' }`, AC3036 `{ mode: 'AG' }`, default `{ mode: 'P' }`).
+- `manual`: optional registers Manual writes. Without it, Manual restores the last of the
+  `speeds` the device was in or was sent (`Handler.lastManualSpeed`, the first step until one
+  is known). Only the default map has one, `{ mode: 'M' }`, because its speeds write `om`
+  alone and nothing confirms `om` takes an unknown model out of Auto.
+- `allergen`: a plain allergen mode, which `allergicFunc` puts in place of `auto`. Only the
+  default map has one, `{ mode: 'A' }`; on any other model the option is ignored with a
+  startup warning (`hasAllergenMode`, `accessories.setup.js`).
+
+The default map's entries live in `DEFAULT_MODE_MAPS`, applied to any unmapped model.
+`Handler.inAutoMode()` is true when every `auto` register holds its value, and also before
+any of them has been reported. `Handler.supportsMode()` is true for a model with `modeMaps`,
+and gates everything that means "has an auto/manual concept"; `supports('mode')` keeps
+meaning the register itself. Because Auto and the speeds can share registers, a scene that
 writes both in one coalescing window is resolved by `queueWrite`'s `yielding` levels: Auto
 wins over a speed, and a speed wins over Manual's restore (the same levels let a real power
 write win over RotationSpeed 0's implied power-off). The fields are listed in the header of
@@ -487,9 +506,10 @@ that must ALL match the current status (stringified equality) in
 `Handler.rotationSpeed`. HomeKit percentage = `(index + 1) * (100 / speeds.length)`;
 `speedsMinStep` gives the slider step. Writing a speed reverses this: `Math.ceil(value /
 minStep)` picks the entry and every pair in it is sent as a `set` command, and 0% is a power-off
-(#118). A status that matches no entry yields RotationSpeed 0, except a `modeMaps` model in
-Auto, which reads the last manual step: 0% would mean off, so a scene captured in Auto would
-replay as off.
+(#118). In Auto the slider reads the last manual step instead of matching at all, on every
+model: 0% would mean off, so a scene captured in Auto would replay as off, and a speed the
+device reports in Auto (the default map's `om`) is Auto's choice, so it neither shows nor
+becomes the manual step. Outside Auto, a status that matches no entry yields RotationSpeed 0.
 
 ## The HomeKit surface (services and characteristics)
 
@@ -499,19 +519,19 @@ generic key feeds each characteristic. Services are wired in
 config enables the option and removed otherwise); values are pushed from
 `processUpdate` and the `set*` methods in `accessories.handler.js`.
 
-| Service                                      | Condition         | Key characteristics (source key → HAP)                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| -------------------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AccessoryInformation`                       | always            | Manufacturer/Model/SerialNumber from config; FirmwareRevision = package version (`src/platform.js`)                                                                                                                                                                                                                                                                                                                                                      |
-| `AirPurifier`                                | always            | `Active` (`pwr`), `CurrentAirPurifierState` (`pwr`→0/2), `TargetAirPurifierState` (`Handler.inAutoMode()`: `mode==='M'`→0 else 1, or the `modeMaps.auto` registers, AUTO before any status; pinned to `validValues: [AUTO]` when `supportsMode()` is false, since HAP requires the characteristic), `LockPhysicalControls` (`cl`; not added at all, and removed from a cached accessory, when `cl` is `unsupported`), `RotationSpeed` (previous section) |
-| `AirQualitySensor`                           | always            | `AirQuality` (`iaql`, clamped `ceil(iaql/3)`), `PM2_5Density` (`pm25`)                                                                                                                                                                                                                                                                                                                                                                                   |
-| `FilterMaintenance` ("Pre Filter")           | `preFilter`       | `FilterChangeIndication` (`fltsts0 == 0`), `FilterLifeLevel` (`fltsts0`)                                                                                                                                                                                                                                                                                                                                                                                 |
-| `FilterMaintenance` ("Active carbon filter") | `carbonFilter`    | same, from `fltsts2`                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `FilterMaintenance` ("HEPA filter")          | `hepaFilter`      | same, from `fltsts1`                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `FilterMaintenance` ("Wick filter")          | with `humidifier` | same, from `wicksts`                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `HumidifierDehumidifier`                     | `humidifier`      | `Active`, `CurrentHumidifierDehumidifierState` (validValues INACTIVE/HUMIDIFYING only), `TargetHumidifierDehumidifierState` (HUMIDIFIER only), `RelativeHumidityHumidifierThreshold` (`rhset`, minStep 25), `WaterLevel` (`wl`)                                                                                                                                                                                                                          |
-| `TemperatureSensor`                          | `temperature`     | `CurrentTemperature` (`temp`)                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `HumiditySensor`                             | `humidity`        | `CurrentRelativeHumidity` (`rh`)                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `Lightbulb`                                  | `light`           | `On` (`pwr === '1' && aqil > 0`; forced off when the device is off), `Brightness` (`aqil`, minStep 25)                                                                                                                                                                                                                                                                                                                                                   |
+| Service                                      | Condition         | Key characteristics (source key → HAP)                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AccessoryInformation`                       | always            | Manufacturer/Model/SerialNumber from config; FirmwareRevision = package version (`src/platform.js`)                                                                                                                                                                                                                                                                                                                            |
+| `AirPurifier`                                | always            | `Active` (`pwr`), `CurrentAirPurifierState` (`pwr`→0/2), `TargetAirPurifierState` (`Handler.inAutoMode()`: the `modeMaps.auto` registers, AUTO before any status; pinned to `validValues: [AUTO]` when `supportsMode()` is false, since HAP requires the characteristic), `LockPhysicalControls` (`cl`; not added at all, and removed from a cached accessory, when `cl` is `unsupported`), `RotationSpeed` (previous section) |
+| `AirQualitySensor`                           | always            | `AirQuality` (`iaql`, clamped `ceil(iaql/3)`), `PM2_5Density` (`pm25`)                                                                                                                                                                                                                                                                                                                                                         |
+| `FilterMaintenance` ("Pre Filter")           | `preFilter`       | `FilterChangeIndication` (`fltsts0 == 0`), `FilterLifeLevel` (`fltsts0`)                                                                                                                                                                                                                                                                                                                                                       |
+| `FilterMaintenance` ("Active carbon filter") | `carbonFilter`    | same, from `fltsts2`                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `FilterMaintenance` ("HEPA filter")          | `hepaFilter`      | same, from `fltsts1`                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `FilterMaintenance` ("Wick filter")          | with `humidifier` | same, from `wicksts`                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `HumidifierDehumidifier`                     | `humidifier`      | `Active`, `CurrentHumidifierDehumidifierState` (validValues INACTIVE/HUMIDIFYING only), `TargetHumidifierDehumidifierState` (HUMIDIFIER only), `RelativeHumidityHumidifierThreshold` (`rhset`, minStep 25), `WaterLevel` (`wl`)                                                                                                                                                                                                |
+| `TemperatureSensor`                          | `temperature`     | `CurrentTemperature` (`temp`)                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `HumiditySensor`                             | `humidity`        | `CurrentRelativeHumidity` (`rh`)                                                                                                                                                                                                                                                                                                                                                                                               |
+| `Lightbulb`                                  | `light`           | `On` (`pwr === '1' && aqil > 0`; forced off when the device is off), `Brightness` (`aqil`, minStep 25)                                                                                                                                                                                                                                                                                                                         |
 
 Two behaviours worth memorising:
 
