@@ -204,11 +204,11 @@ related to your change.
 Where a doc/code invariant can be checked mechanically, prefer a `node:test` check over a
 prose rule so CI catches drift instead of relying on a reviewer grepping.
 `test/config.schema.test.js` (model typeahead ⊇ mapped models) and `test/docs.test.js`
-(README config table, `example-config.json`, and README tested-device list track
+(README config table, `example-config.json`, and README Supported device tiers track
 `config.schema.json` / `accessories.models.js`) are the pattern to copy when you add a new
 config option, model, or device. Specific sync rules:
 
-**`README.md`** — the tested/supported device list, example configs, and supported
+**`README.md`** — the Supported device tiers, example configs, and supported
 clients must track what the code and `config.schema.json` actually support. Installation
 and setup steps may only reference files that exist in the repo.
 

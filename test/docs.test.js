@@ -46,6 +46,30 @@ const section = (heading) => {
 const configSection = section('Configuration');
 const deviceSupportSection = section('Device support');
 
+//The device tier table: a header row naming each tier, then a 'Models' row
+//whose cells are '<ul><li>AC0850 ★</li>...</ul>'. A column whose header starts
+//with 'Supported' promises a dedicated mapping; the last one is the default.
+const tierRow = (label) =>
+  deviceSupportSection
+    .split('\n')
+    .find((line) => line.startsWith('|') && line.split('|')[1].trim() === label)
+    ?.split('|')
+    .slice(2, -1)
+    .map((cell) => cell.trim());
+
+const tierNames = tierRow('Tier') || [];
+const tierModels = tierRow('**Models**') || [];
+
+const listed = tierModels.map((cell) => [...cell.matchAll(/<li>([^<]+)<\/li>/g)].map((match) => match[1].trim()));
+const supportedModels = listed
+  .filter((_, index) => (tierNames[index] || '').startsWith('Supported'))
+  .flat()
+  .map((item) => item.replace('★', '').trim());
+const validatedModels = listed
+  .flat()
+  .filter((item) => item.includes('★'))
+  .map((item) => item.replace('★', '').trim());
+
 //The body of a '### Heading' subsection within an already sliced section.
 const subsection = (text, heading) => {
   const start = text.indexOf(`### ${heading}\n`);
@@ -192,12 +216,34 @@ describe('docs', () => {
     }
   });
 
-  it('lists every model with a dedicated mapping in the README device-support section', () => {
+  it('has a device tier table with Supported tiers and a Models row', () => {
+    assert.ok(tierModels.length > 0, "README 'Device support' has no tier table with a '**Models**' row");
+    assert.ok(supportedModels.length > 0, "README 'Device support' lists no model in a 'Supported' tier");
+  });
+
+  //the Supported tiers promise a dedicated mapping, so a model listed there
+  //without an entry in accessories.models.js silently runs the default one
+  it('lists exactly the models with a dedicated mapping in the Supported tiers', () => {
+    for (const model of supportedModels) {
+      assert.ok(
+        mappedModels.includes(model),
+        `README lists ${model} as Supported, but accessories.models.js has no entry for it`
+      );
+    }
+
     for (const model of mappedModels) {
       assert.ok(
-        deviceSupportSection.includes(model),
-        `model ${model} from accessories.models.js is missing from the README 'Device support' section`
+        supportedModels.includes(model),
+        `model ${model} from accessories.models.js is missing from the README Supported tiers`
       );
+    }
+  });
+
+  it('marks a model validated (★) only within the Supported tiers', () => {
+    assert.ok(validatedModels.length > 0, 'README marks no model as validated (★)');
+
+    for (const model of validatedModels) {
+      assert.ok(supportedModels.includes(model), `README marks ${model} validated (★) outside the Supported tiers`);
     }
   });
 });

@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Models outside the tested list run a default mapping. It suits many purifiers, but where it does not fit, the device appears in the Home app with controls that do nothing or fan speeds that land on the wrong setting.
+        Models outside the Supported tiers run a default mapping. It suits many purifiers, but where it does not fit, the device appears in the Home app with controls that do nothing or fan speeds that land on the wrong setting.
 
         A mapping is derived from what the device itself reports, so the status dump below is the whole request. With one attached this can usually be acted on straight away.
 
@@ -15,8 +15,8 @@ body:
     id: model
     attributes:
       label: Device model
-      description: The ID printed on the device label, without the regional suffix. `AC0850/11` means `AC0850`.
-      placeholder: AC2889
+      description: The full ID exactly as printed on the device label, regional suffix included, e.g. `AC0850/31`. Some models ship in two register dialects under the same base ID, and the suffix tells them apart.
+      placeholder: AC2889/10
     validations:
       required: true
 
