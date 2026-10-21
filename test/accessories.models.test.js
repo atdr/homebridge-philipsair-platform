@@ -47,14 +47,20 @@ describe('accessories.models', () => {
   it('uses D-register speeds and the -I set flag for AC0850', () => {
     const model = modelConfig({ model: 'AC0850' });
 
-    assert.deepEqual(model.speeds[2], { D0310A: 2, D0310C: 18 });
+    assert.deepEqual(model.speeds[1], { D0310A: 2, D0310C: 18 });
     assert.equal(model.keyMaps.pwr, 'D03102');
     assert.deepEqual(model.extraSetFlags, ['-I']);
   });
 
+  it('puts AC0850 Auto on the speed registers and leaves other models without modeMaps', () => {
+    assert.deepEqual(modelConfig({ model: 'AC0850' }).modeMaps, { auto: { D0310A: 2, D0310C: 0 } });
+    assert.equal(modelConfig({}).modeMaps, undefined);
+    assert.equal(modelConfig({ model: 'AC3036' }).modeMaps, undefined);
+  });
+
   it('ignores sleepSpeed for models with explicit speeds', () => {
     const model = modelConfig({ model: 'AC0850', sleepSpeed: true });
-    assert.equal(model.speeds.length, 3);
+    assert.equal(model.speeds.length, 2);
   });
 
   describe('normaliseModel', () => {

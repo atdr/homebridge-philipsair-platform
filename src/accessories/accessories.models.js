@@ -4,7 +4,10 @@
 //device state to derive the HomeKit rotation speed; 'keyMaps' translate the
 //generic keys to model-specific registers; 'valueMaps' translate values in
 //both directions; 'extraSetFlags' are extra CLI flags for set commands;
-//'unsupported' lists generic keys the model has no register for at all.
+//'unsupported' lists generic keys the model has no register for at all;
+//'modeMaps' gives a model with no 'mode' register an auto/manual concept: its
+//'auto' entry holds the register values that mean Auto, and Manual has none of
+//its own (it restores the last of the 'speeds' the device was in).
 //Models not listed here use the default 'om' based speeds.
 
 const DEFAULT_SPEEDS = [{ om: '1' }, { om: '2' }, { om: 't' }];
@@ -51,11 +54,17 @@ const models = {
     },
   },
   AC0850: {
+    //D0310C is mode and speed in one register: 0 = Auto, 17 = Sleep,
+    //18 = Turbo, always written with D0310A = 2. Auto goes on HomeKit's
+    //auto/manual selector through modeMaps rather than on the slider, which
+    //keeps two steps: 50% Sleep, 100% Turbo (0% is off)
     speeds: [
       { D0310A: 2, D0310C: 17 },
-      { D0310A: 2, D0310C: 0 },
       { D0310A: 2, D0310C: 18 },
     ],
+    modeMaps: {
+      auto: { D0310A: 2, D0310C: 0 },
+    },
     keyMaps: {
       pwr: 'D03102',
       iaql: 'D03120',
@@ -66,8 +75,8 @@ const models = {
     extraSetFlags: ['-I'],
     //this model reports no register for either: not in its status dumps, and
     //not among the registers mapped above when it was tested. So the plugin
-    //neither sends 'mode=...' / 'cl=...' nor offers the HomeKit controls that
-    //would. The composite speeds may already be how this model expresses mode.
+    //never sends 'mode=...' / 'cl=...' and offers no child lock. Auto/manual
+    //is still offered, through modeMaps, because Auto lives in D0310C.
     //Issue #46 carries the hardware experiment that can overturn this.
     unsupported: ['mode', 'cl'],
   },
@@ -133,6 +142,7 @@ const modelConfig = (deviceConfig) => {
     valueMaps: model.valueMaps || {},
     extraSetFlags: model.extraSetFlags || [],
     unsupported: model.unsupported || [],
+    modeMaps: model.modeMaps,
   };
 };
 
@@ -236,6 +246,9 @@ modelConfig.resolveModel = resolveModel;
 //whether a model brings its own speed table, i.e. whether the sleepSpeed
 //option can do anything for it
 modelConfig.hasOwnSpeeds = (key) => Boolean(key && models[key] && models[key].speeds);
+
+//every field a model entry uses, for the drift guard in test/docs.test.js
+modelConfig.modelFields = [...new Set(Object.values(models).flatMap((model) => Object.keys(model)))];
 
 modelConfig.identifyModel = identifyModel;
 modelConfig.readsStatus = readsStatus;

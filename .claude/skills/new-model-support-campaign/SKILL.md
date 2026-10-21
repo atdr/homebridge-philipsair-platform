@@ -10,7 +10,7 @@ user has a Philips model this plugin doesn't map correctly, and the fix requires
 evidence from hardware nobody in the repo can see. Work the gates in order; each gate
 states what you should observe and where to branch if you don't. Read
 `aioairctrl-and-device-protocol` first for the vocabulary (dialects, `speeds`,
-`keyMaps`, `valueMaps`, `extraSetFlags`).
+`keyMaps`, `valueMaps`, `extraSetFlags`, `unsupported`, `modeMaps`).
 
 Two hard rules, both paid for in git history:
 
@@ -120,7 +120,11 @@ Each option carries an evidence obligation from Gates 3–4:
    control. Evidence: the key absent from **every** Gate 3 dump, in every relevant device
    state, not merely a mapping you have not worked out. This removes a control from users'
    Home apps, so an unproven absence belongs in an issue, not in this field.
-7. **Handler code change** — last resort, only when the dialect cannot be expressed as
+7. **`modeMaps` entry** (AC0850 shape) — the model has no `mode` register, but one of its
+   speed registers also carries Auto. Evidence: Gate 3 dumps with the device in Auto and in
+   each manual speed, showing the Auto values, and a Gate 4 round-trip setting Auto. Auto
+   then leaves `speeds` and goes on the auto/manual selector.
+8. **Handler code change** — last resort, only when the dialect cannot be expressed as
    data in `accessories.models.js`. Stop and discuss with the maintainer first; this
    crosses from data into the fragile paths listed in `architecture-and-invariants`.
 

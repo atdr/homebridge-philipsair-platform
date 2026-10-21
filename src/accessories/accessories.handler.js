@@ -132,6 +132,20 @@ const WRITE_SETTLE = 3 * 1000;
 //exists to catch them before they are ever split into two commands
 const WRITE_COALESCE_WINDOW = 75;
 
+//how readily a queued write gives way to another write in the same coalescing
+//window that sets one of its keys. A write is dropped when one on a lower
+//level claims a key it sets; writes on the same level are all kept. see
+//queueWrite
+const YIELD = Object.freeze({
+  //what the user asked for outright: Active, Auto, the child lock
+  never: 0,
+  //a speed, which an Auto in the same scene overrides, and RotationSpeed 0's
+  //implied power-off, which a real power write overrides
+  toDirect: 1,
+  //Manual's restore of the last speed, which any speed in the same scene replaces
+  always: 2,
+});
+
 /**
  * A write waiting for the device to confirm it. `since` is the transmission
  * horizon, `recordedAt` the moment the user asked for it: the first decides
@@ -241,10 +255,16 @@ class Handler {
       );
     }
 
-    const { speeds, keyMaps, valueMaps, extraSetFlags, unsupported } = modelConfig(config);
+    const { speeds, keyMaps, valueMaps, modeMaps, extraSetFlags, unsupported } = modelConfig(config);
     this.speeds = speeds;
     this.keyMaps = keyMaps;
     this.valueMaps = valueMaps;
+    this.modeMaps = modeMaps;
+    //index into speeds of the last manual step the device was in or was set
+    //to. On a modeMaps model Auto is not a speed, so the slider reads this
+    //step while in Auto (0% would mean off) and Manual restores it. Sleep, the
+    //first step, until one is known
+    this.lastManualSpeed = 0;
     this.extraSetFlags = extraSetFlags;
     this.unsupported = new Set(unsupported);
 
@@ -266,7 +286,7 @@ class Handler {
     this.writeCoalesceWindow = WRITE_COALESCE_WINDOW;
     //writes waiting for a companion, and the timer that will flush them. see
     //queueWrite
-    /** @type {{ cmds: string[], expectations: Record<string, unknown>, extraFlags: string[], yielding: boolean, resolve: (sent: boolean) => void, reject: (err: unknown) => void }[]} */
+    /** @type {{ cmds: string[], expectations: Record<string, unknown>, extraFlags: string[], yielding: number, resolve: (sent: boolean) => void, reject: (err: unknown) => void }[]} */
     this.writeBatch = [];
     this.writeBatchTimeout = null;
 
@@ -455,18 +475,22 @@ class Handler {
    * run `setArgs`'s own `intEncodable` check on the real merged group, at
    * flush time, so it can never diverge from what `setArgs` would compute.
    *
-   * A `yielding` write is one the user did not ask for directly, only implied:
-   * RotationSpeed 0 meaning "off". It is dropped at flush time if another
-   * write in the same window sets any of its keys, so a scene that switches
-   * the purifier on is never undone by a 0% it happened to capture.
+   * `yielding` (a YIELD level) is how readily a write gives way when another
+   * write in the same window sets one of its keys; the lower level wins and
+   * the other is dropped at flush time. RotationSpeed 0 means "off" only by
+   * implication, so a scene that switches the purifier on is never undone by
+   * a 0% it happened to capture. A speed gives way to Auto, which on the
+   * AC0850 is the same register (a scene captured in Auto replays as Auto),
+   * and Manual's restore of the last speed gives way to any speed sent with
+   * it, since that speed is the one the scene means.
    *
    * @param {string[]} cmds
    * @param {Record<string, unknown>} expectations
    * @param {string[]} [extraFlags]
-   * @param {{ yielding?: boolean }} [options]
+   * @param {{ yielding?: number }} [options]
    * @returns {Promise<boolean>} false when a yielding write was dropped unsent
    */
-  queueWrite(cmds, expectations, extraFlags = [], { yielding = false } = {}) {
+  queueWrite(cmds, expectations, extraFlags = [], { yielding = YIELD.never } = {}) {
     return new Promise((resolve, reject) => {
       this.writeBatch.push({ cmds, expectations, extraFlags, yielding, resolve, reject });
 
@@ -485,28 +509,41 @@ class Handler {
    * were ever coalesced this way, which is why the check runs on `mergedCmds`
    * itself rather than reusing each write's own precomputed flags.
    *
-   * Merged expectations are combined last-key-wins. Safe today because the
-   * six tracked setters use disjoint generic keys (pwr / mode / cl /
-   * D0310A+D0310C / func / rhset); that is an invariant of the current setter
-   * set, not something this method enforces, so a future setter reusing a key
-   * would have one expectation silently dropped rather than erroring. The one
-   * deliberate overlap, a yielding `pwr` from RotationSpeed 0 beside a real
-   * `pwr` from Active, is resolved before merging: the yielding write is
-   * dropped, so the merged command never carries a register twice.
+   * Merged expectations are combined last-key-wins. The setters overlap on
+   * purpose in three places: a yielding `pwr` from RotationSpeed 0 beside a
+   * real `pwr` from Active; a speed beside the purifier mode where the
+   * model's speeds carry the mode register (D0310A+D0310C on the AC0850,
+   * 'mode' on the AC3036); and Manual's restored speed beside a speed. Each is
+   * resolved before merging by the writes' `yielding` levels (see queueWrite),
+   * so the merged command never carries a register twice. Two writes on the
+   * same level that share a key are not resolved: the setters do not produce
+   * that today except a setter racing itself, and the merged command would
+   * carry the register twice with one expectation silently dropped.
    */
   async flushWriteBatch() {
-    const claimed = new Set(
-      this.writeBatch.filter((entry) => !entry.yielding).flatMap((entry) => Object.keys(entry.expectations))
-    );
-    const batch = [];
+    const levels = [...new Set(this.writeBatch.map((entry) => entry.yielding))].sort((a, b) => a - b);
+    /** @type {Set<string>} */
+    const claimed = new Set();
+    const dropped = new Set();
 
-    for (const entry of this.writeBatch) {
-      if (entry.yielding && Object.keys(entry.expectations).some((key) => claimed.has(key))) {
-        entry.resolve(false);
-      } else {
-        batch.push(entry);
+    //lowest level first, and a level's keys are claimed only once the whole
+    //level is through, so writes on one level never drop each other
+    for (const level of levels) {
+      const kept = [];
+
+      for (const entry of this.writeBatch.filter((candidate) => candidate.yielding === level)) {
+        if (Object.keys(entry.expectations).some((key) => claimed.has(key))) {
+          dropped.add(entry);
+        } else {
+          kept.push(entry);
+        }
       }
+
+      kept.forEach((entry) => Object.keys(entry.expectations).forEach((key) => claimed.add(key)));
     }
+
+    const batch = this.writeBatch.filter((entry) => !dropped.has(entry));
+    dropped.forEach((entry) => entry.resolve(false));
 
     this.writeBatch = [];
     this.writeBatchTimeout = null;
@@ -633,6 +670,16 @@ class Handler {
     return !this.unsupported.has(key);
   }
 
+  /**
+   * Whether the model has an auto/manual concept HomeKit's
+   * TargetAirPurifierState can drive: a 'mode' register, or `modeMaps` naming
+   * the registers that mean Auto on a model without one (the AC0850). Kept
+   * apart from `supports('mode')`, which still means the register itself.
+   */
+  supportsMode() {
+    return !!this.modeMaps || this.supports('mode');
+  }
+
   handleCommand(key, value) {
     value = this.valueMaps[key] ? this.valueMaps[key][value] : value;
     key = this.keyMaps[key] || key;
@@ -660,6 +707,13 @@ class Handler {
         return (this.obj[cmd] ?? '').toString() == value.toString();
       });
     });
+
+    if (speedConfigIndex >= 0) {
+      this.lastManualSpeed = speedConfigIndex;
+    } else if (this.modeMaps && this.inAutoMode()) {
+      speedConfigIndex = this.lastManualSpeed;
+    }
+
     let speedIndex = speedConfigIndex + 1;
     logger.debug(`#rotationSpeed: ${speedIndex * this.speedsMinStep()}`, this.accessory.displayName);
     return speedIndex * this.speedsMinStep();
@@ -680,7 +734,55 @@ class Handler {
     }
   }
 
+  /**
+   * Whether the device is in Auto, as TargetAirPurifierState reports it. A
+   * device that has not answered yet reads as AUTO on both paths: the legacy
+   * one because an absent 'mode' is not 'M', the modeMaps one explicitly.
+   */
+  inAutoMode() {
+    if (this.modeMaps) {
+      const registers = Object.entries(this.modeMaps.auto);
+
+      if (registers.every(([cmd]) => this.obj[cmd] === undefined)) {
+        return true;
+      }
+
+      return registers.every(([cmd, value]) => String(this.obj[cmd]) === String(value));
+    }
+    return this.obj.mode !== 'M';
+  }
+
   async setPurifierTargetState(state) {
+    if (this.modeMaps) {
+      try {
+        //Auto has its own registers; Manual has none of its own, so it goes
+        //back to the last manual step
+        const registers = state ? this.modeMaps.auto : this.speeds[this.lastManualSpeed];
+        const cmds = Object.entries(registers).map(([cmd, value]) => this.handleCommand(cmd, value));
+        const manualStep = (this.lastManualSpeed + 1) * this.speedsMinStep();
+
+        if (state != 0) {
+          this.purifierService
+            .updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, manualStep)
+            .updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, state);
+        }
+
+        logger.info(`Purifier Mode: ${state ? 'auto' : 'manual'}`, this.accessory.displayName);
+
+        //Manual gives way to a speed sent with it, and a speed to Auto (see queueWrite)
+        const sent = await this.queueWrite(cmds, registers, [], { yielding: state ? YIELD.never : YIELD.always });
+
+        //only once it is known to be going out: a speed that replaced it sets the slider
+        if (sent && state == 0) {
+          this.purifierService.updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, manualStep);
+        }
+      } catch (err) {
+        logger.warn('An error occured during changing target purifier state!', this.accessory.displayName);
+        logger.error(err, this.accessory.displayName);
+      }
+      return;
+    }
+
     if (!this.supports('mode')) {
       logger.debug(`This model has no mode register, ignoring purifier mode ${state}`, this.accessory.displayName);
       return;
@@ -699,7 +801,11 @@ class Handler {
 
       logger.info(`Purifier Mode: ${state}`, this.accessory.displayName);
 
-      await this.queueWrite([this.handleCommand('mode', values.mode)], { mode: values.mode });
+      //on a model whose speeds are modes, Manual gives way to a speed sent with
+      //it, and a speed to Auto (see queueWrite)
+      await this.queueWrite([this.handleCommand('mode', values.mode)], { mode: values.mode }, [], {
+        yielding: state ? YIELD.never : YIELD.always,
+      });
     } catch (err) {
       logger.warn('An error occured during changing target purifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -732,8 +838,8 @@ class Handler {
 
       if (speed > 0) {
         //MANUAL is not a value this characteristic accepts on a model with no
-        //mode register: accessories.service.js constrains it to AUTO there
-        if (this.supports('mode')) {
+        //mode: accessories.service.js constrains it to AUTO there
+        if (this.supportsMode()) {
           this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, 0);
         }
 
@@ -746,7 +852,17 @@ class Handler {
 
         logger.info(`Purifier Rotation Speed: cmds: ${cmds.join(' ')}`, this.accessory.displayName);
 
-        await this.queueWrite(cmds, this.speeds[speed - 1]);
+        //an Auto in the same scene wins where the speed shares its registers
+        //(see queueWrite). The slider itself is put right by the next status:
+        //HAP stores the value this onSet was given once it returns
+        const sent = await this.queueWrite(cmds, this.speeds[speed - 1], [], { yielding: YIELD.toDirect });
+
+        if (sent) {
+          this.lastManualSpeed = speed - 1;
+        } else {
+          logger.debug('Purifier Rotation Speed: dropped, an Auto in the same scene wins', this.accessory.displayName);
+          this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, 1);
+        }
       } else {
         //0% means off in HomeKit. Yielding, so a power-on in the same scene
         //wins (see queueWrite), and the tile is updated only once the write
@@ -754,7 +870,9 @@ class Handler {
         //write arrives through Active's own onSet
         logger.debug('Purifier Rotation Speed: 0%, switching off', this.accessory.displayName);
 
-        const sent = await this.queueWrite([this.handleCommand('pwr', 0)], { pwr: 0 }, [], { yielding: true });
+        const sent = await this.queueWrite([this.handleCommand('pwr', 0)], { pwr: 0 }, [], {
+          yielding: YIELD.toDirect,
+        });
 
         if (sent) {
           this.purifierService
@@ -1476,8 +1594,9 @@ class Handler {
           .updateCharacteristic(Characteristic.CurrentAirPurifierState, on ? 2 : 0);
       }
 
-      if (key === 'mode' && this.supports('mode')) {
-        this.purifierService.updateCharacteristic(Characteristic.TargetAirPurifierState, this.obj.mode === 'M' ? 0 : 1);
+      const modeKey = this.modeMaps ? key in this.modeMaps.auto : key === 'mode';
+      if (modeKey && this.supportsMode()) {
+        this.purifierService.updateCharacteristic(Characteristic.TargetAirPurifierState, this.inAutoMode() ? 1 : 0);
       }
 
       //the speed is spread across whichever keys the model maps it to, so ask
@@ -2066,10 +2185,10 @@ class Handler {
 
       //pushing these from a key the model never reports would push a default,
       //not a reading: 'mode' absent reads as AUTO and 'cl' absent as unlocked
-      if (this.supports('mode')) {
+      if (this.supportsMode()) {
         this.purifierService.updateCharacteristic(
           this.api.hap.Characteristic.TargetAirPurifierState,
-          this.obj.mode === 'M' ? 0 : 1
+          this.inAutoMode() ? 1 : 0
         );
       }
 

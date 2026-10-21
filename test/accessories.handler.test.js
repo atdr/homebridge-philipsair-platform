@@ -68,7 +68,7 @@ describe('speeds per model', () => {
 
   it('uses D-register speeds and set flags for AC0850', () => {
     const handler = makeHandler({ model: 'AC0850' });
-    assert.equal(handler.speeds.length, 3);
+    assert.equal(handler.speeds.length, 2);
     assert.deepEqual(handler.extraSetFlags, ['-I']);
     assert.equal(handler.keyMaps.pwr, 'D03102');
   });
@@ -173,16 +173,49 @@ describe('unsupported controls', () => {
     assert.equal(makeHandler({}).supports('cl'), true);
   });
 
-  it('sends no mode or lock command to a model without those registers', async () => {
-    const { handler, sent } = recording({ model: 'AC0850' });
+  it('reports an auto/manual concept with or without a mode register', () => {
+    //the AC0850 has no 'mode' register, but its modeMaps put Auto on D0310C
+    assert.equal(makeHandler({ model: 'AC0850' }).supportsMode(), true);
+    assert.equal(makeHandler({}).supportsMode(), true);
 
-    await handler.setPurifierTargetState(1);
+    const modeless = makeHandler({ model: 'AC0850' });
+    modeless.modeMaps = undefined;
+    assert.equal(modeless.supportsMode(), false);
+  });
+
+  it('reads AUTO before the device has reported its mode, as a mode register does', () => {
+    const ac0850 = makeHandler({ model: 'AC0850' });
+    const legacy = makeHandler({});
+
+    //nothing heard yet: both paths have to agree on the default
+    assert.equal(legacy.inAutoMode(), true);
+    assert.equal(ac0850.inAutoMode(), true);
+
+    ac0850.obj = { D0310A: 2, D0310C: 17 };
+    assert.equal(ac0850.inAutoMode(), false);
+    ac0850.obj = { D0310A: 2, D0310C: 0 };
+    assert.equal(ac0850.inAutoMode(), true);
+  });
+
+  it('sends no lock command to a model without that register', async (t) => {
+    const { handler, sent } = recording({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
     await handler.setPurifierLockPhysicalControls(1);
 
     assert.deepEqual(sent, [], 'a command was sent for a register the model does not have');
     assert.equal(handler.pendingWrites.size, 0);
+  });
 
-    handler.kill(true);
+  it('sends no mode command to a model with no mode at all', async (t) => {
+    const { handler, sent } = recording({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.modeMaps = undefined;
+
+    await handler.setPurifierTargetState(1);
+
+    assert.deepEqual(sent, [], 'a mode command was sent for a model with no mode');
+    assert.equal(handler.pendingWrites.size, 0);
   });
 
   it('still sends both on a model that has them', async () => {
@@ -404,36 +437,40 @@ describe('rotationSpeed', () => {
   });
 });
 
-describe('rotation speed 0', () => {
-  const recording = (config) => {
-    const handler = makeHandler(config);
-    handler.api = {
-      ...fakeApi,
-      hap: {
-        ...fakeApi.hap,
-        Characteristic: {
-          Active: 'Active',
-          CurrentAirPurifierState: 'CurrentAirPurifierState',
-          TargetAirPurifierState: 'TargetAirPurifierState',
-          RotationSpeed: 'RotationSpeed',
-        },
+//records what each write sends (the arguments after 'set') and the last value
+//pushed to each purifier characteristic
+const recordingWrites = (config) => {
+  const handler = makeHandler(config);
+  handler.api = {
+    ...fakeApi,
+    hap: {
+      ...fakeApi.hap,
+      Characteristic: {
+        Active: 'Active',
+        CurrentAirPurifierState: 'CurrentAirPurifierState',
+        TargetAirPurifierState: 'TargetAirPurifierState',
+        RotationSpeed: 'RotationSpeed',
       },
-    };
-    /** @type {string[]} */
-    const sent = [];
-    handler.sendCMD = async (args) => {
-      sent.push(args.slice(args.indexOf('set') + 1).join(' '));
-    };
-    /** @type {Record<string, unknown>} */
-    const shown = {};
-    handler.purifierService = {
-      updateCharacteristic: (name, value) => {
-        shown[name] = value;
-        return handler.purifierService;
-      },
-    };
-    return { handler, sent, shown };
+    },
   };
+  /** @type {string[]} */
+  const sent = [];
+  handler.sendCMD = async (args) => {
+    sent.push(args.slice(args.indexOf('set') + 1).join(' '));
+  };
+  /** @type {Record<string, unknown>} */
+  const shown = {};
+  handler.purifierService = {
+    updateCharacteristic: (name, value) => {
+      shown[name] = value;
+      return handler.purifierService;
+    },
+  };
+  return { handler, sent, shown };
+};
+
+describe('rotation speed 0', () => {
+  const recording = recordingWrites;
 
   it('switches the purifier off, as HomeKit means by 0%', async (t) => {
     const { handler, sent } = recording({ model: 'AC0850' });
@@ -474,6 +511,149 @@ describe('rotation speed 0', () => {
       assert.notEqual(shown.Active, 0);
     });
   }
+});
+
+describe('mode and speed in one scene', () => {
+  //a scene captured in Auto stores TargetAirPurifierState AUTO beside a
+  //RotationSpeed, and HAP delivers the two as separate onSet calls in no
+  //fixed order. On the AC0850 both write D0310A/D0310C, so one has to give way
+  for (const order of ['mode first', 'speed first']) {
+    it(`lets Auto win over a speed (${order})`, async (t) => {
+      const { handler, sent, shown } = recordingWrites({ model: 'AC0850' });
+      t.after(() => handler.kill(true));
+
+      const writes =
+        order === 'mode first'
+          ? [handler.setPurifierTargetState(1), handler.setPurifierRotationSpeed(100)]
+          : [handler.setPurifierRotationSpeed(100), handler.setPurifierTargetState(1)];
+      await Promise.all(writes);
+
+      assert.deepEqual(sent, ['-I D0310A=2 D0310C=0']);
+      assert.equal(shown.TargetAirPurifierState, 1);
+    });
+
+    it(`lets a speed win over Manual (${order})`, async (t) => {
+      const { handler, sent, shown } = recordingWrites({ model: 'AC0850' });
+      t.after(() => handler.kill(true));
+
+      const writes =
+        order === 'mode first'
+          ? [handler.setPurifierTargetState(0), handler.setPurifierRotationSpeed(100)]
+          : [handler.setPurifierRotationSpeed(100), handler.setPurifierTargetState(0)];
+      await Promise.all(writes);
+
+      assert.deepEqual(sent, ['-I D0310A=2 D0310C=18']);
+      assert.equal(shown.TargetAirPurifierState, 0);
+    });
+  }
+
+  it('keeps the power-on of a scene that also sets Auto and a speed', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
+    await Promise.all([
+      handler.setPurifierActive(1),
+      handler.setPurifierTargetState(1),
+      handler.setPurifierRotationSpeed(100),
+    ]);
+
+    assert.deepEqual(sent, ['-I D03102=1 D0310A=2 D0310C=0']);
+  });
+
+  it('applies the same rule to a model whose speeds carry the mode register', async (t) => {
+    //AC3036 speeds are modes ('T' is Turbo), so Auto and Turbo both write 'mode'
+    const { handler, sent } = recordingWrites({ model: 'AC3036' });
+    t.after(() => handler.kill(true));
+
+    await Promise.all([handler.setPurifierRotationSpeed(100), handler.setPurifierTargetState(1)]);
+    assert.deepEqual(sent, ['mode=P']);
+
+    sent.length = 0;
+    await Promise.all([handler.setPurifierTargetState(0), handler.setPurifierRotationSpeed(100)]);
+    assert.deepEqual(sent, ['mode=T']);
+  });
+});
+
+describe('AC0850 slider around Auto', () => {
+  //with #118, 0% means off, so Auto must never read 0%: a scene captured in
+  //Auto would replay as off. The slider reads the last manual step instead
+  const AUTO = { D03102: 1, D0310A: 2, D0310C: 0 };
+
+  it('reads Sleep in Auto before any manual step is known', (t) => {
+    const { handler } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
+    handler.obj = { ...AUTO };
+    assert.equal(handler.rotationSpeed(), 50);
+  });
+
+  it('reads the last manual step the device reported', (t) => {
+    const { handler } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
+    handler.obj = { ...AUTO, D0310C: 18 };
+    assert.equal(handler.rotationSpeed(), 100);
+    handler.obj = { ...AUTO };
+    assert.equal(handler.rotationSpeed(), 100);
+  });
+
+  it('reads the last manual step it was set to, but not one dropped for Auto', async (t) => {
+    const { handler } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.obj = { ...AUTO };
+
+    await Promise.all([handler.setPurifierTargetState(1), handler.setPurifierRotationSpeed(100)]);
+    assert.equal(handler.rotationSpeed(), 50, 'a speed that was never sent became the manual step');
+
+    await handler.setPurifierRotationSpeed(100);
+    assert.equal(handler.rotationSpeed(), 100);
+  });
+
+  it('shows the last manual step, not 0%, on switching to Auto', async (t) => {
+    const { handler, shown } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.obj = { ...AUTO, D0310C: 18 };
+    handler.rotationSpeed();
+
+    await handler.setPurifierTargetState(1);
+
+    assert.equal(shown.RotationSpeed, 100);
+  });
+
+  it('restores Sleep on switching to Manual before any manual step is known', async (t) => {
+    const { handler, sent, shown } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.obj = { ...AUTO };
+
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=17']);
+    assert.equal(shown.RotationSpeed, 50);
+  });
+
+  it('restores the last manual step on switching to Manual', async (t) => {
+    const { handler, sent, shown } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.obj = { ...AUTO, D0310C: 18 };
+    handler.rotationSpeed();
+    handler.obj = { ...AUTO };
+
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=18']);
+    assert.equal(shown.RotationSpeed, 100);
+  });
+
+  it('leaves the slider to a speed that replaced the Manual restore', async (t) => {
+    const { handler, shown } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.obj = { ...AUTO };
+
+    await Promise.all([handler.setPurifierTargetState(0), handler.setPurifierRotationSpeed(100)]);
+
+    //HAP stores 100 itself once the speed's onSet returns; the restore must not show Sleep
+    assert.notEqual(shown.RotationSpeed, 50);
+  });
 });
 
 describe('model mapping check', () => {

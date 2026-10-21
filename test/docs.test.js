@@ -201,3 +201,39 @@ describe('docs', () => {
     }
   });
 });
+
+//The model format is documented in two places: the header comment of
+//accessories.models.js and the dialect section of the protocol skill. A field
+//added to a model entry without either goes unexplained, and one modelConfig
+//does not pass through is silently ignored.
+describe('model format', () => {
+  const modelsSource = readFile('src/accessories/accessories.models.js');
+  const header = modelsSource.slice(modelsSource.indexOf('\n'), modelsSource.indexOf('\nconst '));
+  const skill = readFile('.claude/skills/aioairctrl-and-device-protocol/SKILL.md');
+  const dialects = skill.slice(skill.indexOf('## The three model dialects'), skill.indexOf('## Speed model'));
+  const { modelFields } = require('../src/accessories/accessories.models');
+
+  it('finds the fields the models use', () => {
+    assert.ok(modelFields.includes('speeds'), 'modelFields does not list speeds');
+  });
+
+  it('documents every field in the accessories.models.js header comment', () => {
+    for (const field of modelFields) {
+      assert.ok(header.includes(`'${field}'`), `accessories.models.js header does not document '${field}'`);
+    }
+  });
+
+  it('documents every field in the protocol skill dialect section', () => {
+    for (const field of modelFields) {
+      assert.ok(dialects.includes(`\`${field}`), `the protocol skill dialect section does not name \`${field}\``);
+    }
+  });
+
+  it('passes every field through modelConfig', () => {
+    const passed = Object.keys(require('../src/accessories/accessories.models')({}));
+
+    for (const field of modelFields) {
+      assert.ok(passed.includes(field), `modelConfig drops the '${field}' field`);
+    }
+  });
+});
