@@ -102,10 +102,14 @@ rather than guessing.
 
 Each option carries an evidence obligation from Gates 3–4:
 
-1. **No entry needed** — dump shows default keys and the observed speed values are
-   exactly `om: '1'/'2'/'t'` (plus `'s'`). Evidence: Gate 3 table. Action: docs only —
-   add the model to the README Supported tier and the `config.schema.json` typeahead.
-2. **`sleepSpeed: true` config flag only** — as above plus an `om: 's'` position.
+1. **Empty entry** — dump shows default keys and the observed speed values are
+   exactly `om: '1'/'2'/'t'` (plus `'s'`). Evidence: Gate 3 table. Action: add an empty
+   entry (`AC2889: {}`) to `accessories.models.js`, then the model to the README
+   Supported tier and the `config.schema.json` typeahead. The entry is what makes the
+   model Supported (`test/docs.test.js` requires one for every Supported model); being
+   empty, it keeps the default speeds and the `sleepSpeed` option.
+2. **Empty entry plus `sleepSpeed: true` in the user's config** — as above plus an
+   `om: 's'` position.
 3. **`speeds`-only entry** (AC3036 shape) — default keys but different speed
    positions/registers. Evidence: full Gate 3 speed table.
 4. **`keyMaps`/`valueMaps` entry** (AC1715 shape) — dashed registers or word values.
