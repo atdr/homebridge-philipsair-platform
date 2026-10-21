@@ -64,6 +64,12 @@ const models = {
       { mode: 'M', om: '3' },
       { mode: 'M', om: 't' },
     ],
+    //Auto is a mode, not one of the speeds above, so it goes on the selector:
+    //in Auto the slider keeps the last manual step rather than reading 0%,
+    //and Sleep reads as manual
+    modeMaps: {
+      auto: { mode: 'P' },
+    },
   },
   AC0850: {
     //D0310C is mode and speed in one register: 0 = Auto, 17 = Sleep,

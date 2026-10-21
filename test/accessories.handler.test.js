@@ -674,6 +674,48 @@ describe('AC0850 slider around Auto', () => {
   });
 });
 
+describe('AC3829 mode and slider', () => {
+  //its speeds carry mode M (and S for sleep), so an Auto status matches none of
+  //them: without modeMaps the slider would read 0%, which #118 turns into off
+  it('reads a step, not 0%, in Auto', (t) => {
+    const { handler } = recordingWrites({ model: 'AC3829' });
+    t.after(() => handler.kill(true));
+
+    handler.obj = { pwr: '1', mode: 'P', om: '1' };
+
+    assert.equal(handler.inAutoMode(), true);
+    assert.notEqual(handler.rotationSpeed(), 0);
+  });
+
+  it('reads Sleep as a manual step', (t) => {
+    const { handler } = recordingWrites({ model: 'AC3829' });
+    t.after(() => handler.kill(true));
+
+    handler.obj = { pwr: '1', mode: 'S', om: 's' };
+
+    assert.equal(handler.inAutoMode(), false);
+    assert.equal(handler.rotationSpeed(), 20);
+  });
+
+  it('replays a scene captured in Sleep as Sleep', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC3829' });
+    t.after(() => handler.kill(true));
+
+    await Promise.all([handler.setPurifierTargetState(0), handler.setPurifierRotationSpeed(20)]);
+
+    assert.deepEqual(sent, ['mode=S om=s']);
+  });
+
+  it('switches to Auto with mode P', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC3829' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+
+    assert.deepEqual(sent, ['mode=P']);
+  });
+});
+
 describe('model mapping check', () => {
   //a real AC0850/31 dump, from the register inventory on issue #46
   const ac0850Status = () => ({
