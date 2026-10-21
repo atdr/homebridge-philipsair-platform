@@ -132,6 +132,20 @@ const WRITE_SETTLE = 3 * 1000;
 //exists to catch them before they are ever split into two commands
 const WRITE_COALESCE_WINDOW = 75;
 
+//how readily a queued write gives way to another write in the same coalescing
+//window that sets one of its keys. A write is dropped when one on a lower
+//level claims a key it sets; writes on the same level are all kept. see
+//queueWrite
+const YIELD = Object.freeze({
+  //what the user asked for outright: Active, Auto, the child lock
+  never: 0,
+  //a speed, which an Auto in the same scene overrides, and RotationSpeed 0's
+  //implied power-off, which a real power write overrides
+  toDirect: 1,
+  //Manual's restore of the last speed, which any speed in the same scene replaces
+  always: 2,
+});
+
 /**
  * A write waiting for the device to confirm it. `since` is the transmission
  * horizon, `recordedAt` the moment the user asked for it: the first decides
@@ -267,7 +281,7 @@ class Handler {
     this.writeCoalesceWindow = WRITE_COALESCE_WINDOW;
     //writes waiting for a companion, and the timer that will flush them. see
     //queueWrite
-    /** @type {{ cmds: string[], expectations: Record<string, unknown>, extraFlags: string[], yielding: boolean, resolve: (sent: boolean) => void, reject: (err: unknown) => void }[]} */
+    /** @type {{ cmds: string[], expectations: Record<string, unknown>, extraFlags: string[], yielding: number, resolve: (sent: boolean) => void, reject: (err: unknown) => void }[]} */
     this.writeBatch = [];
     this.writeBatchTimeout = null;
 
@@ -456,18 +470,22 @@ class Handler {
    * run `setArgs`'s own `intEncodable` check on the real merged group, at
    * flush time, so it can never diverge from what `setArgs` would compute.
    *
-   * A `yielding` write is one the user did not ask for directly, only implied:
-   * RotationSpeed 0 meaning "off". It is dropped at flush time if another
-   * write in the same window sets any of its keys, so a scene that switches
-   * the purifier on is never undone by a 0% it happened to capture.
+   * `yielding` (a YIELD level) is how readily a write gives way when another
+   * write in the same window sets one of its keys; the lower level wins and
+   * the other is dropped at flush time. RotationSpeed 0 means "off" only by
+   * implication, so a scene that switches the purifier on is never undone by
+   * a 0% it happened to capture. A speed gives way to Auto, which on the
+   * AC0850 is the same register (a scene captured in Auto replays as Auto),
+   * and Manual's restore of the last speed gives way to any speed sent with
+   * it, since that speed is the one the scene means.
    *
    * @param {string[]} cmds
    * @param {Record<string, unknown>} expectations
    * @param {string[]} [extraFlags]
-   * @param {{ yielding?: boolean }} [options]
+   * @param {{ yielding?: number }} [options]
    * @returns {Promise<boolean>} false when a yielding write was dropped unsent
    */
-  queueWrite(cmds, expectations, extraFlags = [], { yielding = false } = {}) {
+  queueWrite(cmds, expectations, extraFlags = [], { yielding = YIELD.never } = {}) {
     return new Promise((resolve, reject) => {
       this.writeBatch.push({ cmds, expectations, extraFlags, yielding, resolve, reject });
 
@@ -486,28 +504,41 @@ class Handler {
    * were ever coalesced this way, which is why the check runs on `mergedCmds`
    * itself rather than reusing each write's own precomputed flags.
    *
-   * Merged expectations are combined last-key-wins. Safe today because the
-   * six tracked setters use disjoint generic keys (pwr / mode / cl /
-   * D0310A+D0310C / func / rhset); that is an invariant of the current setter
-   * set, not something this method enforces, so a future setter reusing a key
-   * would have one expectation silently dropped rather than erroring. The one
-   * deliberate overlap, a yielding `pwr` from RotationSpeed 0 beside a real
-   * `pwr` from Active, is resolved before merging: the yielding write is
-   * dropped, so the merged command never carries a register twice.
+   * Merged expectations are combined last-key-wins. The setters overlap on
+   * purpose in three places: a yielding `pwr` from RotationSpeed 0 beside a
+   * real `pwr` from Active; a speed beside the purifier mode where the
+   * model's speeds carry the mode register (D0310A+D0310C on the AC0850,
+   * 'mode' on the AC3036); and Manual's restored speed beside a speed. Each is
+   * resolved before merging by the writes' `yielding` levels (see queueWrite),
+   * so the merged command never carries a register twice. Two writes on the
+   * same level that share a key are not resolved: the setters do not produce
+   * that today except a setter racing itself, and the merged command would
+   * carry the register twice with one expectation silently dropped.
    */
   async flushWriteBatch() {
-    const claimed = new Set(
-      this.writeBatch.filter((entry) => !entry.yielding).flatMap((entry) => Object.keys(entry.expectations))
-    );
-    const batch = [];
+    const levels = [...new Set(this.writeBatch.map((entry) => entry.yielding))].sort((a, b) => a - b);
+    /** @type {Set<string>} */
+    const claimed = new Set();
+    const dropped = new Set();
 
-    for (const entry of this.writeBatch) {
-      if (entry.yielding && Object.keys(entry.expectations).some((key) => claimed.has(key))) {
-        entry.resolve(false);
-      } else {
-        batch.push(entry);
+    //lowest level first, and a level's keys are claimed only once the whole
+    //level is through, so writes on one level never drop each other
+    for (const level of levels) {
+      const kept = [];
+
+      for (const entry of this.writeBatch.filter((candidate) => candidate.yielding === level)) {
+        if (Object.keys(entry.expectations).some((key) => claimed.has(key))) {
+          dropped.add(entry);
+        } else {
+          kept.push(entry);
+        }
       }
+
+      kept.forEach((entry) => Object.keys(entry.expectations).forEach((key) => claimed.add(key)));
     }
+
+    const batch = this.writeBatch.filter((entry) => !dropped.has(entry));
+    dropped.forEach((entry) => entry.resolve(false));
 
     this.writeBatch = [];
     this.writeBatchTimeout = null;
@@ -722,7 +753,8 @@ class Handler {
 
         logger.info(`Purifier Mode: ${state ? 'auto' : 'manual'}`, this.accessory.displayName);
 
-        await this.queueWrite(cmds, target.registers);
+        //Manual gives way to a speed sent with it, and a speed to Auto (see queueWrite)
+        await this.queueWrite(cmds, target.registers, [], { yielding: state ? YIELD.never : YIELD.always });
       } catch (err) {
         logger.warn('An error occured during changing target purifier state!', this.accessory.displayName);
         logger.error(err, this.accessory.displayName);
@@ -748,7 +780,11 @@ class Handler {
 
       logger.info(`Purifier Mode: ${state}`, this.accessory.displayName);
 
-      await this.queueWrite([this.handleCommand('mode', values.mode)], { mode: values.mode });
+      //on a model whose speeds are modes, Manual gives way to a speed sent with
+      //it, and a speed to Auto (see queueWrite)
+      await this.queueWrite([this.handleCommand('mode', values.mode)], { mode: values.mode }, [], {
+        yielding: state ? YIELD.never : YIELD.always,
+      });
     } catch (err) {
       logger.warn('An error occured during changing target purifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -795,7 +831,15 @@ class Handler {
 
         logger.info(`Purifier Rotation Speed: cmds: ${cmds.join(' ')}`, this.accessory.displayName);
 
-        await this.queueWrite(cmds, this.speeds[speed - 1]);
+        //an Auto in the same scene wins where the speed shares its registers
+        //(see queueWrite). The slider itself is put right by the next status:
+        //HAP stores the value this onSet was given once it returns
+        const sent = await this.queueWrite(cmds, this.speeds[speed - 1], [], { yielding: YIELD.toDirect });
+
+        if (!sent) {
+          logger.debug('Purifier Rotation Speed: dropped, an Auto in the same scene wins', this.accessory.displayName);
+          this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, 1);
+        }
       } else {
         //0% means off in HomeKit. Yielding, so a power-on in the same scene
         //wins (see queueWrite), and the tile is updated only once the write
@@ -803,7 +847,9 @@ class Handler {
         //write arrives through Active's own onSet
         logger.debug('Purifier Rotation Speed: 0%, switching off', this.accessory.displayName);
 
-        const sent = await this.queueWrite([this.handleCommand('pwr', 0)], { pwr: 0 }, [], { yielding: true });
+        const sent = await this.queueWrite([this.handleCommand('pwr', 0)], { pwr: 0 }, [], {
+          yielding: YIELD.toDirect,
+        });
 
         if (sent) {
           this.purifierService

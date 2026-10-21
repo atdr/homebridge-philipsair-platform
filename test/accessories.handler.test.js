@@ -437,36 +437,40 @@ describe('rotationSpeed', () => {
   });
 });
 
-describe('rotation speed 0', () => {
-  const recording = (config) => {
-    const handler = makeHandler(config);
-    handler.api = {
-      ...fakeApi,
-      hap: {
-        ...fakeApi.hap,
-        Characteristic: {
-          Active: 'Active',
-          CurrentAirPurifierState: 'CurrentAirPurifierState',
-          TargetAirPurifierState: 'TargetAirPurifierState',
-          RotationSpeed: 'RotationSpeed',
-        },
+//records what each write sends (the arguments after 'set') and the last value
+//pushed to each purifier characteristic
+const recordingWrites = (config) => {
+  const handler = makeHandler(config);
+  handler.api = {
+    ...fakeApi,
+    hap: {
+      ...fakeApi.hap,
+      Characteristic: {
+        Active: 'Active',
+        CurrentAirPurifierState: 'CurrentAirPurifierState',
+        TargetAirPurifierState: 'TargetAirPurifierState',
+        RotationSpeed: 'RotationSpeed',
       },
-    };
-    /** @type {string[]} */
-    const sent = [];
-    handler.sendCMD = async (args) => {
-      sent.push(args.slice(args.indexOf('set') + 1).join(' '));
-    };
-    /** @type {Record<string, unknown>} */
-    const shown = {};
-    handler.purifierService = {
-      updateCharacteristic: (name, value) => {
-        shown[name] = value;
-        return handler.purifierService;
-      },
-    };
-    return { handler, sent, shown };
+    },
   };
+  /** @type {string[]} */
+  const sent = [];
+  handler.sendCMD = async (args) => {
+    sent.push(args.slice(args.indexOf('set') + 1).join(' '));
+  };
+  /** @type {Record<string, unknown>} */
+  const shown = {};
+  handler.purifierService = {
+    updateCharacteristic: (name, value) => {
+      shown[name] = value;
+      return handler.purifierService;
+    },
+  };
+  return { handler, sent, shown };
+};
+
+describe('rotation speed 0', () => {
+  const recording = recordingWrites;
 
   it('switches the purifier off, as HomeKit means by 0%', async (t) => {
     const { handler, sent } = recording({ model: 'AC0850' });
@@ -507,6 +511,67 @@ describe('rotation speed 0', () => {
       assert.notEqual(shown.Active, 0);
     });
   }
+});
+
+describe('mode and speed in one scene', () => {
+  //a scene captured in Auto stores TargetAirPurifierState AUTO beside a
+  //RotationSpeed, and HAP delivers the two as separate onSet calls in no
+  //fixed order. On the AC0850 both write D0310A/D0310C, so one has to give way
+  for (const order of ['mode first', 'speed first']) {
+    it(`lets Auto win over a speed (${order})`, async (t) => {
+      const { handler, sent, shown } = recordingWrites({ model: 'AC0850' });
+      t.after(() => handler.kill(true));
+
+      const writes =
+        order === 'mode first'
+          ? [handler.setPurifierTargetState(1), handler.setPurifierRotationSpeed(100)]
+          : [handler.setPurifierRotationSpeed(100), handler.setPurifierTargetState(1)];
+      await Promise.all(writes);
+
+      assert.deepEqual(sent, ['-I D0310A=2 D0310C=0']);
+      assert.equal(shown.TargetAirPurifierState, 1);
+    });
+
+    it(`lets a speed win over Manual (${order})`, async (t) => {
+      const { handler, sent, shown } = recordingWrites({ model: 'AC0850' });
+      t.after(() => handler.kill(true));
+
+      const writes =
+        order === 'mode first'
+          ? [handler.setPurifierTargetState(0), handler.setPurifierRotationSpeed(100)]
+          : [handler.setPurifierRotationSpeed(100), handler.setPurifierTargetState(0)];
+      await Promise.all(writes);
+
+      assert.deepEqual(sent, ['-I D0310A=2 D0310C=18']);
+      assert.equal(shown.TargetAirPurifierState, 0);
+    });
+  }
+
+  it('keeps the power-on of a scene that also sets Auto and a speed', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
+    await Promise.all([
+      handler.setPurifierActive(1),
+      handler.setPurifierTargetState(1),
+      handler.setPurifierRotationSpeed(100),
+    ]);
+
+    assert.deepEqual(sent, ['-I D03102=1 D0310A=2 D0310C=0']);
+  });
+
+  it('applies the same rule to a model whose speeds carry the mode register', async (t) => {
+    //AC3036 speeds are modes ('T' is Turbo), so Auto and Turbo both write 'mode'
+    const { handler, sent } = recordingWrites({ model: 'AC3036' });
+    t.after(() => handler.kill(true));
+
+    await Promise.all([handler.setPurifierRotationSpeed(100), handler.setPurifierTargetState(1)]);
+    assert.deepEqual(sent, ['mode=P']);
+
+    sent.length = 0;
+    await Promise.all([handler.setPurifierTargetState(0), handler.setPurifierRotationSpeed(100)]);
+    assert.deepEqual(sent, ['mode=T']);
+  });
 });
 
 describe('model mapping check', () => {
