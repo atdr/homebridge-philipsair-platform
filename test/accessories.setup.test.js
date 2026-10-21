@@ -116,7 +116,7 @@ describe('accessories.setup', () => {
 
     assert.equal([...deviceMap.values()].map((device) => device.modelKey).join(','), 'AC0850,');
     assert.ok(info.some((message) => message.includes('Bedroom: Using the AC0850 command set')));
-    assert.ok(info.some((message) => message.includes('Study: No tested mapping for model "AC2889"')));
+    assert.ok(info.some((message) => message.includes('Study: No dedicated mapping for model "AC2889"')));
     assert.deepEqual(warn, []);
   });
 

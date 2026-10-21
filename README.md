@@ -205,7 +205,7 @@ Check all three of these:
    Bedroom: Using the AC0850 command set.
    ```
 
-   A device that instead reports `No tested mapping for model "..."`, or `No model is configured`, is running on the default mapping. That is expected for a model in the Other models tier, and a bug in your config if your model is Supported.
+   A device that instead reports `No dedicated mapping for model "..."`, or `No model is configured`, is running on the default mapping. That is expected for a model in the Other models tier, and a bug in your config if your model is Supported.
 
 The plugin also checks the config against the device itself. The first status a device sends is compared with the mapping in force, and one that answers in registers the mapping cannot read is reported:
 

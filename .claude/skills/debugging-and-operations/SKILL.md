@@ -27,7 +27,7 @@ Sequence verified against the code (`src/platform.js` → `accessories.setup.js`
    anyway. **The absence of either line means the plugin is older than 1.2.0.**
 3. `Initializing device...` (device validated and keyed by UUID), followed by **one line
    naming the command set** that device runs on: `Using the AC0850 command set.` or
-   `No tested mapping for model "X", using the default command set.` A device on the
+   `No dedicated mapping for model "X", using the default command set.` A device on the
    default mapping when its model is in a README Supported tier is a config fault, and this line
    is how it is seen rather than inferred from controls that do nothing. Inactive devices
    log `Not active in the config...` here instead and are skipped.

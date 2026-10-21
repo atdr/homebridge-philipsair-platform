@@ -50,7 +50,7 @@ const announceModel = (device) => {
     );
   } else {
     logger.info(
-      `No tested mapping for model "${device.model}", using the default command set. ` +
+      `No dedicated mapping for model "${device.model}", using the default command set. ` +
         'If the controls do not work, set the model to the ID printed on your device.',
       device.name
     );
