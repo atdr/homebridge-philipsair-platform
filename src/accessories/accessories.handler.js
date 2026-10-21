@@ -266,7 +266,7 @@ class Handler {
     this.writeCoalesceWindow = WRITE_COALESCE_WINDOW;
     //writes waiting for a companion, and the timer that will flush them. see
     //queueWrite
-    /** @type {{ cmds: string[], expectations: Record<string, unknown>, extraFlags: string[], resolve: () => void, reject: (err: unknown) => void }[]} */
+    /** @type {{ cmds: string[], expectations: Record<string, unknown>, extraFlags: string[], yielding: boolean, resolve: (sent: boolean) => void, reject: (err: unknown) => void }[]} */
     this.writeBatch = [];
     this.writeBatchTimeout = null;
 
@@ -455,14 +455,20 @@ class Handler {
    * run `setArgs`'s own `intEncodable` check on the real merged group, at
    * flush time, so it can never diverge from what `setArgs` would compute.
    *
+   * A `yielding` write is one the user did not ask for directly, only implied:
+   * RotationSpeed 0 meaning "off". It is dropped at flush time if another
+   * write in the same window sets any of its keys, so a scene that switches
+   * the purifier on is never undone by a 0% it happened to capture.
+   *
    * @param {string[]} cmds
    * @param {Record<string, unknown>} expectations
    * @param {string[]} [extraFlags]
-   * @returns {Promise<void>}
+   * @param {{ yielding?: boolean }} [options]
+   * @returns {Promise<boolean>} false when a yielding write was dropped unsent
    */
-  queueWrite(cmds, expectations, extraFlags = []) {
+  queueWrite(cmds, expectations, extraFlags = [], { yielding = false } = {}) {
     return new Promise((resolve, reject) => {
-      this.writeBatch.push({ cmds, expectations, extraFlags, resolve, reject });
+      this.writeBatch.push({ cmds, expectations, extraFlags, yielding, resolve, reject });
 
       if (!this.writeBatchTimeout) {
         this.writeBatchTimeout = setTimeout(() => this.flushWriteBatch(), this.writeCoalesceWindow);
@@ -483,10 +489,25 @@ class Handler {
    * six tracked setters use disjoint generic keys (pwr / mode / cl /
    * D0310A+D0310C / func / rhset); that is an invariant of the current setter
    * set, not something this method enforces, so a future setter reusing a key
-   * would have one expectation silently dropped rather than erroring.
+   * would have one expectation silently dropped rather than erroring. The one
+   * deliberate overlap, a yielding `pwr` from RotationSpeed 0 beside a real
+   * `pwr` from Active, is resolved before merging: the yielding write is
+   * dropped, so the merged command never carries a register twice.
    */
   async flushWriteBatch() {
-    const batch = this.writeBatch;
+    const claimed = new Set(
+      this.writeBatch.filter((entry) => !entry.yielding).flatMap((entry) => Object.keys(entry.expectations))
+    );
+    const batch = [];
+
+    for (const entry of this.writeBatch) {
+      if (entry.yielding && Object.keys(entry.expectations).some((key) => claimed.has(key))) {
+        entry.resolve(false);
+      } else {
+        batch.push(entry);
+      }
+    }
+
     this.writeBatch = [];
     this.writeBatchTimeout = null;
 
@@ -500,7 +521,7 @@ class Handler {
 
       try {
         await this.sendTracked(args, expectations);
-        batch.forEach((entry) => entry.resolve());
+        batch.forEach((entry) => entry.resolve(true));
       } catch (err) {
         batch.forEach((entry) => entry.reject(err));
       }
@@ -512,7 +533,7 @@ class Handler {
 
       try {
         await this.sendTracked(args, entry.expectations);
-        entry.resolve();
+        entry.resolve(true);
       } catch (err) {
         entry.reject(err);
       }
@@ -727,8 +748,24 @@ class Handler {
 
         await this.queueWrite(cmds, this.speeds[speed - 1]);
       } else {
-        //0% means off in HomeKit
-        await this.setPurifierActive(0);
+        //0% means off in HomeKit. Yielding, so a power-on in the same scene
+        //wins (see queueWrite), and the tile is updated only once the write
+        //is known to be going out: HAP sets Active itself only when the
+        //write arrives through Active's own onSet
+        logger.debug('Purifier Rotation Speed: 0%, switching off', this.accessory.displayName);
+
+        const sent = await this.queueWrite([this.handleCommand('pwr', 0)], { pwr: 0 }, [], { yielding: true });
+
+        if (sent) {
+          this.purifierService
+            .updateCharacteristic(this.api.hap.Characteristic.Active, 0)
+            .updateCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState, 0);
+        } else {
+          logger.debug(
+            'Purifier Rotation Speed: 0% dropped, a power write in the same scene wins',
+            this.accessory.displayName
+          );
+        }
       }
     } catch (err) {
       logger.warn('An error occured during changing purifier rotation speed!', this.accessory.displayName);

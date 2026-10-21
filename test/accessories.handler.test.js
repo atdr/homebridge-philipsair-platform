@@ -404,6 +404,78 @@ describe('rotationSpeed', () => {
   });
 });
 
+describe('rotation speed 0', () => {
+  const recording = (config) => {
+    const handler = makeHandler(config);
+    handler.api = {
+      ...fakeApi,
+      hap: {
+        ...fakeApi.hap,
+        Characteristic: {
+          Active: 'Active',
+          CurrentAirPurifierState: 'CurrentAirPurifierState',
+          TargetAirPurifierState: 'TargetAirPurifierState',
+          RotationSpeed: 'RotationSpeed',
+        },
+      },
+    };
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.slice(args.indexOf('set') + 1).join(' '));
+    };
+    /** @type {Record<string, unknown>} */
+    const shown = {};
+    handler.purifierService = {
+      updateCharacteristic: (name, value) => {
+        shown[name] = value;
+        return handler.purifierService;
+      },
+    };
+    return { handler, sent, shown };
+  };
+
+  it('switches the purifier off, as HomeKit means by 0%', async (t) => {
+    const { handler, sent } = recording({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierRotationSpeed(0);
+
+    assert.deepEqual(sent, ['-I D03102=0']);
+  });
+
+  it('shows the accessory inactive straight away', async (t) => {
+    const { handler, shown } = recording({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierRotationSpeed(0);
+
+    //HAP only updates Active itself when the write came through Active's own
+    //onSet; arriving via RotationSpeed, nothing else would
+    assert.equal(shown.Active, 0);
+    assert.equal(shown.CurrentAirPurifierState, 0);
+  });
+
+  //a scene captured while the slider read 0% (a legacy model in auto mode, for
+  //one) stores RotationSpeed 0 beside Active 1, and HAP delivers the two in
+  //no guaranteed order
+  for (const order of ['power first', 'speed first']) {
+    it(`lets a power-on in the same scene win (${order})`, async (t) => {
+      const { handler, sent, shown } = recording({ model: 'AC0850' });
+      t.after(() => handler.kill(true));
+
+      const writes =
+        order === 'power first'
+          ? [handler.setPurifierActive(1), handler.setPurifierRotationSpeed(0)]
+          : [handler.setPurifierRotationSpeed(0), handler.setPurifierActive(1)];
+      await Promise.all(writes);
+
+      assert.deepEqual(sent, ['-I D03102=1']);
+      assert.notEqual(shown.Active, 0);
+    });
+  }
+});
+
 describe('model mapping check', () => {
   //a real AC0850/31 dump, from the register inventory on issue #46
   const ac0850Status = () => ({
