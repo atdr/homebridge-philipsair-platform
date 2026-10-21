@@ -574,6 +574,88 @@ describe('mode and speed in one scene', () => {
   });
 });
 
+describe('AC0850 slider around Auto', () => {
+  //with #118, 0% means off, so Auto must never read 0%: a scene captured in
+  //Auto would replay as off. The slider reads the last manual step instead
+  const AUTO = { D03102: 1, D0310A: 2, D0310C: 0 };
+
+  it('reads Sleep in Auto before any manual step is known', (t) => {
+    const { handler } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
+    handler.obj = { ...AUTO };
+    assert.equal(handler.rotationSpeed(), 50);
+  });
+
+  it('reads the last manual step the device reported', (t) => {
+    const { handler } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
+    handler.obj = { ...AUTO, D0310C: 18 };
+    assert.equal(handler.rotationSpeed(), 100);
+    handler.obj = { ...AUTO };
+    assert.equal(handler.rotationSpeed(), 100);
+  });
+
+  it('reads the last manual step it was set to, but not one dropped for Auto', async (t) => {
+    const { handler } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.obj = { ...AUTO };
+
+    await Promise.all([handler.setPurifierTargetState(1), handler.setPurifierRotationSpeed(100)]);
+    assert.equal(handler.rotationSpeed(), 50, 'a speed that was never sent became the manual step');
+
+    await handler.setPurifierRotationSpeed(100);
+    assert.equal(handler.rotationSpeed(), 100);
+  });
+
+  it('shows the last manual step, not 0%, on switching to Auto', async (t) => {
+    const { handler, shown } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.obj = { ...AUTO, D0310C: 18 };
+    handler.rotationSpeed();
+
+    await handler.setPurifierTargetState(1);
+
+    assert.equal(shown.RotationSpeed, 100);
+  });
+
+  it('restores Sleep on switching to Manual before any manual step is known', async (t) => {
+    const { handler, sent, shown } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.obj = { ...AUTO };
+
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=17']);
+    assert.equal(shown.RotationSpeed, 50);
+  });
+
+  it('restores the last manual step on switching to Manual', async (t) => {
+    const { handler, sent, shown } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.obj = { ...AUTO, D0310C: 18 };
+    handler.rotationSpeed();
+    handler.obj = { ...AUTO };
+
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=18']);
+    assert.equal(shown.RotationSpeed, 100);
+  });
+
+  it('leaves the slider to a speed that replaced the Manual restore', async (t) => {
+    const { handler, shown } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.obj = { ...AUTO };
+
+    await Promise.all([handler.setPurifierTargetState(0), handler.setPurifierRotationSpeed(100)]);
+
+    //HAP stores 100 itself once the speed's onSet returns; the restore must not show Sleep
+    assert.notEqual(shown.RotationSpeed, 50);
+  });
+});
+
 describe('model mapping check', () => {
   //a real AC0850/31 dump, from the register inventory on issue #46
   const ac0850Status = () => ({

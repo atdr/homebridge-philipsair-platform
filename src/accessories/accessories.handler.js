@@ -260,6 +260,11 @@ class Handler {
     this.keyMaps = keyMaps;
     this.valueMaps = valueMaps;
     this.modeMaps = modeMaps;
+    //index into speeds of the last manual step the device was in or was set
+    //to. On a modeMaps model Auto is not a speed, so the slider reads this
+    //step while in Auto (0% would mean off) and Manual restores it. Sleep, the
+    //first step, until one is known
+    this.lastManualSpeed = 0;
     this.extraSetFlags = extraSetFlags;
     this.unsupported = new Set(unsupported);
 
@@ -702,6 +707,13 @@ class Handler {
         return (this.obj[cmd] ?? '').toString() == value.toString();
       });
     });
+
+    if (speedConfigIndex >= 0) {
+      this.lastManualSpeed = speedConfigIndex;
+    } else if (this.modeMaps && this.inAutoMode()) {
+      speedConfigIndex = this.lastManualSpeed;
+    }
+
     let speedIndex = speedConfigIndex + 1;
     logger.debug(`#rotationSpeed: ${speedIndex * this.speedsMinStep()}`, this.accessory.displayName);
     return speedIndex * this.speedsMinStep();
@@ -729,7 +741,7 @@ class Handler {
    */
   inAutoMode() {
     if (this.modeMaps) {
-      const registers = Object.entries(this.modeMaps.auto.registers);
+      const registers = Object.entries(this.modeMaps.auto);
 
       if (registers.every(([cmd]) => this.obj[cmd] === undefined)) {
         return true;
@@ -743,18 +755,27 @@ class Handler {
   async setPurifierTargetState(state) {
     if (this.modeMaps) {
       try {
-        const target = state ? this.modeMaps.auto : this.modeMaps.manual;
-        const cmds = Object.entries(target.registers).map(([cmd, value]) => this.handleCommand(cmd, value));
+        //Auto has its own registers; Manual has none of its own, so it goes
+        //back to the last manual step
+        const registers = state ? this.modeMaps.auto : this.speeds[this.lastManualSpeed];
+        const cmds = Object.entries(registers).map(([cmd, value]) => this.handleCommand(cmd, value));
+        const manualStep = (this.lastManualSpeed + 1) * this.speedsMinStep();
 
-        this.purifierService.updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, target.speed);
         if (state != 0) {
-          this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, state);
+          this.purifierService
+            .updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, manualStep)
+            .updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, state);
         }
 
         logger.info(`Purifier Mode: ${state ? 'auto' : 'manual'}`, this.accessory.displayName);
 
         //Manual gives way to a speed sent with it, and a speed to Auto (see queueWrite)
-        await this.queueWrite(cmds, target.registers, [], { yielding: state ? YIELD.never : YIELD.always });
+        const sent = await this.queueWrite(cmds, registers, [], { yielding: state ? YIELD.never : YIELD.always });
+
+        //only once it is known to be going out: a speed that replaced it sets the slider
+        if (sent && state == 0) {
+          this.purifierService.updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, manualStep);
+        }
       } catch (err) {
         logger.warn('An error occured during changing target purifier state!', this.accessory.displayName);
         logger.error(err, this.accessory.displayName);
@@ -836,7 +857,9 @@ class Handler {
         //HAP stores the value this onSet was given once it returns
         const sent = await this.queueWrite(cmds, this.speeds[speed - 1], [], { yielding: YIELD.toDirect });
 
-        if (!sent) {
+        if (sent) {
+          this.lastManualSpeed = speed - 1;
+        } else {
           logger.debug('Purifier Rotation Speed: dropped, an Auto in the same scene wins', this.accessory.displayName);
           this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, 1);
         }
@@ -1571,7 +1594,7 @@ class Handler {
           .updateCharacteristic(Characteristic.CurrentAirPurifierState, on ? 2 : 0);
       }
 
-      const modeKey = this.modeMaps ? key in this.modeMaps.auto.registers : key === 'mode';
+      const modeKey = this.modeMaps ? key in this.modeMaps.auto : key === 'mode';
       if (modeKey && this.supportsMode()) {
         this.purifierService.updateCharacteristic(Characteristic.TargetAirPurifierState, this.inAutoMode() ? 1 : 0);
       }

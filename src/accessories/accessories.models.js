@@ -56,8 +56,7 @@ const models = {
       { D0310A: 2, D0310C: 18 },
     ],
     modeMaps: {
-      auto: { registers: { D0310A: 2, D0310C: 0 }, speed: 0 },
-      manual: { registers: { D0310A: 2, D0310C: 17 }, speed: 50 },
+      auto: { D0310A: 2, D0310C: 0 },
     },
     keyMaps: {
       pwr: 'D03102',
