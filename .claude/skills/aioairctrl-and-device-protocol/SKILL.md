@@ -379,7 +379,7 @@ Meanings below are as this repo uses them, verified against
 | `om`            | Fan speed register (default dialect)        | `'s'` (sleep), `'1'`, `'2'`, `'t'` (turbo)                                                                                  |
 | `cl`            | Child lock                                  | boolean                                                                                                                     |
 | `aqil`          | Display/light brightness                    | 0–100 (set with `-I`)                                                                                                       |
-| `uil`           | Buttons/UI light                            | `'1'`/`'0'`                                                                                                                 |
+| `uil`           | Buttons/UI light                            | `'1'`/`'0'`; on the AC1715, `D03-05` as `100`/`0` (set with `-I`, via `valueMaps.uil`)                                      |
 | `func`          | Function (humidifier-capable models)        | `'P'` purification, `'PH'` purification + humidification                                                                    |
 | `rhset`         | Target humidity                             | 40/50/60/70, mapped to HomeKit threshold 25/50/75/100                                                                       |
 | `wl`            | Water level                                 | 0 (empty) or 100 in the code's branches                                                                                     |

@@ -51,6 +51,14 @@ const models = {
         0: 'OFF',
         1: 'ON',
       },
+      //the display register takes 100/0 where the legacy uil takes '1'/'0'
+      //(ruaan-deysel/ha-philips-airpurifier). A reading of 100 comes back as 1;
+      //the light's HomeKit state is read from aqil, not from this
+      uil: {
+        1: 100,
+        0: 0,
+        100: 1,
+      },
     },
   },
   AC3829: {

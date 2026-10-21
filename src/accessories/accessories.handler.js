@@ -998,6 +998,16 @@ class Handler {
   }*/
 
   //Light
+
+  /**
+   * Set flags for the `uil` write. The legacy key takes the strings '1'/'0'; a
+   * model that maps it does so onto a numeric register (the AC1715's D03-05
+   * takes 100/0), which has to be sent as an integer like `aqil`.
+   */
+  uilFlags() {
+    return this.valueMaps.uil ? ['-I'] : [];
+  }
+
   async setLightOn(state) {
     if (this.settingBrightness) {
       return;
@@ -1013,7 +1023,7 @@ class Handler {
 
       //Light
       const args1 = this.setArgs([this.handleCommand('aqil', values.aqil)], ['-I']);
-      const args2 = this.setArgs([this.handleCommand('uil', values.uil)]);
+      const args2 = this.setArgs([this.handleCommand('uil', values.uil)], this.uilFlags());
 
       logger.info(`Light state: ${state}`, this.accessory.displayName);
 
@@ -1045,7 +1055,7 @@ class Handler {
 
       //Light
       const args1 = this.setArgs([this.handleCommand('aqil', values.aqil)], ['-I']);
-      const args2 = this.setArgs([this.handleCommand('uil', values.uil)]);
+      const args2 = this.setArgs([this.handleCommand('uil', values.uil)], this.uilFlags());
 
       logger.info(`Brightness: ${value}`, this.accessory.displayName);
 
