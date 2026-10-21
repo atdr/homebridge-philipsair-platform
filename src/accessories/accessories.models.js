@@ -4,7 +4,10 @@
 //device state to derive the HomeKit rotation speed; 'keyMaps' translate the
 //generic keys to model-specific registers; 'valueMaps' translate values in
 //both directions; 'extraSetFlags' are extra CLI flags for set commands;
-//'unsupported' lists generic keys the model has no register for at all.
+//'unsupported' lists generic keys the model has no register for at all;
+//'modeMaps' gives a model with no 'mode' register an auto/manual concept: its
+//'auto' entry holds the register values that mean Auto, and Manual has none of
+//its own (it restores the last of the 'speeds' the device was in).
 //Models not listed here use the default 'om' based speeds.
 
 const DEFAULT_SPEEDS = [{ om: '1' }, { om: '2' }, { om: 't' }];
@@ -51,6 +54,10 @@ const models = {
     },
   },
   AC0850: {
+    //D0310C is mode and speed in one register: 0 = Auto, 17 = Sleep,
+    //18 = Turbo, always written with D0310A = 2. Auto goes on HomeKit's
+    //auto/manual selector through modeMaps rather than on the slider, which
+    //keeps two steps: 50% Sleep, 100% Turbo (0% is off)
     speeds: [
       { D0310A: 2, D0310C: 17 },
       { D0310A: 2, D0310C: 18 },
@@ -239,6 +246,9 @@ modelConfig.resolveModel = resolveModel;
 //whether a model brings its own speed table, i.e. whether the sleepSpeed
 //option can do anything for it
 modelConfig.hasOwnSpeeds = (key) => Boolean(key && models[key] && models[key].speeds);
+
+//every field a model entry uses, for the drift guard in test/docs.test.js
+modelConfig.modelFields = [...new Set(Object.values(models).flatMap((model) => Object.keys(model)))];
 
 modelConfig.identifyModel = identifyModel;
 modelConfig.readsStatus = readsStatus;

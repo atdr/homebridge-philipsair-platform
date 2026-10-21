@@ -18,7 +18,7 @@ In the Home app you get:
 - Optional **temperature** and **humidity** sensors
 - The device's own **lights** as lightbulbs
 
-Not every model exposes every control. The AC0850, for example, reports no child lock register, so that control is not offered in the Home app for that model; power, fan speed, auto/manual mode, air quality and filter status are unaffected.
+Not every model exposes every control. The AC0850, for example, reports no child lock register, so that control is not offered in the Home app for that model. Its Auto mode and its fan speeds share one register, so Auto is on the Home app's auto/manual switch rather than on the fan speed slider, which has two steps: 50% is Sleep and 100% is Turbo. While the purifier is in Auto the slider shows the last manual speed, and switching to Manual goes back to it. As everywhere in the Home app, 0% switches the purifier off.
 
 ## Requirements
 
