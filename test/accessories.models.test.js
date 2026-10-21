@@ -61,8 +61,21 @@ describe('accessories.models', () => {
     assert.deepEqual(modelConfig({ model: 'AC0850' }).modeMaps, { auto: { D0310A: 2, D0310C: 0 } });
   });
 
-  it('gives the default map Auto P and Manual M', () => {
-    assert.deepEqual(modelConfig({}).modeMaps, { auto: { mode: 'P' }, manual: { mode: 'M' } });
+  it('gives the default map Auto P, Manual M and the allergen mode A', () => {
+    assert.deepEqual(modelConfig({}).modeMaps, { auto: { mode: 'P' }, allergen: { mode: 'A' }, manual: { mode: 'M' } });
+  });
+
+  it('makes A the default map Auto when the allergic option is on', () => {
+    assert.deepEqual(modelConfig({ allergicFunc: true }).modeMaps.auto, { mode: 'A' });
+    assert.deepEqual(modelConfig({ allergicFunc: true }).modeMaps.manual, { mode: 'M' });
+  });
+
+  it('ignores the allergic option on a model with no plain allergen mode', () => {
+    for (const model of ['AC0850', 'AC1715', 'AC3036']) {
+      assert.deepEqual(modelConfig({ model, allergicFunc: true }).modeMaps, modelConfig({ model }).modeMaps, model);
+      assert.equal(modelConfig.hasAllergenMode(model), false, model);
+    }
+    assert.equal(modelConfig.hasAllergenMode(undefined), true);
   });
 
   //one mechanism for every model: Auto is on the selector, never a slider step

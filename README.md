@@ -137,7 +137,7 @@ Each entry in the `devices` array is one purifier. Three fields are required:
 | `temperature`     | Expose device temperature as a temperature sensor to HomeKit.                                                                                                                          | `false`     |
 | `humidity`        | Expose device humidity as a humidity sensor to HomeKit.                                                                                                                                | `false`     |
 | `sleepSpeed`      | Adds a 'sleep' step below the lowest fan speed.[^sleep-speed]                                                                                                                          | `false`     |
-| `allergicFunc`    | Does this device support the 'allergic' function?                                                                                                                                      | `false`     |
+| `allergicFunc`    | Makes Auto in the Home app start the allergen mode instead of the general Auto mode.[^allergic]                                                                                        | `false`     |
 | `preFilter`       | Expose pre-filter status to HomeKit.                                                                                                                                                   | `false`     |
 | `carbonFilter`    | Expose active carbon filter status to HomeKit.                                                                                                                                         | `false`     |
 | `hepaFilter`      | Expose HEPA/NanoProtect filter status to HomeKit.                                                                                                                                      | `false`     |
@@ -151,6 +151,8 @@ For a complete `config.json`, see [`example-config.json`](https://github.com/atd
 [^always-reported]: Faults that stop the plugin working at all, such as an `aioairctrl` it cannot run, are always reported, whatever this is set to.
 
 [^sleep-speed]: Ignored for models that have their own speed mapping. Those use the right speeds automatically, and the plugin warns when the option cannot do anything.
+
+[^allergic]: Ignored for models with no plain allergen mode, which are the AC0850, AC1715 and AC3036, and the plugin warns when the option cannot do anything. Manual never starts the allergen mode.
 
 ## Device support
 

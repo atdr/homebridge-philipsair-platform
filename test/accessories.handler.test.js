@@ -799,6 +799,37 @@ describe('Auto on the selector for every model', () => {
     assert.equal(handler.inAutoMode(), true);
     assert.equal(handler.rotationSpeed(), 200 / 3);
   });
+
+  it('sends the allergen mode as Auto, never as Manual, when the option is on', async (t) => {
+    const { handler, sent } = selector({ allergicFunc: true });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['mode=A', 'mode=M']);
+
+    handler.handleResponse({ pwr: '1', mode: 'A', om: '1' });
+    assert.equal(handler.inAutoMode(), true);
+  });
+
+  it('reads the allergen mode as Manual when the option is off', (t) => {
+    const { handler } = selector({});
+    t.after(() => handler.kill(true));
+
+    handler.handleResponse({ pwr: '1', mode: 'A', om: '1' });
+    assert.equal(handler.inAutoMode(), false);
+  });
+
+  it('ignores the allergic option on a model with no plain allergen mode', async (t) => {
+    const { handler, sent } = selector({ model: 'AC3036', allergicFunc: true });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['mode=AG', 'mode=S']);
+  });
 });
 
 describe('model mapping check', () => {

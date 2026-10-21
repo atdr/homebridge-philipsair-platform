@@ -9,17 +9,18 @@
 //HomeKit's auto/manual selector on every model: its 'auto' entry holds the
 //register values that mean Auto, which is never one of the 'speeds'. Manual
 //restores the last of the 'speeds' the device was in, unless a 'manual' entry
-//names registers of its own.
+//names registers of its own. An 'allergen' entry is a plain allergen mode,
+//which the allergicFunc option puts in place of 'auto'.
 //Models not listed here use the default 'om' based speeds and modes.
 
 const DEFAULT_SPEEDS = [{ om: '1' }, { om: '2' }, { om: 't' }];
 const DEFAULT_SLEEP_SPEEDS = [{ om: 's' }, ...DEFAULT_SPEEDS];
 
-//the legacy 'mode' register: P is Auto, M manual. Manual
+//the legacy 'mode' register: P is Auto, A the allergen mode, M manual. Manual
 //keeps writing M rather than restoring a speed, because the default speeds
 //write 'om' alone and nothing confirms that 'om' takes an unknown model out of
 //Auto; sending 'mode=M' beside a speed is a write no tested model has had
-const DEFAULT_MODE_MAPS = { auto: { mode: 'P' }, manual: { mode: 'M' } };
+const DEFAULT_MODE_MAPS = { auto: { mode: 'P' }, allergen: { mode: 'A' }, manual: { mode: 'M' } };
 
 const models = {
   AC3036: {
@@ -178,6 +179,7 @@ const modelConfig = (deviceConfig) => {
   //what it found; resolving again covers a config object built directly
   const key = deviceConfig.modelKey || resolveModel(deviceConfig).key;
   const model = models[key] || {};
+  const modeMaps = modeMapsFor(key);
 
   return {
     speeds: model.speeds || (deviceConfig.sleepSpeed ? DEFAULT_SLEEP_SPEEDS : DEFAULT_SPEEDS),
@@ -185,7 +187,10 @@ const modelConfig = (deviceConfig) => {
     valueMaps: model.valueMaps || {},
     extraSetFlags: model.extraSetFlags || [],
     unsupported: model.unsupported || [],
-    modeMaps: modeMapsFor(key),
+    //the allergic option swaps the allergen mode in for Auto, on a model that
+    //has one; elsewhere accessories.setup.js warns that it is ignored
+    modeMaps:
+      deviceConfig.allergicFunc && modeMaps && modeMaps.allergen ? { ...modeMaps, auto: modeMaps.allergen } : modeMaps,
   };
 };
 
@@ -289,6 +294,10 @@ modelConfig.resolveModel = resolveModel;
 //whether a model brings its own speed table, i.e. whether the sleepSpeed
 //option can do anything for it
 modelConfig.hasOwnSpeeds = (key) => Boolean(key && models[key] && models[key].speeds);
+
+//whether a model has a plain allergen mode, i.e. whether the allergicFunc
+//option can do anything for it
+modelConfig.hasAllergenMode = (key) => Boolean((modeMapsFor(key) || {}).allergen);
 
 //every field a model entry uses, for the drift guard in test/docs.test.js
 modelConfig.modelFields = [...new Set(Object.values(models).flatMap((model) => Object.keys(model)))];
