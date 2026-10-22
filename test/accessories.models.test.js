@@ -170,7 +170,7 @@ describe('accessories.models', () => {
 
     it('never guesses at a model it does not map', () => {
       assert.equal(modelConfig.resolveModel({ model: 'AC3O36', name: 'Study' }).key, undefined);
-      assert.equal(modelConfig.resolveModel({ model: 'AC2889' }).key, undefined);
+      assert.equal(modelConfig.resolveModel({ model: 'AC0820' }).key, undefined);
       assert.equal(modelConfig.resolveModel({ name: 'Purifier 2' }).key, undefined);
       assert.equal(modelConfig.resolveModel({}).key, undefined);
     });
@@ -240,7 +240,7 @@ describe('accessories.models', () => {
     });
 
     it('identifies nothing from a status that names no model this plugin maps', () => {
-      assert.equal(modelConfig.identifyModel({ pwr: '1', om: '2', type: 'AC2889' }).key, undefined);
+      assert.equal(modelConfig.identifyModel({ pwr: '1', om: '2', type: 'AC0820' }).key, undefined);
       assert.equal(modelConfig.identifyModel({ pwr: '1' }).key, undefined);
       assert.equal(modelConfig.identifyModel({}).key, undefined);
     });
@@ -254,5 +254,78 @@ describe('accessories.models', () => {
       assert.equal(modelConfig.looksLikeRegisters({ 'D03-02': 'ON' }), true);
       assert.equal(modelConfig.looksLikeRegisters({ pwr: '1', om: '2' }), false);
     });
+  });
+});
+
+//The models imported from ruaan-deysel/ha-philips-airpurifier (see
+//THIRD_PARTY_NOTICES.md), by wire dialect. Each spot check below pins one
+//encoding a family depends on, so a slip in the shared data shows up here
+describe('imported models', () => {
+  const imported = {
+    legacy: [
+      'AC1214',
+      'AC2729',
+      'AC2889',
+      'AC2936',
+      'AC2939',
+      'AC2958',
+      'AC2959',
+      'AC3033',
+      'AC3039',
+      'AC3055',
+      'AC3059',
+      'AC3259',
+      'AC3836',
+      'AC3854',
+      'AC3858',
+      'AC4236',
+      'AC4550',
+      'AC4558',
+      'AC5659',
+      'AC5660',
+    ],
+  };
+
+  it('maps every imported model', () => {
+    for (const model of Object.values(imported).flat()) {
+      assert.ok(modelConfig.mappedModels.includes(model), `${model} has no mapping`);
+    }
+  });
+
+  it('leaves out the devices that are not purifiers', () => {
+    for (const model of ['AMF870', 'CX3120', 'CX3550', 'CX5120', 'CX7550', 'HU1509', 'HU1510', 'HU4209', 'HU5710']) {
+      assert.equal(modelConfig.mappedModels.includes(model), false, model);
+    }
+  });
+
+  it('keeps the legacy models on the generic keys', () => {
+    for (const model of imported.legacy) {
+      const config = modelConfig({ model });
+
+      assert.deepEqual(config.keyMaps, {}, model);
+      assert.deepEqual(config.extraSetFlags, [], model);
+    }
+  });
+
+  it('reads the AC4558 automatic modes from mode and om together', () => {
+    const config = modelConfig({ model: 'AC4558' });
+
+    assert.deepEqual(config.modeMaps, { auto: { mode: 'AG', om: 'a' }, allergen: { mode: 'A', om: 'a' } });
+    assert.deepEqual(config.speeds, [{ om: 's' }, { om: '1' }, { om: '2' }, { om: 't' }]);
+  });
+
+  it('gives the plain allergen mode to the models that have one', () => {
+    for (const model of ['AC1214', 'AC2729', 'AC2889', 'AC3259', 'AC4550', 'AC4558', 'AC5659', 'AC5660']) {
+      assert.equal(modelConfig.hasAllergenMode(model), true, model);
+    }
+    for (const model of ['AC2936', 'AC3033', 'AC3854', 'AC4236']) {
+      assert.equal(modelConfig.hasAllergenMode(model), false, model);
+    }
+  });
+
+  it('collapses the regional variants of the AC385x to one mapping', () => {
+    for (const typed of ['AC3854/50', 'AC3854/51', 'AC3858/83']) {
+      assert.equal(modelConfig.resolveModel({ model: typed }).key, typed.slice(0, 6));
+    }
   });
 });

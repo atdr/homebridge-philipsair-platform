@@ -1,5 +1,8 @@
 'use strict';
 
+//Most entries here are data from ruaan-deysel's Apache-2.0 projects, modified:
+//see THIRD_PARTY_NOTICES.md and the comment above the imported entries.
+
 //Per-model command mappings. 'speeds' entries are matched in order against the
 //device state to derive the HomeKit rotation speed; 'keyMaps' translate the
 //generic keys to model-specific registers; 'valueMaps' translate values in
@@ -124,6 +127,148 @@ const models = {
     unsupported: ['mode', 'cl'],
   },
 };
+
+//The entries below are imported from ruaan-deysel/ha-philips-airpurifier
+//(custom_components/philips_airpurifier/device_models.py and const.py,
+//Apache-2.0), cross-checked against ruaan-deysel/homebridge-philips-airctrl
+//(src/device/models.ts and keys.ts), and modified to fit this plugin: see
+//THIRD_PARTY_NOTICES.md. None is validated on hardware by this project.
+//
+//What changed on the way in: the power write each preset carries there is
+//dropped, since power has its own HomeKit control here; Auto and the plain
+//allergen mode go on modeMaps; Sleep and Turbo join the speeds as manual
+//steps, slowest first; presets with no HomeKit surface (bacteria, gas,
+//pollution, allergy sleep, medium off the ladder) are left out; and so is
+//everything with no HomeKit surface here (beep, timers, preferred index,
+//oscillation, Auto+ AI). A regional variant (/10, /50) shares its base ID.
+
+//the legacy ladder of mode M with om 1, 2, 3 and t, after a slower first step
+const manualOmSpeeds = (slowest) => [
+  slowest,
+  { mode: 'M', om: '1' },
+  { mode: 'M', om: '2' },
+  { mode: 'M', om: '3' },
+  { mode: 'M', om: 't' },
+];
+
+//the AC303x ladder: sleep and turbo are modes of their own, written with om
+const AC303X_SPEEDS = [
+  { mode: 'S', om: 's' },
+  { mode: 'M', om: '1' },
+  { mode: 'M', om: '2' },
+  { mode: 'T', om: 't' },
+];
+
+//Auto P with the allergen mode A, as on the default map
+const P_AND_A_MODES = { auto: { mode: 'P' }, allergen: { mode: 'A' } };
+const AG_MODES = { auto: { mode: 'AG' } };
+
+Object.assign(models, {
+  //legacy dialect: the generic keys are the wire keys, so only the speeds and
+  //modes are the model's own
+
+  //ruaan-deysel/ha-philips-airpurifier marks it as needing mode cycling, a
+  //flag nothing there acts on, so its modes are written directly here
+  AC1214: {
+    speeds: manualOmSpeeds({ mode: 'N' }),
+    modeMaps: P_AND_A_MODES,
+  },
+  //a humidifier on the legacy func, rhset and wl
+  AC2729: {
+    speeds: manualOmSpeeds({ mode: 'S', om: 's' }),
+    modeMaps: P_AND_A_MODES,
+  },
+  AC2889: {
+    speeds: manualOmSpeeds({ mode: 'M', om: 's' }),
+    modeMaps: P_AND_A_MODES,
+  },
+  AC2936: {
+    speeds: [{ mode: 'S' }, { mode: 'GT' }, { mode: 'T' }],
+    modeMaps: AG_MODES,
+  },
+  AC2939: {
+    speeds: [{ mode: 'S' }, { mode: 'GT' }, { mode: 'T' }],
+    modeMaps: AG_MODES,
+  },
+  AC2958: {
+    speeds: [{ mode: 'S' }, { mode: 'GT' }, { mode: 'T' }],
+    modeMaps: AG_MODES,
+  },
+  AC2959: {
+    speeds: [{ mode: 'S' }, { mode: 'GT' }, { mode: 'T' }],
+    modeMaps: AG_MODES,
+  },
+  AC3033: {
+    speeds: AC303X_SPEEDS,
+    modeMaps: AG_MODES,
+  },
+  AC3039: {
+    speeds: AC303X_SPEEDS,
+    modeMaps: AG_MODES,
+  },
+  AC3055: {
+    speeds: AC303X_SPEEDS,
+    modeMaps: AG_MODES,
+  },
+  AC3059: {
+    speeds: AC303X_SPEEDS,
+    modeMaps: AG_MODES,
+  },
+  AC3259: {
+    speeds: manualOmSpeeds({ mode: 'M', om: 's' }),
+    modeMaps: P_AND_A_MODES,
+  },
+  //Auto is written, and read, with om 1 beside mode AG
+  AC3836: {
+    speeds: [
+      { mode: 'S', om: 's' },
+      { mode: 'T', om: 't' },
+    ],
+    modeMaps: {
+      auto: { mode: 'AG', om: '1' },
+    },
+  },
+  //the /25, /50 and /51 variants differ only in an allergy sleep preset and a
+  //child lock switch there, neither of which changes what is sent here
+  AC3854: {
+    speeds: AC303X_SPEEDS,
+    modeMaps: AG_MODES,
+  },
+  AC3858: {
+    speeds: AC303X_SPEEDS,
+    modeMaps: AG_MODES,
+  },
+  AC4236: {
+    speeds: AC303X_SPEEDS,
+    modeMaps: AG_MODES,
+  },
+  //the automatic modes write om a beside the mode, and the manual speeds om
+  //alone, so om tells Auto from a speed
+  AC4550: {
+    speeds: [{ om: 's' }, { om: '1' }, { om: '2' }, { om: 't' }],
+    modeMaps: {
+      auto: { mode: 'AG', om: 'a' },
+      allergen: { mode: 'A', om: 'a' },
+    },
+  },
+  AC4558: {
+    speeds: [{ om: 's' }, { om: '1' }, { om: '2' }, { om: 't' }],
+    modeMaps: {
+      auto: { mode: 'AG', om: 'a' },
+      allergen: { mode: 'A', om: 'a' },
+    },
+  },
+  //ruaan-deysel/ha-philips-airpurifier names P "pollution" here and lists no
+  //Auto, but it is the same automatic P the AC2889 and AC3259 call Auto
+  AC5659: {
+    speeds: manualOmSpeeds({ mode: 'M', om: 's' }),
+    modeMaps: P_AND_A_MODES,
+  },
+  AC5660: {
+    speeds: manualOmSpeeds({ mode: 'M', om: 's' }),
+    modeMaps: P_AND_A_MODES,
+  },
+});
 
 //Philips prints the model on the device as 'AC0850/11'; the suffix after the
 //slash is a regional variant and is never part of the mapping key. Users type
