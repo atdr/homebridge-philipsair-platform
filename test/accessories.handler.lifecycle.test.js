@@ -1771,7 +1771,7 @@ describe('write verification', { concurrency: 1 }, () => {
 
     //off, so the power-on is needed and goes out merged with the speed
     await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 0 }));
-    await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(50)]);
+    await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(25)]);
     assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1 D0310A=2 D0310C=17']);
     sent.length = 0;
 

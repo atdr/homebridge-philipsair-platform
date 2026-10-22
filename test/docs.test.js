@@ -260,8 +260,14 @@ describe('docs', () => {
       const row = rows.find((cells) => cells[1] === model);
       assert.ok(row, `the README 'Fan speed and Auto' table has no row for ${model}`);
 
+      //a model whose slider follows the fan level has a step per level, not per speed
+      const { fanLevel, speeds } = modelConfig({ model });
       const steps = (row[2].match(/\d+%/g) || []).length;
-      assert.equal(steps, modelConfig({ model }).speeds.length, `the README slider row for ${model} is out of date`);
+      assert.equal(
+        steps,
+        (fanLevel ? fanLevel.steps : speeds).length,
+        `the README slider row for ${model} is out of date`
+      );
     }
   });
 });

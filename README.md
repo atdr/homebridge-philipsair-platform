@@ -177,17 +177,19 @@ That dump is what the mapping is derived from, so a request with one attached ca
 
 ### Fan speed and Auto
 
-Auto is never a step on the fan speed slider. It is on the Home app's auto/manual switch, and the slider has only the manual speeds, so that a scene saved in Auto cannot replay as 0%, which means off. While the purifier is in Auto the slider shows the last manual speed, whatever speed Auto itself has chosen, and switching to Manual goes back to that speed. Before the first status arrives the switch reads Auto and the slider the first step.
+Auto is on the Home app's auto/manual switch, and on most models the slider has only the manual speeds, so that a scene saved in Auto cannot replay as 0%, which means off. While the purifier is in Auto the slider shows the last manual speed, whatever speed Auto itself has chosen, and switching to Manual goes back to that speed. Before the first status arrives the switch reads Auto and the slider the first step.
+
+The AC0850 is the exception: it reports the fan's actual speed, so its slider shows that speed in every mode, Auto included. Auto runs the fan at one of four speeds, and the slider has a step for each. 25% and 100% are the manual speeds, Sleep and Turbo. 50% and 75% are speeds only Auto uses, so setting either selects Auto. A value between steps goes to the nearest one. Switching to Manual goes back to Sleep or Turbo, whichever was last.
 
 | Model           | Slider steps                                                                                             | Auto on the switch sends        |
 | --------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| AC0850          | 50% Sleep, 100% Turbo                                                                                    | `D0310C` 0                      |
+| AC0850          | 25% Sleep, 50% and 75% Auto, 100% Turbo                                                                  | `D0310C` 0                      |
 | AC1715          | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                          | `Auto General`                  |
 | AC3036          | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                          | `AG`                            |
 | AC3829          | 20% Sleep, 40% Speed 1, 60% Speed 2, 80% Speed 3, 100% Turbo                                             | `P`, or `A` with `allergicFunc` |
 | Any other model | 33% Speed 1, 67% Speed 2, 100% Turbo. With `sleepSpeed`: 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo | `P`, or `A` with `allergicFunc` |
 
-Before 1.4.0 the AC0850 slider had Auto in the middle, at 67%. A scene or automation saved at that position still selects Auto rather than Turbo, but this is a transition aid that a later major release may remove, so re-save such scenes with the Auto switch instead.
+AC0850 scenes and automations saved on 1.3.1 keep working: its 33%, 67% and 100% land on Sleep, Auto and Turbo. A scene saved on 1.4.0 at 50% now selects Auto rather than Sleep, so re-save a Sleep scene at 25%.
 
 On a model with no mapping of its own, switching to Manual sends the manual mode and leaves the speed to the purifier rather than restoring the last one, because the plugin has no confirmed way to set both at once on hardware it does not know.
 

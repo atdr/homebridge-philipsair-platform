@@ -61,12 +61,21 @@ describe('accessories.models', () => {
     assert.deepEqual(modelConfig({ model: 'AC0850' }).modeMaps, { auto: { D0310A: 2, D0310C: 0 } });
   });
 
-  it('keeps the old AC0850 Auto slider position, and none elsewhere', () => {
-    //1.4.0 took Auto off the AC0850 slider, where it was the middle of three steps
-    assert.deepEqual(modelConfig({ model: 'AC0850' }).legacyAutoSpeeds, [200 / 3]);
+  it('maps the AC0850 fan level onto four slider steps, and no other model', () => {
+    //D0310D is the fan's actual level (issue #46); levels 2 and 3 only occur in Auto
+    const { fanLevel, speeds } = modelConfig({ model: 'AC0850' });
+    assert.equal(fanLevel.key, 'D0310D');
+    assert.deepEqual(
+      fanLevel.steps.map((step) => step.level),
+      [1, 2, 3, 18]
+    );
+    assert.deepEqual(
+      fanLevel.steps.map((step) => step.write),
+      [speeds[0], 'auto', 'auto', speeds[1]]
+    );
 
     for (const model of ['Air Purifier', 'AC1715', 'AC3036', 'AC3829']) {
-      assert.deepEqual(modelConfig({ model }).legacyAutoSpeeds, [], model);
+      assert.equal(modelConfig({ model }).fanLevel, undefined, model);
     }
   });
 

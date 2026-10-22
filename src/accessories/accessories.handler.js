@@ -132,11 +132,6 @@ const WRITE_SETTLE = 3 * 1000;
 //exists to catch them before they are ever split into two commands
 const WRITE_COALESCE_WINDOW = 75;
 
-//how close a RotationSpeed has to be to a model's legacyAutoSpeeds entry to
-//count as it: 200/3 stored by a controller as 66.6667 still matches, the 67%
-//a person can ask for does not
-const LEGACY_AUTO_TOLERANCE = 0.01;
-
 //how readily a queued write gives way to another write in the same coalescing
 //window that sets one of its keys. A write is dropped when one on a lower
 //level claims a key it sets; writes on the same level are all kept. see
@@ -260,10 +255,12 @@ class Handler {
       );
     }
 
-    const { speeds, keyMaps, valueMaps, modeMaps, legacyAutoSpeeds, autoWrite, extraSetFlags, unsupported } =
+    const { speeds, keyMaps, valueMaps, modeMaps, fanLevel, autoWrite, extraSetFlags, unsupported } =
       modelConfig(config);
     this.speeds = speeds;
-    this.legacyAutoSpeeds = legacyAutoSpeeds;
+    //the slider's steps when the model reports its fan's actual level, see
+    //accessories.models.js
+    this.fanLevel = fanLevel;
     this.keyMaps = keyMaps;
     this.valueMaps = valueMaps;
     this.modeMaps = modeMaps;
@@ -294,7 +291,7 @@ class Handler {
     this.writeCoalesceWindow = WRITE_COALESCE_WINDOW;
     //writes waiting for a companion, and the timer that will flush them. see
     //queueWrite
-    /** @type {{ cmds: string[], expectations: Record<string, unknown>, extraFlags: string[], yielding: number, resolve: (sent: boolean) => void, reject: (err: unknown) => void }[]} */
+    /** @type {{ cmds: string[], expectations: Record<string, unknown>, extraFlags: string[], yielding: number, onYield?: (winner: number) => void, resolve: (sent: boolean) => void, reject: (err: unknown) => void }[]} */
     this.writeBatch = [];
     this.writeBatchTimeout = null;
 
@@ -492,15 +489,18 @@ class Handler {
    * and Manual's restore of the last speed gives way to any speed sent with
    * it, since that speed is the one the scene means.
    *
+   * `onYield`, when given, is told the YIELD level of the write that took a
+   * dropped write's place, before the promise settles.
+   *
    * @param {string[]} cmds
    * @param {Record<string, unknown>} expectations
    * @param {string[]} [extraFlags]
-   * @param {{ yielding?: number }} [options]
+   * @param {{ yielding?: number, onYield?: (winner: number) => void }} [options]
    * @returns {Promise<boolean>} false when a yielding write was dropped unsent
    */
-  queueWrite(cmds, expectations, extraFlags = [], { yielding = YIELD.never } = {}) {
+  queueWrite(cmds, expectations, extraFlags = [], { yielding = YIELD.never, onYield } = {}) {
     return new Promise((resolve, reject) => {
-      this.writeBatch.push({ cmds, expectations, extraFlags, yielding, resolve, reject });
+      this.writeBatch.push({ cmds, expectations, extraFlags, yielding, onYield, resolve, reject });
 
       if (!this.writeBatchTimeout) {
         this.writeBatchTimeout = setTimeout(() => this.flushWriteBatch(), this.writeCoalesceWindow);
@@ -528,12 +528,13 @@ class Handler {
    * that today except a setter racing itself, and the merged command would
    * carry the register twice with one expectation silently dropped. The one
    * exception is an identical write, which is sent once: Auto on the switch
-   * and an old Auto slider position (legacyAutoSpeeds) in the same scene.
+   * and a fan-level Auto step on the slider (`fanLevel`) in the same scene.
    */
   async flushWriteBatch() {
     const levels = [...new Set(this.writeBatch.map((entry) => entry.yielding))].sort((a, b) => a - b);
-    /** @type {Set<string>} */
-    const claimed = new Set();
+    //each claimed key, and the level of the write that claimed it
+    /** @type {Map<string, number>} */
+    const claimed = new Map();
     const dropped = new Set();
 
     //lowest level first, and a level's keys are claimed only once the whole
@@ -542,14 +543,19 @@ class Handler {
       const kept = [];
 
       for (const entry of this.writeBatch.filter((candidate) => candidate.yielding === level)) {
-        if (Object.keys(entry.expectations).some((key) => claimed.has(key))) {
+        const winners = Object.keys(entry.expectations)
+          .filter((key) => claimed.has(key))
+          .map((key) => /** @type {number} */ (claimed.get(key)));
+
+        if (winners.length) {
           dropped.add(entry);
+          entry.onYield?.(Math.min(...winners));
         } else {
           kept.push(entry);
         }
       }
 
-      kept.forEach((entry) => Object.keys(entry.expectations).forEach((key) => claimed.add(key)));
+      kept.forEach((entry) => Object.keys(entry.expectations).forEach((key) => claimed.set(key, level)));
     }
 
     //after the yielding pass, so a 0% still gives way to the power-on it came
@@ -561,8 +567,8 @@ class Handler {
       .filter((entry) => this.dropRedundantPowerOn(entry))
       .filter((entry) => {
         //the same write twice is sent once, and both setters have what they
-        //asked for: Auto on the switch beside an old Auto slider position
-        //(legacyAutoSpeeds) is one scene asking for Auto in two ways
+        //asked for: Auto on the switch beside a fan-level Auto step on the
+        //slider (fanLevel) is one scene asking for Auto in two ways
         const command = [...entry.extraFlags, ...entry.cmds].join(' ');
 
         if (!seen.has(command)) {
@@ -847,8 +853,64 @@ class Handler {
     return { 40: 25, 50: 50, 60: 75, 70: 100 }[this.obj.rhset] || 0;
   }
 
+  /** The slider's step: one per fan level step where the model has them, else one per speed. */
   speedsMinStep() {
-    return 100 / this.speeds.length;
+    return 100 / (this.fanLevel ? this.fanLevel.steps : this.speeds).length;
+  }
+
+  /**
+   * Where one of the `speeds` sits on the slider. Without a fan level that is
+   * its own position; with one, the position of the fan level step that
+   * writes it (Sleep 25%, Turbo 100% on the AC0850).
+   *
+   * @param {number} index into `speeds`
+   */
+  speedPercent(index) {
+    if (this.fanLevel) {
+      const step = this.fanLevel.steps.findIndex(({ write }) => this.sameRegisters(write, this.speeds[index]));
+
+      if (step >= 0) {
+        return (step + 1) * this.speedsMinStep();
+      }
+    }
+
+    return (index + 1) * this.speedsMinStep();
+  }
+
+  /**
+   * @param {Record<string, unknown> | string} a
+   * @param {Record<string, unknown> | string} b
+   */
+  sameRegisters(a, b) {
+    if (typeof a !== 'object' || typeof b !== 'object') {
+      return a === b;
+    }
+
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every((key) => String(a[key]) === String(b[key]));
+  }
+
+  /**
+   * The slider position of the fan's actual level, on a model that reports
+   * one (`fanLevel`): 0 when the device is off or the fan stopped, else the
+   * step that level belongs to. Undefined when the level is not reported or
+   * is not one of the steps, so the caller falls back to the speeds.
+   *
+   * @returns {number | undefined}
+   */
+  fanLevelPercent() {
+    if (!this.fanLevel || this.obj[this.fanLevel.key] === undefined) {
+      return undefined;
+    }
+
+    const level = Number(this.obj[this.fanLevel.key]);
+
+    if (this.deviceKnownOff() || level === 0) {
+      return 0;
+    }
+
+    const step = this.fanLevel.steps.findIndex((candidate) => candidate.level === level);
+    return step >= 0 ? (step + 1) * this.speedsMinStep() : undefined;
   }
 
   rotationSpeed() {
@@ -875,9 +937,11 @@ class Handler {
       }
     }
 
-    let speedIndex = speedConfigIndex + 1;
-    logger.debug(`#rotationSpeed: ${speedIndex * this.speedsMinStep()}`, this.accessory.displayName);
-    return speedIndex * this.speedsMinStep();
+    //the fan's actual level wins in every mode where the model reports it;
+    //the matching above still runs, to keep the last manual step current
+    const percent = this.fanLevelPercent() ?? (speedConfigIndex < 0 ? 0 : this.speedPercent(speedConfigIndex));
+    logger.debug(`#rotationSpeed: ${percent}`, this.accessory.displayName);
+    return percent;
   }
 
   //Air Purifier
@@ -949,7 +1013,7 @@ class Handler {
       const restoring = !this.modeMaps.manual;
       const registers = state ? this.autoWrite : this.modeMaps.manual || this.speeds[this.lastManualSpeed];
       const cmds = Object.entries(registers).map(([cmd, value]) => this.handleCommand(cmd, value));
-      const manualStep = (this.lastManualSpeed + 1) * this.speedsMinStep();
+      const manualStep = this.speedPercent(this.lastManualSpeed);
 
       if (state != 0) {
         this.purifierService
@@ -960,7 +1024,20 @@ class Handler {
       logger.info(`Purifier Mode: ${state ? 'auto' : 'manual'}`, this.accessory.displayName);
 
       //Manual gives way to a speed sent with it, and a speed to Auto (see queueWrite)
-      const sent = await this.queueWrite(cmds, registers, [], { yielding: state ? YIELD.never : YIELD.always });
+      let yieldedToAuto = false;
+      const sent = await this.queueWrite(cmds, registers, [], {
+        yielding: state ? YIELD.never : YIELD.always,
+        onYield: (winner) => (yieldedToAuto = winner === YIELD.never),
+      });
+
+      //Manual gave way to Auto from the slider (a fan level Auto step). HAP
+      //stores MANUAL itself once this onSet returns, so AUTO is put back after
+      if (!sent && yieldedToAuto) {
+        logger.debug('Purifier Mode: manual dropped, an Auto in the same scene wins', this.accessory.displayName);
+        setImmediate(() =>
+          this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, 1)
+        );
+      }
 
       //only once it is known to be going out: a speed that replaced it sets the slider
       if (sent && state == 0 && restoring) {
@@ -993,32 +1070,46 @@ class Handler {
   }
 
   /**
-   * Whether a RotationSpeed is where the model's slider used to have Auto (see
-   * `legacyAutoSpeeds` in accessories.models.js). HAP hands over the stored
-   * value as it was, 200/3 for the old AC0850 middle step, so the tolerance only
-   * has to absorb how a controller rounded it.
+   * What a RotationSpeed above 0% writes on a model whose slider follows the
+   * fan level: the nearest step, rather than the next one up, so 1.3.1's
+   * 33/67/100% scenes land on Sleep, Auto and Turbo. Never off: only 0% is.
    *
    * @param {number} value
+   * @returns {{ registers: Record<string, unknown>, index: number } | 'auto'}
    */
-  isLegacyAutoSpeed(value) {
-    return this.legacyAutoSpeeds.some((legacy) => Math.abs(value - legacy) < LEGACY_AUTO_TOLERANCE);
+  fanLevelWrite(value) {
+    const steps = /** @type {NonNullable<typeof this.fanLevel>} */ (this.fanLevel).steps;
+    const step = Math.min(steps.length, Math.max(1, Math.round(value / this.speedsMinStep())));
+    const { write } = steps[step - 1];
+
+    if (write === 'auto') {
+      return 'auto';
+    }
+
+    return { registers: write, index: this.speeds.findIndex((speed) => this.sameRegisters(speed, write)) };
   }
 
   async setPurifierRotationSpeed(value) {
-    if (this.supportsMode() && this.isLegacyAutoSpeed(value)) {
-      //the same path as Auto on the switch, so it never yields either
-      logger.debug(
-        `Purifier Rotation Speed: ${value} is where Auto used to be on the slider, selecting Auto`,
-        this.accessory.displayName
-      );
-      await this.setPurifierTargetState(1);
-      return;
-    }
-
     try {
-      const speed = Math.ceil(value / this.speedsMinStep());
+      //the next step up, into speeds
+      let index = Math.ceil(value / this.speedsMinStep()) - 1;
+      let registers = this.speeds[index];
 
-      if (speed > 0) {
+      if (this.fanLevel && value > 0) {
+        const write = this.fanLevelWrite(value);
+
+        if (write === 'auto') {
+          //the same path as Auto on the switch, so it never yields either
+          logger.info(`Purifier Rotation Speed: ${value} is an Auto step, selecting Auto`, this.accessory.displayName);
+          await this.setPurifierTargetState(1);
+          return;
+        }
+
+        index = write.index;
+        registers = write.registers;
+      }
+
+      if (value > 0) {
         //MANUAL is not a value this characteristic accepts on a model with no
         //mode: accessories.service.js constrains it to AUTO there
         if (this.supportsMode()) {
@@ -1028,7 +1119,7 @@ class Handler {
         logger.info(`Purifier Rotation Speed: value: ${value}`, this.accessory.displayName);
 
         let cmds = [];
-        Object.entries(this.speeds[speed - 1]).forEach(([cmd, value]) => {
+        Object.entries(registers).forEach(([cmd, value]) => {
           cmds.push(`${this.handleCommand(cmd, value)}`);
         });
 
@@ -1037,10 +1128,10 @@ class Handler {
         //an Auto in the same scene wins where the speed shares its registers
         //(see queueWrite). The slider itself is put right by the next status:
         //HAP stores the value this onSet was given once it returns
-        const sent = await this.queueWrite(cmds, this.speeds[speed - 1], [], { yielding: YIELD.toDirect });
+        const sent = await this.queueWrite(cmds, registers, [], { yielding: YIELD.toDirect });
 
         if (sent) {
-          this.lastManualSpeed = speed - 1;
+          this.lastManualSpeed = index >= 0 ? index : this.lastManualSpeed;
         } else {
           logger.debug('Purifier Rotation Speed: dropped, an Auto in the same scene wins', this.accessory.displayName);
           this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, 1);
