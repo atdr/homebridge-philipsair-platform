@@ -11,7 +11,12 @@
 //restores the last of the 'speeds' the device was in, unless a 'manual' entry
 //names registers of its own. An 'allergen' entry is a plain allergen mode,
 //automatic too: it reads as Auto, and the allergicFunc option makes Auto
-//send it instead of 'auto'.
+//send it instead of 'auto'. 'fanLevel' is optional, for a model that reports
+//the fan's actual level in a register of its own: 'key' names that register,
+//and 'steps' are the slider's steps, slowest first, each a 'level' it reads
+//and a 'write' it sends, either one of the 'speeds' (a manual step) or the
+//word 'auto' (Auto, as the selector sends it). The slider then shows the
+//level in every mode, and a write rounds to the nearest step rather than up.
 //Models not listed here use the default 'om' based speeds and modes.
 
 const DEFAULT_SPEEDS = [{ om: '1' }, { om: '2' }, { om: 't' }];
@@ -22,6 +27,10 @@ const DEFAULT_SLEEP_SPEEDS = [{ om: 's' }, ...DEFAULT_SPEEDS];
 //write 'om' alone and nothing confirms that 'om' takes an unknown model out of
 //Auto; sending 'mode=M' beside a speed is a write no tested model has had
 const DEFAULT_MODE_MAPS = { auto: { mode: 'P' }, allergen: { mode: 'A' }, manual: { mode: 'M' } };
+
+//the AC0850's two manual steps, shared by its speeds and its fan level steps
+const AC0850_SLEEP = Object.freeze({ D0310A: 2, D0310C: 17 });
+const AC0850_TURBO = Object.freeze({ D0310A: 2, D0310C: 18 });
 
 const models = {
   AC3036: {
@@ -99,14 +108,24 @@ const models = {
   AC0850: {
     //D0310C is mode and speed in one register: 0 = Auto, 17 = Sleep,
     //18 = Turbo, always written with D0310A = 2. Auto goes on HomeKit's
-    //auto/manual selector through modeMaps rather than on the slider, which
-    //keeps two steps: 50% Sleep, 100% Turbo (0% is off)
-    speeds: [
-      { D0310A: 2, D0310C: 17 },
-      { D0310A: 2, D0310C: 18 },
-    ],
+    //auto/manual selector through modeMaps, and Manual restores Sleep or Turbo
+    speeds: [AC0850_SLEEP, AC0850_TURBO],
     modeMaps: {
       auto: { D0310A: 2, D0310C: 0 },
+    },
+    //D0310D is the fan's actual level (issue #46): 0 off, 1 in Sleep, 18 in
+    //Turbo, and in Auto 1, 2, 3 or 18 as the allergen index climbs. Levels 2
+    //and 3 only occur in Auto, so writing them selects Auto. The slider is
+    //25% Sleep, 50% and 75% Auto, 100% Turbo (0% is off), and rounding to the
+    //nearest step keeps 1.3.1's 33/67/100% scenes on Sleep, Auto and Turbo
+    fanLevel: {
+      key: 'D0310D',
+      steps: [
+        { level: 1, write: AC0850_SLEEP },
+        { level: 2, write: 'auto' },
+        { level: 3, write: 'auto' },
+        { level: 18, write: AC0850_TURBO },
+      ],
     },
     keyMaps: {
       pwr: 'D03102',
@@ -191,6 +210,7 @@ const modelConfig = (deviceConfig) => {
     extraSetFlags: model.extraSetFlags || [],
     unsupported: model.unsupported || [],
     modeMaps,
+    fanLevel: model.fanLevel,
     //what Auto on the selector sends. The allergic option picks the allergen
     //mode, on a model that has one (elsewhere accessories.setup.js warns that
     //it is ignored); modeMaps stays whole, so either automatic mode still
