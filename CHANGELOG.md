@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.4.1...v1.5.0) (2026-10-22)
+
+
+### Features
+
+* **models:** add 36 models from ha-philips-airpurifier and Air+ data ([#133](https://github.com/atdr/homebridge-philipsair-platform/issues/133)) ([c225f3b](https://github.com/atdr/homebridge-philipsair-platform/commit/c225f3be7e1d58ed85c40c53c21400cb5bb4af66))
+* **models:** detect each device's register dialect ([#132](https://github.com/atdr/homebridge-philipsair-platform/issues/132)) ([ac6db4b](https://github.com/atdr/homebridge-philipsair-platform/commit/ac6db4b02556d5d3740ecc4a08f5c1b0fc587189))
+
 ## [1.4.1](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.4.0...v1.4.1) (2026-10-22)
 
 
