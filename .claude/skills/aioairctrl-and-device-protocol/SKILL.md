@@ -479,6 +479,16 @@ back), are:
   (`hasAllergenMode`, `accessories.setup.js`). The option only changes what Auto sends
   (`modelConfig(...).autoWrite`, `Handler.autoWrite`); `modeMaps` stays whole.
 
+`legacyAutoSpeeds` is an optional per-model list of RotationSpeed values where a slider step
+used to be Auto before Auto moved to the selector in 1.4.0. `setPurifierRotationSpeed` checks
+it first (within 0.01, `isLegacyAutoSpeed`) and takes the same path as Auto on the switch
+(`setPurifierTargetState(1)`), so it never yields either; an identical Auto from the switch in
+the same scene is sent once. Only the AC0850 has one, `[200 / 3]`: its old 33/67/100% slider
+stored Auto as 200/3, which today's 50/100% slider would round up to Turbo, and no step of
+that slider can produce it. The AC1715 and AC3036 had Auto at 40% of a five-step ladder; 40 is
+a percentage a person can ask for, and the rest of their old steps (60%, 80%) shifted too, so
+they have none. A transition aid, removable in a later major release.
+
 The default map's entries live in `DEFAULT_MODE_MAPS`, applied to any unmapped model.
 `Handler.inAutoMode()` is true when a status matches `auto` or `allergen` (whichever the
 option sends, since the panel or the Philips app can start either), and also before any of

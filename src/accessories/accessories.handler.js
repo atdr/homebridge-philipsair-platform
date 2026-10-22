@@ -132,6 +132,11 @@ const WRITE_SETTLE = 3 * 1000;
 //exists to catch them before they are ever split into two commands
 const WRITE_COALESCE_WINDOW = 75;
 
+//how close a RotationSpeed has to be to a model's legacyAutoSpeeds entry to
+//count as it: 200/3 stored by a controller as 66.6667 still matches, the 67%
+//a person can ask for does not
+const LEGACY_AUTO_TOLERANCE = 0.01;
+
 //how readily a queued write gives way to another write in the same coalescing
 //window that sets one of its keys. A write is dropped when one on a lower
 //level claims a key it sets; writes on the same level are all kept. see
@@ -255,8 +260,10 @@ class Handler {
       );
     }
 
-    const { speeds, keyMaps, valueMaps, modeMaps, autoWrite, extraSetFlags, unsupported } = modelConfig(config);
+    const { speeds, keyMaps, valueMaps, modeMaps, legacyAutoSpeeds, autoWrite, extraSetFlags, unsupported } =
+      modelConfig(config);
     this.speeds = speeds;
+    this.legacyAutoSpeeds = legacyAutoSpeeds;
     this.keyMaps = keyMaps;
     this.valueMaps = valueMaps;
     this.modeMaps = modeMaps;
@@ -519,7 +526,9 @@ class Handler {
    * so the merged command never carries a register twice. Two writes on the
    * same level that share a key are not resolved: the setters do not produce
    * that today except a setter racing itself, and the merged command would
-   * carry the register twice with one expectation silently dropped.
+   * carry the register twice with one expectation silently dropped. The one
+   * exception is an identical write, which is sent once: Auto on the switch
+   * and an old Auto slider position (legacyAutoSpeeds) in the same scene.
    */
   async flushWriteBatch() {
     const levels = [...new Set(this.writeBatch.map((entry) => entry.yielding))].sort((a, b) => a - b);
@@ -545,9 +554,25 @@ class Handler {
 
     //after the yielding pass, so a 0% still gives way to the power-on it came
     //with even when that power-on is then left out as redundant
+    /** @type {Set<string>} */
+    const seen = new Set();
     const batch = this.writeBatch
       .filter((entry) => !dropped.has(entry))
-      .filter((entry) => this.dropRedundantPowerOn(entry));
+      .filter((entry) => this.dropRedundantPowerOn(entry))
+      .filter((entry) => {
+        //the same write twice is sent once, and both setters have what they
+        //asked for: Auto on the switch beside an old Auto slider position
+        //(legacyAutoSpeeds) is one scene asking for Auto in two ways
+        const command = [...entry.extraFlags, ...entry.cmds].join(' ');
+
+        if (!seen.has(command)) {
+          seen.add(command);
+          return true;
+        }
+
+        entry.resolve(true);
+        return false;
+      });
     dropped.forEach((entry) => entry.resolve(false));
 
     this.writeBatch = [];
@@ -934,7 +959,29 @@ class Handler {
     }
   }
 
+  /**
+   * Whether a RotationSpeed is where the model's slider used to have Auto (see
+   * `legacyAutoSpeeds` in accessories.models.js). HAP hands over the stored
+   * value as it was, 200/3 for the old AC0850 middle step, so the tolerance only
+   * has to absorb how a controller rounded it.
+   *
+   * @param {number} value
+   */
+  isLegacyAutoSpeed(value) {
+    return this.legacyAutoSpeeds.some((legacy) => Math.abs(value - legacy) < LEGACY_AUTO_TOLERANCE);
+  }
+
   async setPurifierRotationSpeed(value) {
+    if (this.supportsMode() && this.isLegacyAutoSpeed(value)) {
+      //the same path as Auto on the switch, so it never yields either
+      logger.debug(
+        `Purifier Rotation Speed: ${value} is where Auto used to be on the slider, selecting Auto`,
+        this.accessory.displayName
+      );
+      await this.setPurifierTargetState(1);
+      return;
+    }
+
     try {
       const speed = Math.ceil(value / this.speedsMinStep());
 

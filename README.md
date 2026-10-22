@@ -187,6 +187,8 @@ Auto is never a step on the fan speed slider. It is on the Home app's auto/manua
 | AC3829          | 20% Sleep, 40% Speed 1, 60% Speed 2, 80% Speed 3, 100% Turbo                                             | `P`, or `A` with `allergicFunc` |
 | Any other model | 33% Speed 1, 67% Speed 2, 100% Turbo. With `sleepSpeed`: 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo | `P`, or `A` with `allergicFunc` |
 
+Before 1.4.0 the AC0850 slider had Auto in the middle, at 67%. A scene or automation saved at that position still selects Auto rather than Turbo, but this is a transition aid that a later major release may remove, so re-save such scenes with the Auto switch instead.
+
 On a model with no mapping of its own, switching to Manual sends the manual mode and leaves the speed to the purifier rather than restoring the last one, because the plugin has no confirmed way to set both at once on hardware it does not know.
 
 ## Troubleshooting

@@ -11,7 +11,11 @@
 //restores the last of the 'speeds' the device was in, unless a 'manual' entry
 //names registers of its own. An 'allergen' entry is a plain allergen mode,
 //automatic too: it reads as Auto, and the allergicFunc option makes Auto
-//send it instead of 'auto'.
+//send it instead of 'auto'. 'legacyAutoSpeeds' lists RotationSpeed values
+//where a slider step used to be Auto before Auto moved to the selector: a
+//scene or automation saved there still selects Auto rather than rounding to
+//whatever step now sits at that percentage. Only a value nothing else can
+//produce belongs here.
 //Models not listed here use the default 'om' based speeds and modes.
 
 const DEFAULT_SPEEDS = [{ om: '1' }, { om: '2' }, { om: 't' }];
@@ -108,6 +112,11 @@ const models = {
     modeMaps: {
       auto: { D0310A: 2, D0310C: 0 },
     },
+    //until 1.4.0 the slider was 33% Sleep, 67% Auto, 100% Turbo, and HomeKit
+    //stores that middle step as 200/3, which now rounds up to Turbo. No step
+    //of today's slider is 200/3. A transition aid for scenes saved before
+    //1.4.0: it can be removed in a later major release
+    legacyAutoSpeeds: [200 / 3],
     keyMaps: {
       pwr: 'D03102',
       iaql: 'D03120',
@@ -191,6 +200,7 @@ const modelConfig = (deviceConfig) => {
     extraSetFlags: model.extraSetFlags || [],
     unsupported: model.unsupported || [],
     modeMaps,
+    legacyAutoSpeeds: model.legacyAutoSpeeds || [],
     //what Auto on the selector sends. The allergic option picks the allergen
     //mode, on a model that has one (elsewhere accessories.setup.js warns that
     //it is ignored); modeMaps stays whole, so either automatic mode still

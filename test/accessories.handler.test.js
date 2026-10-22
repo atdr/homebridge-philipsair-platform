@@ -778,6 +778,88 @@ describe('AC0850 slider around Auto', () => {
   });
 });
 
+describe('AC0850 scenes saved at the old Auto position', () => {
+  //before 1.4.0 the slider was 33% Sleep, 67% Auto, 100% Turbo, so a scene or
+  //automation saved in Auto holds 200/3. On today's 50/100 slider that rounds
+  //up to Turbo, so it selects Auto instead
+  const ON = { D03102: 1, D0310A: 2, D0310C: 17 };
+
+  for (const value of [200 / 3, 66.6667, 66.66]) {
+    it(`selects Auto for RotationSpeed ${value}`, async (t) => {
+      const { handler, sent, shown } = recordingWrites({ model: 'AC0850' });
+      t.after(() => handler.kill(true));
+      handler.handleResponse({ ...ON });
+
+      await handler.setPurifierRotationSpeed(value);
+
+      assert.deepEqual(sent, ['-I D0310A=2 D0310C=0']);
+      assert.equal(shown.TargetAirPurifierState, 1);
+      assert.deepEqual([...handler.pendingWrites.keys()], ['D0310A', 'D0310C']);
+    });
+  }
+
+  for (const [value, register] of [
+    [50, 17],
+    [100, 18],
+    [67, 18],
+  ]) {
+    it(`still sends a speed for RotationSpeed ${value}`, async (t) => {
+      const { handler, sent, shown } = recordingWrites({ model: 'AC0850' });
+      t.after(() => handler.kill(true));
+      handler.handleResponse({ ...ON });
+
+      await handler.setPurifierRotationSpeed(value);
+
+      assert.deepEqual(sent, [`-I D0310A=2 D0310C=${register}`]);
+      assert.equal(shown.TargetAirPurifierState, 0);
+    });
+  }
+
+  it('replays an old Auto scene that also powers on as Auto', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
+    //no status yet, so the power-on is still merged in
+    await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(200 / 3)]);
+
+    assert.deepEqual(sent, ['-I D03102=1 D0310A=2 D0310C=0']);
+  });
+
+  it('is not given way by Manual in the same scene, as Auto on the switch is not', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON });
+
+    await Promise.all([handler.setPurifierTargetState(0), handler.setPurifierRotationSpeed(200 / 3)]);
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=0']);
+  });
+
+  it('sends Auto once when the scene also sets Auto on the switch', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON });
+
+    await Promise.all([
+      handler.setPurifierActive(1),
+      handler.setPurifierTargetState(1),
+      handler.setPurifierRotationSpeed(200 / 3),
+    ]);
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=0']);
+  });
+
+  it('leaves the other models alone', async (t) => {
+    //their old Auto positions are not repeating fractions a person cannot ask for
+    const { handler, sent } = recordingWrites({ model: 'AC1715' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierRotationSpeed(40);
+
+    assert.deepEqual(sent, ['D03-12=Gentle/Speed 1']);
+  });
+});
+
 describe('AC3829 mode and slider', () => {
   //its speeds carry mode M (and S for sleep), so an Auto status matches none of
   //them: without modeMaps the slider would read 0%, which #118 turns into off

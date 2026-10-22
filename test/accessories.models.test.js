@@ -61,6 +61,15 @@ describe('accessories.models', () => {
     assert.deepEqual(modelConfig({ model: 'AC0850' }).modeMaps, { auto: { D0310A: 2, D0310C: 0 } });
   });
 
+  it('keeps the old AC0850 Auto slider position, and none elsewhere', () => {
+    //1.4.0 took Auto off the AC0850 slider, where it was the middle of three steps
+    assert.deepEqual(modelConfig({ model: 'AC0850' }).legacyAutoSpeeds, [200 / 3]);
+
+    for (const model of ['Air Purifier', 'AC1715', 'AC3036', 'AC3829']) {
+      assert.deepEqual(modelConfig({ model }).legacyAutoSpeeds, [], model);
+    }
+  });
+
   it('gives the default map Auto P, Manual M and the allergen mode A', () => {
     assert.deepEqual(modelConfig({}).modeMaps, { auto: { mode: 'P' }, allergen: { mode: 'A' }, manual: { mode: 'M' } });
   });
