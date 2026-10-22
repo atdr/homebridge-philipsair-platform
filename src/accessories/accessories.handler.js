@@ -282,8 +282,12 @@ class Handler {
     //the register dialect this device spoke on an earlier run, for a model that
     //ships more than one. Applied here for the same reason a detected model
     //is: the speed steps and `unsupported` shape the services built next. It
-    //is not stamped on the config, which stays exactly what the user wrote
-    const detectedDialect = this.accessory.context.detectedDialect;
+    //is not stamped on the config, which stays exactly what the user wrote.
+    //It is recorded with the model it was judged against and applied to that
+    //model only, after any detected model above has been adopted, so a config
+    //or detection naming another model since never inherits it
+    const recorded = this.accessory.context.detectedDialect;
+    const detectedDialect = recorded && recorded.model === this.modelKey ? recorded.dialect : undefined;
     const { speeds, keyMaps, valueMaps, modeMaps, autoWrite, extraSetFlags, unsupported, dialect, dialects } =
       modelConfig({ ...config, modelKey: this.modelKey, dialect: detectedDialect });
     this.dialect = dialect;
@@ -671,6 +675,9 @@ class Handler {
       }
 
       this.accessory.context.detectedModel = key;
+      //judged against the model the device reports, not the configured one,
+      //and recorded before the flush below so one restart adopts both
+      const variant = this.recordDialectFor(key, spoken);
       //accessory.context is otherwise only written out when Homebridge shuts
       //down cleanly, so a power cut or an OOM kill between here and then loses
       //the finding and the next start repeats this run rather than adopting it
@@ -683,7 +690,10 @@ class Handler {
               .slice(0, 4)
               .join(', ')}), and they match the ${key} mapping. `) +
           `Its controls will not work until the model is set to ${key} in the plugin config. ` +
-          `Until then the ${key} command set will be used from the next restart.`,
+          (variant
+            ? `Until then the ${dialectName(variant)} ${key} command set, matching the ${dialectName(variant)} ` +
+              'registers it reports, will be used from the next restart.'
+            : `Until then the ${key} command set will be used from the next restart.`),
         this.accessory.displayName
       );
 
@@ -716,7 +726,7 @@ class Handler {
       return false;
     }
 
-    this.accessory.context.detectedDialect = spoken;
+    this.accessory.context.detectedDialect = { model: this.modelKey, dialect: spoken };
     //flushed now for the reason checkModelMapping gives
     this.api.updatePlatformAccessories([this.accessory]);
 
@@ -728,6 +738,39 @@ class Handler {
     );
 
     return true;
+  }
+
+  /**
+   * Records the dialect a status is in for a model the device was just found to
+   * be, when that model has a mapping for it, so the constructor applies it
+   * together with the model on the next start. The caller flushes the context.
+   *
+   * @param {string} key the model the device was found to be
+   * @param {'dashed' | 'dashless' | undefined} spoken
+   * @returns {'dashed' | 'dashless' | undefined} the dialect recorded: one
+   *   that model has a variant for, not the one it uses by default
+   */
+  recordDialectFor(key, spoken) {
+    const { dialect, dialects } = modelConfig({ ...this.accessory.context.config, modelKey: key });
+    const context = this.accessory.context;
+
+    if (!spoken || !dialects.includes(spoken)) {
+      return undefined;
+    }
+
+    if (spoken === dialect) {
+      //the model's default needs no record, but replaces any variant an
+      //earlier run left for the same model
+      if (context.detectedDialect && context.detectedDialect.model === key) {
+        delete context.detectedDialect;
+      }
+
+      return undefined;
+    }
+
+    context.detectedDialect = { model: key, dialect: spoken };
+
+    return spoken;
   }
 
   handleResponse(json) {

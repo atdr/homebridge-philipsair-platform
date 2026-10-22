@@ -247,6 +247,8 @@ The same check covers a model that ships in two register dialects (see [Fan spee
 Bedroom: This device reports model AC0850/11, region 11, Wi-Fi firmware AWS_Philips_AIR@62, dashed registers, not the dash-less registers the AC0850 mapping in force uses, so its controls will not work until the next restart. From the next restart the dashed AC0850 command set will be used.
 ```
 
+When the device names a different model from the one configured, its dialect is judged against the model it names, and the restart that adopts that model adopts the matching dialect with it.
+
 If the model is right and the controls still do nothing, set `debug` to true, copy a logged status line, and open an issue with it.
 
 </details>

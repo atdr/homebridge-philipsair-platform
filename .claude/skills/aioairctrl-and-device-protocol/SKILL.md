@@ -501,12 +501,17 @@ The flow mirrors model detection (`Handler.checkModelMapping` → `Handler.check
 `detectDialect` reads the first substantial status (dashed keys `/^D\d{2}-\d{2,3}$/` versus
 dash-less `/^D\d{2}[0-9A-F]{3}$/`; a status with both or neither names none). When the configured
 model has a variant for that dialect and it is not the one in force, it is recorded as
-`accessory.context.detectedDialect`, flushed with `updatePlatformAccessories`, warned about once,
-and applied by the constructor on the next start (the slider steps and `unsupported` shape the
-services built at startup, so it cannot switch mid-run). A firmware update that flips it back is
-caught the same way. A device naming another model (`certainty: 'reported'`) is handled as a model
-mismatch first; short of that, a status in the model's other dialect is not treated as a wrong
-model, though it fingerprints as one (a dashed AC0850 looks like an AC1715). The debug log carries
+`accessory.context.detectedDialect = { model, dialect }`, flushed with `updatePlatformAccessories`,
+warned about once, and applied by the constructor on the next start (the slider steps and
+`unsupported` shape the services built at startup, so it cannot switch mid-run). A firmware update
+that flips it back is caught the same way. A device naming another model (`certainty: 'reported'`)
+is handled as a model mismatch first, and its dialect is judged against the model it names, not
+the configured one (`Handler.recordDialectFor`): a non-default variant is recorded with
+`detectedModel` before the one flush, so a single restart adopts both. Short of a named model, a
+status in the model's other dialect is not treated as a wrong model, though it fingerprints as one
+(a dashed AC0850 looks like an AC1715). The constructor adopts a detected model first, then applies
+the recorded dialect only if its `model` is the model now in force, so a dialect never follows a
+config edit or a later detection onto a different model. The debug log carries
 what the status says about the device (`deviceDetails`: model as printed from `D01S05` or the
 dashed `D01-05`, its regional suffix, and `WifiVersion`), for diagnostics only: none of it touches
 an accessory's UUID or the meaning of the config.

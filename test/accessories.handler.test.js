@@ -982,6 +982,10 @@ describe('model mapping check', () => {
 });
 
 describe('register dialect check', () => {
+  //what the context records: a dialect is only ever applied to the model it
+  //was judged against
+  const AC0850_DASHED = { model: 'AC0850', dialect: 'dashed' };
+
   //a real AC0850/31, untranslated, captured 2026-08-19 on firmware 0.1.3
   const dashlessStatus = () => ({
     D01102: 5,
@@ -1047,7 +1051,7 @@ describe('register dialect check', () => {
     assert.ok(warn[0].includes('next restart'), warn[0]);
     assert.ok(warn[0].includes('AWS_Philips_AIR@62'), warn[0]);
     assert.ok(warn[0].includes('AC0850/11'), warn[0]);
-    assert.equal(handler.accessory.context.detectedDialect, 'dashed');
+    assert.deepEqual(handler.accessory.context.detectedDialect, AC0850_DASHED);
     //a dashed status fingerprints as the AC1715, but the configured model
     //reads it once its other dialect is in force: that is not a wrong model
     assert.equal(handler.accessory.context.detectedModel, undefined);
@@ -1063,7 +1067,7 @@ describe('register dialect check', () => {
 
     assert.equal(warn.length, 1);
     assert.ok(warn[0].includes('dash-less'), warn[0]);
-    assert.equal(handler.accessory.context.detectedDialect, 'dashless');
+    assert.deepEqual(handler.accessory.context.detectedDialect, { model: 'AC1715', dialect: 'dashless' });
     assert.equal(handler.accessory.context.detectedModel, undefined);
   });
 
@@ -1090,7 +1094,7 @@ describe('register dialect check', () => {
 
   it('applies a dialect detected on an earlier run', () => {
     const { info, restore } = captureAll();
-    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' }, { detectedDialect: 'dashed' });
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' }, { detectedDialect: AC0850_DASHED });
     restore();
 
     assert.equal(handler.dialect, 'dashed');
@@ -1101,19 +1105,19 @@ describe('register dialect check', () => {
   });
 
   it('switches back when a firmware update changes the dialect again', () => {
-    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' }, { detectedDialect: 'dashed' });
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' }, { detectedDialect: AC0850_DASHED });
     const { warn, restore } = captureAll();
 
     handler.handleResponse(dashlessStatus());
     restore();
 
     assert.equal(warn.length, 1);
-    assert.equal(handler.accessory.context.detectedDialect, 'dashless');
+    assert.deepEqual(handler.accessory.context.detectedDialect, { model: 'AC0850', dialect: 'dashless' });
   });
 
   it('leaves a plain model alone, whatever dialect was detected before', () => {
     const plain = makeHandler({ model: 'AC3036' });
-    const handler = makeHandler({ model: 'AC3036' }, { detectedDialect: 'dashed' });
+    const handler = makeHandler({ model: 'AC3036' }, { detectedDialect: { model: 'AC3036', dialect: 'dashed' } });
 
     assert.equal(handler.dialect, undefined);
     assert.deepEqual(handler.speeds, plain.speeds);
@@ -1131,8 +1135,95 @@ describe('register dialect check', () => {
     assert.equal(handler.accessory.context.detectedDialect, undefined);
   });
 
+  it('records the dialect alongside a model the device names, so one restart adopts both', async (t) => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'Air Purifier' });
+    const { warn, restore } = captureAll();
+
+    //dashed registers from a device that names itself in the dash-less field
+    const status = { ...dashedStatus(), D01S05: 'AC0850/11' };
+    delete status['D01-05'];
+    handler.handleResponse(status);
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.ok(warn[0].includes('reports itself as AC0850'), warn[0]);
+    assert.ok(warn[0].includes('dashed'), warn[0]);
+    assert.ok(warn[0].includes('next restart'), warn[0]);
+    assert.equal(handler.accessory.context.detectedModel, 'AC0850');
+    assert.deepEqual(handler.accessory.context.detectedDialect, AC0850_DASHED);
+    assert.ok(persisted.includes(handler.accessory));
+
+    //one simulated restart from what was persisted
+    const { detectedModel, detectedDialect } = handler.accessory.context;
+    const restarted = recordingWrites({ name: 'Bedroom', model: 'Air Purifier' }, { detectedModel, detectedDialect });
+    t.after(() => restarted.handler.kill(true));
+
+    assert.equal(restarted.handler.modelKey, 'AC0850');
+    assert.equal(restarted.handler.dialect, 'dashed');
+    await restarted.handler.setPurifierActive(1);
+    assert.deepEqual(restarted.sent, ['D03-02=ON']);
+  });
+
+  it('does not record a dialect for a named model that ships only one', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' });
+    const { warn, restore } = captureAll();
+
+    handler.handleResponse({ D01S05: 'AC3036/10', 'D03-02': 'ON', 'D03-12': 'Sleep', 'D03-33': 4 });
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.equal(handler.accessory.context.detectedModel, 'AC3036');
+    assert.equal(handler.accessory.context.detectedDialect, undefined);
+  });
+
+  it("drops a variant recorded for a named model once it reports that model's default", () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC1715' }, { detectedDialect: AC0850_DASHED });
+    const { warn, restore } = captureAll();
+
+    handler.handleResponse(dashlessStatus());
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.ok(!warn[0].includes('dash-less AC0850'), warn[0]);
+    assert.equal(handler.accessory.context.detectedModel, 'AC0850');
+    assert.equal(handler.accessory.context.detectedDialect, undefined);
+  });
+
+  it('never applies a dialect recorded for another model', () => {
+    //the config now names a different model that ships both dialects
+    const configured = makeHandler({ model: 'AC1715' }, { detectedDialect: { model: 'AC0850', dialect: 'dashless' } });
+    assert.equal(configured.dialect, 'dashed');
+    assert.equal(configured.keyMaps.pwr, 'D03-02');
+
+    //a detected model the config overrides takes its dialect with it
+    const overridden = makeHandler(
+      { model: 'AC1715' },
+      { detectedModel: 'AC0850', detectedDialect: { model: 'AC0850', dialect: 'dashless' } }
+    );
+    assert.equal(overridden.dialect, 'dashed');
+
+    //a later detection of another model leaves the old dialect behind
+    const redetected = makeHandler(
+      { model: 'Air Purifier' },
+      { detectedModel: 'AC1715', detectedDialect: { model: 'AC0850', dialect: 'dashless' } }
+    );
+    assert.equal(redetected.modelKey, 'AC1715');
+    assert.equal(redetected.dialect, 'dashed');
+
+    //and a model without the dialect stays on its plain mapping
+    const plain = makeHandler({ model: 'AC3036' }, { detectedDialect: AC0850_DASHED });
+    assert.equal(plain.dialect, undefined);
+    assert.deepEqual(plain.keyMaps, makeHandler({ model: 'AC3036' }).keyMaps);
+  });
+
+  it('ignores a dialect recorded without the model it was judged for', () => {
+    const handler = makeHandler({ model: 'AC0850' }, { detectedDialect: 'dashed' });
+
+    assert.equal(handler.dialect, 'dashless');
+  });
+
   it('drives a dashed AC0850 with words on D03-12', async (t) => {
-    const { handler, sent, shown } = recordingWrites({ model: 'AC0850' }, { detectedDialect: 'dashed' });
+    const { handler, sent, shown } = recordingWrites({ model: 'AC0850' }, { detectedDialect: AC0850_DASHED });
     t.after(() => handler.kill(true));
 
     await handler.setPurifierTargetState(1);
@@ -1154,7 +1245,10 @@ describe('register dialect check', () => {
   });
 
   it('drives a dash-less AC1715 with numbers on D0310C', async (t) => {
-    const { handler, sent } = recordingWrites({ model: 'AC1715' }, { detectedDialect: 'dashless' });
+    const { handler, sent } = recordingWrites(
+      { model: 'AC1715' },
+      { detectedDialect: { model: 'AC1715', dialect: 'dashless' } }
+    );
     t.after(() => handler.kill(true));
 
     await handler.setPurifierTargetState(1);

@@ -151,7 +151,8 @@ Homebridge, not plugin-specific).
   `accessory.context.detectedModel` and `accessory.context.detectedDialect` are the only
   things this plugin writes to that store (`checkModelMapping` and `checkDialect` in
   `src/accessories/accessories.handler.js`), and both call `updatePlatformAccessories` so
-  an unclean stop does not lose them. Neither feeds the accessory UUID.
+  an unclean stop does not lose them. Neither feeds the accessory UUID. The dialect is
+  stored as `{ model, dialect }` and applied only while that model is the one in force.
 - **Destroyed by**: renaming a device in config (new UUID → HomeKit treats it as a new
   accessory), changing the npm package name (new plugin identifier → cached accessories
   orphaned), or the user deleting Homebridge's persist/cache directories.
