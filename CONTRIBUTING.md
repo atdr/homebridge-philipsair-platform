@@ -31,7 +31,7 @@ installation section.
 
 ## Quality gates
 
-CI runs these six checks on Node 20/22/24; all must pass before a PR can merge:
+CI runs these six checks on Node 22/24/26; all must pass before a PR can merge:
 
 ```bash
 npm run typecheck     # tsc with checkJs

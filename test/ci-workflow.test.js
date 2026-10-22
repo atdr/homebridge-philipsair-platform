@@ -95,3 +95,44 @@ describe('CI dependency audit', () => {
     );
   });
 });
+
+describe('CI Node matrix', () => {
+  //Homebridge plugin verification requires the plugin to run on every Node line it
+  //declares, so the matrix must test exactly the majors in engines.node: no more,
+  //no fewer. A major added to one and not the other is caught here, not by a user.
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+
+  const engineMajors = () =>
+    pkg.engines.node
+      .split('||')
+      .map((range) => {
+        const match = /^\s*\^(\d+)(?:\.\d+){0,2}\s*$/.exec(range);
+        assert.ok(match, `engines.node range is not a caret range: ${range.trim()}`);
+        return Number(match[1]);
+      })
+      .sort((a, b) => a - b);
+
+  const matrixMajors = () => {
+    const build = jobs.get('build');
+    assert.ok(build, 'no build job in ci.yml');
+    const match = /^\s*node-version: \[([^\]]*)\]$/m.exec(build);
+    assert.ok(match, 'build job has no inline node-version matrix');
+    return match[1]
+      .split(',')
+      .map((entry) => {
+        const version = /^\s*(\d+)\.x\s*$/.exec(entry);
+        assert.ok(version, `matrix entry is not a <major>.x line: ${entry.trim()}`);
+        return Number(version[1]);
+      })
+      .sort((a, b) => a - b);
+  };
+
+  it('tests exactly the Node majors that engines.node declares', () => {
+    assert.deepEqual(matrixMajors(), engineMajors());
+  });
+
+  it('covers the current Node LTS lines and no end-of-life one', () => {
+    //Node 20 reached end of life in April 2026; 22, 24 and 26 are the LTS lines.
+    assert.deepEqual(engineMajors(), [22, 24, 26]);
+  });
+});
