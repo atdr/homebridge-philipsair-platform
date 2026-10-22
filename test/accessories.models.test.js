@@ -256,3 +256,161 @@ describe('accessories.models', () => {
     });
   });
 });
+
+//Some models ship two register dialects under one model ID, depending on the
+//Wi-Fi firmware: dashed registers ('D03-02') with word values, or dash-less
+//ones ('D03102') with numbers. An entry can carry both; the plain fields are
+//its default dialect, and a status shows which one a device actually speaks.
+describe('register dialects', () => {
+  //a real AC0850/31, untranslated, captured 2026-08-19 on firmware 0.1.3
+  const dashlessStatus = {
+    D01102: 5,
+    D01S03: 'Bedroom',
+    D01S05: 'AC0850/31',
+    D01S12: '0.1.3',
+    WifiVersion: 'AWS_Philips_AIR_Combo@86',
+    D03102: 1,
+    D0310A: 2,
+    D0310C: 0,
+    D03120: 1,
+    D03221: 1,
+    D0540E: 224,
+    D05408: 4800,
+  };
+
+  //the dashed vocabulary ruaan-deysel/ha-philips-airpurifier reads from an
+  //AC1715 and from AC0850 units on AWS_Philips_AIR firmware
+  const dashedStatus = {
+    'D01-05': 'AC0850/11',
+    WifiVersion: 'AWS_Philips_AIR@62',
+    'D03-02': 'ON',
+    'D03-12': 'Sleep',
+    'D03-32': 2,
+    'D03-33': 4,
+    'D05-14': 3100,
+    'D05-08': 4800,
+  };
+
+  it('tells the dialect apart by the shape of the register keys', () => {
+    assert.equal(modelConfig.detectDialect(dashlessStatus), 'dashless');
+    assert.equal(modelConfig.detectDialect(dashedStatus), 'dashed');
+    assert.equal(modelConfig.detectDialect({ 'D03-02': 'ON', 'D03-12': 'Speed 2', 'D03-33': 3 }), 'dashed');
+  });
+
+  it('names no dialect for a legacy status, a mixed one, or none at all', () => {
+    assert.equal(modelConfig.detectDialect({ pwr: '1', om: '2', mode: 'M' }), undefined);
+    assert.equal(modelConfig.detectDialect({ 'D03-02': 'ON', D03102: 1, pwr: '1' }), undefined);
+    assert.equal(modelConfig.detectDialect({}), undefined);
+  });
+
+  it('keeps each model on its validated dialect until told otherwise', () => {
+    assert.equal(modelConfig({ model: 'AC0850' }).dialect, 'dashless');
+    assert.equal(modelConfig({ model: 'AC0850' }).keyMaps.pwr, 'D03102');
+    assert.equal(modelConfig({ model: 'AC1715' }).dialect, 'dashed');
+    assert.equal(modelConfig({ model: 'AC1715' }).keyMaps.pwr, 'D03-02');
+    assert.deepEqual(modelConfig({ model: 'AC0850' }).dialects.sort(), ['dashed', 'dashless']);
+  });
+
+  it('falls back to the default for a dialect the model has no variant for', () => {
+    assert.deepEqual(modelConfig({ model: 'AC0850', dialect: 'gen9' }), modelConfig({ model: 'AC0850' }));
+  });
+
+  it('leaves a plain entry exactly as it was, whatever dialect is asked for', () => {
+    for (const model of ['AC3036', 'AC3829', 'Air Purifier']) {
+      const plain = modelConfig({ model });
+
+      assert.deepEqual(modelConfig({ model, dialect: 'dashed' }), plain);
+      assert.deepEqual(modelConfig({ model, dialect: 'dashless' }), plain);
+      assert.equal(plain.dialect, undefined);
+      assert.deepEqual(plain.dialects, []);
+    }
+  });
+
+  it('maps the dashed AC0850 to the words ruaan-deysel names, with Auto on the selector', () => {
+    const model = modelConfig({ model: 'AC0850', dialect: 'dashed' });
+
+    assert.equal(model.dialect, 'dashed');
+    assert.deepEqual(model.speeds, [{ mode: 'Sleep' }, { mode: 'Turbo' }]);
+    assert.deepEqual(model.modeMaps, { auto: { mode: 'Auto General' } });
+    assert.deepEqual(model.autoWrite, { mode: 'Auto General' });
+    assert.equal(model.keyMaps.pwr, 'D03-02');
+    assert.equal(model.keyMaps.mode, 'D03-12');
+    assert.equal(model.keyMaps.iaql, 'D03-32');
+    assert.equal(model.keyMaps.pm25, 'D03-33');
+    assert.equal(model.keyMaps.fltsts1, 'D05-14');
+    assert.equal(model.keyMaps.flttotal1, 'D05-08');
+    assert.equal(model.valueMaps.pwr.ON, 1);
+    assert.equal(model.valueMaps.pwr[1], 'ON');
+    assert.deepEqual(model.extraSetFlags, []);
+    assert.deepEqual(model.unsupported, ['cl']);
+  });
+
+  it('maps the dash-less AC1715 to D0310C, with Auto on the selector', () => {
+    const model = modelConfig({ model: 'AC1715', dialect: 'dashless' });
+
+    assert.equal(model.dialect, 'dashless');
+    assert.deepEqual(model.speeds, [{ D0310C: 17 }, { D0310C: 1 }, { D0310C: 2 }, { D0310C: 18 }]);
+    assert.deepEqual(model.modeMaps, { auto: { D0310C: 0 } });
+    assert.equal(model.keyMaps.pwr, 'D03102');
+    assert.equal(model.keyMaps.iaql, 'D03120');
+    assert.equal(model.keyMaps.pm25, 'D03221');
+    assert.equal(model.keyMaps.fltsts0, 'D0520D');
+    assert.equal(model.keyMaps.flttotal0, 'D05207');
+    assert.equal(model.keyMaps.fltsts1, 'D0540E');
+    assert.equal(model.keyMaps.flttotal1, 'D05408');
+    assert.deepEqual(model.extraSetFlags, ['-I']);
+    assert.deepEqual(model.unsupported, ['mode', 'cl']);
+  });
+
+  //the slider step is fixed when HomeKit builds the accessory, and the README
+  //table documents one layout per model; a variant that changed the number of
+  //steps would make both wrong for half the devices
+  it('gives every variant as many slider steps as its default', () => {
+    for (const model of modelConfig.mappedModels) {
+      const steps = modelConfig({ model }).speeds.length;
+
+      for (const dialect of modelConfig({ model }).dialects) {
+        assert.equal(modelConfig({ model, dialect }).speeds.length, steps, `${model} ${dialect}`);
+      }
+    }
+  });
+
+  //a variant filed under the wrong name would be applied to exactly the
+  //devices it cannot read
+  it('files every variant under the dialect its registers are written in', () => {
+    for (const model of modelConfig.mappedModels) {
+      for (const dialect of modelConfig({ model }).dialects) {
+        const registers = Object.fromEntries(
+          Object.values(modelConfig({ model, dialect }).keyMaps).map((register) => [register, 0])
+        );
+
+        assert.equal(modelConfig.detectDialect(registers), dialect, `${model} ${dialect}`);
+      }
+    }
+  });
+
+  it('reads the dashed model field too', () => {
+    assert.deepEqual(modelConfig.identifyModel({ 'D01-05': 'AC0850/11', 'D03-02': 'ON' }), {
+      key: 'AC0850',
+      certainty: 'reported',
+    });
+  });
+
+  it('reports the model as printed, its regional suffix, and the Wi-Fi firmware', () => {
+    assert.deepEqual(modelConfig.deviceDetails(dashlessStatus), {
+      model: 'AC0850/31',
+      region: '31',
+      wifiVersion: 'AWS_Philips_AIR_Combo@86',
+    });
+    assert.deepEqual(modelConfig.deviceDetails(dashedStatus), {
+      model: 'AC0850/11',
+      region: '11',
+      wifiVersion: 'AWS_Philips_AIR@62',
+    });
+    assert.deepEqual(modelConfig.deviceDetails({ pwr: '1' }), {
+      model: undefined,
+      region: undefined,
+      wifiVersion: undefined,
+    });
+  });
+});
