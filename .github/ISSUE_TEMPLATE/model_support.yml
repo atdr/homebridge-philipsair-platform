@@ -16,7 +16,7 @@ body:
     attributes:
       label: Device model
       description: The full ID exactly as printed on the device label, regional suffix included, e.g. `AC0850/31`. Some models ship in two register dialects under the same base ID, and the suffix tells them apart.
-      placeholder: AC2889/10
+      placeholder: AC0820/10
     validations:
       required: true
 

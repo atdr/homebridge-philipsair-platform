@@ -173,8 +173,9 @@ class Accessory {
       }
     }
 
-    //Service.HumidifierDehumidifier
-    if (this.accessory.context.config.humidifier) {
+    //Service.HumidifierDehumidifier, only on a model with a humidifier on/off
+    //(func) to drive: accessories.setup.js warns when the option is ignored
+    if (this.accessory.context.config.humidifier && this.handler.supports('func')) {
       this.humidifierService = this.accessory.getService(this.api.hap.Service.HumidifierDehumidifier);
 
       if (!this.humidifierService) {

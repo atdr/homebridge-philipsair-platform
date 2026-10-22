@@ -46,9 +46,10 @@ const section = (heading) => {
 const configSection = section('Configuration');
 const deviceSupportSection = section('Device support');
 
-//The device tier table: a header row naming each tier, then a 'Models' row
-//whose cells are '<ul><li>AC0850 ★</li>...</ul>'. A column whose header starts
-//with 'Supported' promises a dedicated mapping; the last one is the default.
+//The device tier table: a header row naming each tier. Below it, one list item
+//per tier names its models: '- **Supported:** AC1715, AC3036'. A tier whose
+//name starts with 'Supported' promises a dedicated mapping; the last one is the
+//default.
 const tierRow = (label) =>
   deviceSupportSection
     .split('\n')
@@ -58,16 +59,27 @@ const tierRow = (label) =>
     .map((cell) => cell.trim());
 
 const tierNames = tierRow('Tier') || [];
-const tierModels = tierRow('**Models**') || [];
 
-const listed = tierModels.map((cell) => [...cell.matchAll(/<li>([^<]+)<\/li>/g)].map((match) => match[1].trim()));
+//the models one tier's list item names, or undefined when it has none
+const tierList = (name) => {
+  const prefix = `- **${name}:** `;
+  const line = deviceSupportSection.split('\n').find((candidate) => candidate.startsWith(prefix));
+  return line
+    ?.slice(prefix.length)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const listed = tierNames.map(tierList);
 const supportedModels = listed
   .filter((_, index) => (tierNames[index] || '').startsWith('Supported'))
   .flat()
+  .filter((item) => item !== undefined)
   .map((item) => item.replace('★', '').trim());
 const validatedModels = listed
   .flat()
-  .filter((item) => item.includes('★'))
+  .filter((item) => item !== undefined && item.includes('★'))
   .map((item) => item.replace('★', '').trim());
 
 //The body of a '### Heading' subsection within an already sliced section.
@@ -216,8 +228,11 @@ describe('docs', () => {
     }
   });
 
-  it('has a device tier table with Supported tiers and a Models row', () => {
-    assert.ok(tierModels.length > 0, "README 'Device support' has no tier table with a '**Models**' row");
+  it('has a device tier table with a model list for every tier', () => {
+    assert.ok(tierNames.length > 0, "README 'Device support' has no tier table");
+    tierNames.forEach((name, index) => {
+      assert.ok(listed[index]?.length, `README 'Device support' has no '- **${name}:** ...' model list`);
+    });
     assert.ok(supportedModels.length > 0, "README 'Device support' lists no model in a 'Supported' tier");
   });
 
@@ -256,12 +271,28 @@ describe('docs', () => {
       .map((line) => line.split('|').map((cell) => cell.trim()));
     const modelConfig = require('../src/accessories/accessories.models');
 
-    for (const model of mappedModels) {
-      const row = rows.find((cells) => cells[1] === model);
-      assert.ok(row, `the README 'Fan speed and Auto' table has no row for ${model}`);
+    //the README's name for each register dialect
+    const DIALECT_LABELS = { dashed: 'dashed', dashless: 'dash-less' };
 
-      const steps = (row[2].match(/\d+%/g) || []).length;
-      assert.equal(steps, modelConfig({ model }).speeds.length, `the README slider row for ${model} is out of date`);
+    //a row can name several models that share one slider, comma separated. A
+    //model that ships more than one register dialect needs a row per dialect,
+    //named like 'AC0850 (dash-less)', since a variant can change the slider
+    for (const model of mappedModels) {
+      const { dialects } = modelConfig({ model });
+      for (const dialect of dialects.length ? dialects : [undefined]) {
+        const name = dialect ? `${model} (${DIALECT_LABELS[dialect]})` : model;
+        const row = rows.find((cells) => cells[1].split(',').some((cell) => cell.trim() === name));
+        assert.ok(row, `the README 'Fan speed and Auto' table has no row for ${name}`);
+
+        //a model whose slider follows the fan level has a step per level, not per speed
+        const { fanLevel, speeds } = modelConfig({ model, dialect });
+        const steps = (row[2].match(/\d+%/g) || []).length;
+        assert.equal(
+          steps,
+          (fanLevel ? fanLevel.steps : speeds).length,
+          `the README slider row for ${name} is out of date`
+        );
+      }
     }
   });
 });

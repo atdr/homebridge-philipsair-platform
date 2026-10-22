@@ -61,6 +61,24 @@ describe('accessories.models', () => {
     assert.deepEqual(modelConfig({ model: 'AC0850' }).modeMaps, { auto: { D0310A: 2, D0310C: 0 } });
   });
 
+  it('maps the AC0850 fan level onto four slider steps, and no other model', () => {
+    //D0310D is the fan's actual level (issue #46); levels 2 and 3 only occur in Auto
+    const { fanLevel, speeds } = modelConfig({ model: 'AC0850' });
+    assert.equal(fanLevel.key, 'D0310D');
+    assert.deepEqual(
+      fanLevel.steps.map((step) => step.level),
+      [1, 2, 3, 18]
+    );
+    assert.deepEqual(
+      fanLevel.steps.map((step) => step.write),
+      [speeds[0], 'auto', 'auto', speeds[1]]
+    );
+
+    for (const model of ['Air Purifier', 'AC1715', 'AC3036', 'AC3829']) {
+      assert.equal(modelConfig({ model }).fanLevel, undefined, model);
+    }
+  });
+
   it('gives the default map Auto P, Manual M and the allergen mode A', () => {
     assert.deepEqual(modelConfig({}).modeMaps, { auto: { mode: 'P' }, allergen: { mode: 'A' }, manual: { mode: 'M' } });
   });
@@ -170,7 +188,7 @@ describe('accessories.models', () => {
 
     it('never guesses at a model it does not map', () => {
       assert.equal(modelConfig.resolveModel({ model: 'AC3O36', name: 'Study' }).key, undefined);
-      assert.equal(modelConfig.resolveModel({ model: 'AC2889' }).key, undefined);
+      assert.equal(modelConfig.resolveModel({ model: 'AC0820' }).key, undefined);
       assert.equal(modelConfig.resolveModel({ name: 'Purifier 2' }).key, undefined);
       assert.equal(modelConfig.resolveModel({}).key, undefined);
     });
@@ -240,9 +258,42 @@ describe('accessories.models', () => {
     });
 
     it('identifies nothing from a status that names no model this plugin maps', () => {
-      assert.equal(modelConfig.identifyModel({ pwr: '1', om: '2', type: 'AC2889' }).key, undefined);
+      assert.equal(modelConfig.identifyModel({ pwr: '1', om: '2', type: 'AC0820' }).key, undefined);
       assert.equal(modelConfig.identifyModel({ pwr: '1' }).key, undefined);
       assert.equal(modelConfig.identifyModel({}).key, undefined);
+    });
+
+    //the AC0651 shares every register the AC0850 dump above reports, so the
+    //two tie on it; the tie goes to the model listed first, the AC0850
+    it('keeps an AC0850 dump on the AC0850 now that the AC0651 shares its registers', () => {
+      assert.deepEqual(modelConfig.identifyModel(ac0850Status), { key: 'AC0850', certainty: 'fingerprint' });
+    });
+
+    //a status built from the registers homebridge-philips-airplus-cloud reads
+    //on an AC0651/10 (values illustrative), with the D03102 power register
+    //the AC0850 has: the pre-filter pair D0520D/D05207 is what sets it apart
+    const ac0651Status = {
+      D03102: 1,
+      D0310C: 0,
+      D0310D: 1,
+      D03120: 1,
+      D03221: 3,
+      D0312C: 4,
+      D05408: 4800,
+      D0540E: 4100,
+      D05207: 720,
+      D0520D: 650,
+    };
+
+    it('fingerprints an AC0651 by its pre-filter registers, ahead of the AC0850', () => {
+      assert.deepEqual(modelConfig.identifyModel(ac0651Status), { key: 'AC0651', certainty: 'fingerprint' });
+    });
+
+    it('takes an AC0651 at its word when it names itself', () => {
+      assert.deepEqual(modelConfig.identifyModel({ ...selfIdentifying, D01S05: 'AC0651/10' }), {
+        key: 'AC0651',
+        certainty: 'reported',
+      });
     });
 
     it('knows whether a mapping can read a status at all', () => {
@@ -362,17 +413,18 @@ describe('register dialects', () => {
     assert.deepEqual(model.unsupported, ['mode', 'cl']);
   });
 
-  //the slider step is fixed when HomeKit builds the accessory, and the README
-  //table documents one layout per model; a variant that changed the number of
-  //steps would make both wrong for half the devices
-  it('gives every variant as many slider steps as its default', () => {
-    for (const model of modelConfig.mappedModels) {
-      const steps = modelConfig({ model }).speeds.length;
+  //a variant replaces the plain fields whole, fanLevel included: the dashed
+  //AC0850 firmware has no D0310D, so its slider is its own two speeds while
+  //the dash-less one keeps the four fan-level steps
+  it('gives each variant its own slider, with no fan level it does not declare', () => {
+    const dashless = modelConfig({ model: 'AC0850' });
+    const dashed = modelConfig({ model: 'AC0850', dialect: 'dashed' });
 
-      for (const dialect of modelConfig({ model }).dialects) {
-        assert.equal(modelConfig({ model, dialect }).speeds.length, steps, `${model} ${dialect}`);
-      }
-    }
+    assert.equal(dashless.fanLevel?.key, 'D0310D');
+    assert.equal(dashless.fanLevel?.steps.length, 4);
+    assert.equal(dashed.fanLevel, undefined);
+    assert.equal(dashed.speeds.length, 2);
+    assert.equal(modelConfig({ model: 'AC1715', dialect: 'dashless' }).fanLevel, undefined);
   });
 
   //a variant filed under the wrong name would be applied to exactly the
@@ -412,5 +464,188 @@ describe('register dialects', () => {
       region: undefined,
       wifiVersion: undefined,
     });
+  });
+});
+
+//from Micheledipaola/homebridge-philips-airplus (see THIRD_PARTY_NOTICES.md)
+describe('AC0651', () => {
+  const config = modelConfig({ model: 'AC0651/10' });
+
+  it('steps Sleep, Medium, Turbo on D0310C, with Auto on the selector', () => {
+    assert.deepEqual(config.speeds, [{ D0310C: 17 }, { D0310C: 1 }, { D0310C: 18 }]);
+    assert.deepEqual(config.modeMaps, { auto: { D0310C: 0 } });
+  });
+
+  it('powers on D03102 and reads both filters, sent with -I', () => {
+    assert.deepEqual(config.keyMaps, {
+      pwr: 'D03102',
+      iaql: 'D03120',
+      pm25: 'D03221',
+      fltsts0: 'D0520D',
+      flttotal0: 'D05207',
+      fltsts1: 'D0540E',
+      flttotal1: 'D05408',
+    });
+    assert.deepEqual(config.extraSetFlags, ['-I']);
+  });
+
+  it('offers no mode register, child lock, or light', () => {
+    assert.deepEqual(config.unsupported, ['mode', 'cl']);
+    assert.equal(config.keyMaps.aqil, undefined);
+    assert.equal(config.keyMaps.uil, undefined);
+  });
+});
+
+//The models imported from ruaan-deysel/ha-philips-airpurifier (see
+//THIRD_PARTY_NOTICES.md), by wire dialect. Each spot check below pins one
+//encoding a family depends on, so a slip in the shared data shows up here
+describe('imported models', () => {
+  const imported = {
+    legacy: [
+      'AC1214',
+      'AC2729',
+      'AC2889',
+      'AC2936',
+      'AC2939',
+      'AC2958',
+      'AC2959',
+      'AC3033',
+      'AC3039',
+      'AC3055',
+      'AC3059',
+      'AC3259',
+      'AC3836',
+      'AC3854',
+      'AC3858',
+      'AC4236',
+      'AC4550',
+      'AC4558',
+      'AC5659',
+      'AC5660',
+    ],
+    dashed: ['AC0650'],
+    dashless: [
+      'AC0950',
+      'AC0951',
+      'AC2210',
+      'AC2220',
+      'AC2221',
+      'AC3210',
+      'AC3220',
+      'AC3221',
+      'AC3420',
+      'AC3421',
+      'AC3737',
+      'AC4220',
+      'AC4221',
+      'AMF765',
+    ],
+  };
+
+  it('maps every imported model', () => {
+    for (const model of Object.values(imported).flat()) {
+      assert.ok(modelConfig.mappedModels.includes(model), `${model} has no mapping`);
+    }
+  });
+
+  it('leaves out the devices that are not purifiers', () => {
+    for (const model of ['AMF870', 'CX3120', 'CX3550', 'CX5120', 'CX7550', 'HU1509', 'HU1510', 'HU4209', 'HU5710']) {
+      assert.equal(modelConfig.mappedModels.includes(model), false, model);
+    }
+  });
+
+  it('keeps the legacy models on the generic keys', () => {
+    for (const model of imported.legacy) {
+      const config = modelConfig({ model });
+
+      assert.deepEqual(config.keyMaps, {}, model);
+      assert.deepEqual(config.extraSetFlags, [], model);
+    }
+  });
+
+  it('puts every dash-less model on its registers, sent with -I', () => {
+    for (const model of imported.dashless) {
+      const config = modelConfig({ model });
+
+      assert.equal(config.keyMaps.pwr, 'D03102', model);
+      assert.equal(config.keyMaps.cl, 'D03103', model);
+      assert.deepEqual(config.extraSetFlags, ['-I'], model);
+      assert.deepEqual(config.modeMaps.auto, model === 'AC3737' ? { D0310A: 2, D0310C: 0 } : { D0310C: 0 }, model);
+    }
+  });
+
+  it('sends the dash-less child lock as 1/0 and reads it back as a boolean', () => {
+    const { valueMaps } = modelConfig({ model: 'AC2221' });
+
+    assert.equal(valueMaps.cl.true, 1);
+    assert.equal(valueMaps.cl.false, 0);
+    assert.equal(valueMaps.cl[1], true);
+    assert.equal(valueMaps.cl[0], false);
+  });
+
+  it('maps no humidifier on the dash-less humidifiers, which have no on/off register', () => {
+    for (const model of ['AC3420', 'AC3421', 'AC3737']) {
+      const config = modelConfig({ model });
+
+      assert.equal(config.keyMaps.rhset, undefined, model);
+      assert.ok(config.unsupported.includes('func'), model);
+      assert.equal(modelConfig.hasHumidifier(model), false, model);
+    }
+    for (const model of ['AC0850', 'AC3829', undefined]) {
+      assert.equal(modelConfig.hasHumidifier(model), true, String(model));
+    }
+  });
+
+  it('gives the AC0650 the dashed power words and mode words', () => {
+    const config = modelConfig({ model: 'AC0650' });
+
+    assert.equal(config.keyMaps.pwr, 'D03-02');
+    assert.equal(config.keyMaps.mode, 'D03-12');
+    assert.equal(config.valueMaps.pwr[1], 'ON');
+    assert.deepEqual(config.speeds, [{ mode: 'Sleep' }, { mode: 'Turbo' }]);
+    assert.deepEqual(config.modeMaps, { auto: { mode: 'Auto General' } });
+  });
+
+  //homebridge-philips-airctrl, on an AC4220/12: D0310C 5 is already Turbo
+  it('stops the AC4220 ladder at speed 5, after Sleep', () => {
+    assert.deepEqual(
+      modelConfig({ model: 'AC4220' }).speeds.map((speed) => speed.D0310C),
+      [17, 1, 2, 3, 4, 5]
+    );
+    assert.deepEqual(
+      modelConfig({ model: 'AC3210' }).speeds.map((speed) => speed.D0310C),
+      [17, 1, 2, 3, 4, 5, 18]
+    );
+  });
+
+  it('writes the AC3737 speeds as register pairs', () => {
+    assert.deepEqual(modelConfig({ model: 'AC3737' }).speeds, [
+      { D0310A: 2, D0310C: 17 },
+      { D0310A: 2, D0310C: 1 },
+      { D0310A: 2, D0310C: 2 },
+      { D0310A: 3, D0310C: 18 },
+    ]);
+  });
+
+  it('reads the AC4558 automatic modes from mode and om together', () => {
+    const config = modelConfig({ model: 'AC4558' });
+
+    assert.deepEqual(config.modeMaps, { auto: { mode: 'AG', om: 'a' }, allergen: { mode: 'A', om: 'a' } });
+    assert.deepEqual(config.speeds, [{ om: 's' }, { om: '1' }, { om: '2' }, { om: 't' }]);
+  });
+
+  it('gives the plain allergen mode to the models that have one', () => {
+    for (const model of ['AC1214', 'AC2729', 'AC2889', 'AC3259', 'AC4550', 'AC4558', 'AC5659', 'AC5660']) {
+      assert.equal(modelConfig.hasAllergenMode(model), true, model);
+    }
+    for (const model of ['AC2936', 'AC3033', 'AC3854', 'AC4236', 'AC0650', 'AC0950', 'AC4220', 'AMF765']) {
+      assert.equal(modelConfig.hasAllergenMode(model), false, model);
+    }
+  });
+
+  it('collapses the regional variants of the AC385x to one mapping', () => {
+    for (const typed of ['AC3854/50', 'AC3854/51', 'AC3858/83']) {
+      assert.equal(modelConfig.resolveModel({ model: typed }).key, typed.slice(0, 6));
+    }
   });
 });
