@@ -1010,3 +1010,53 @@ describe('dash-less child lock and light', () => {
     assert.equal(handler.obj.aqil, 0);
   });
 });
+
+//Every model's table, read back through the handler: each speed and each
+//automatic mode is written with handleCommand, reported in the device's own
+//dialect, and read back through handleResponse. A model whose Auto or a step
+//does not survive the trip would show the wrong step or the wrong mode
+describe('every mapped model round-trips its speeds and Auto', () => {
+  const { mappedModels } = require('../src/accessories/accessories.models');
+
+  //what the device reports after a write: the wire pair handleCommand built,
+  //with a number where the dialect is numeric
+  const reported = (handler, values) => {
+    const status = {};
+    for (const [key, value] of Object.entries({ pwr: 1, ...values })) {
+      const [wireKey, wireValue] = handler.handleCommand(key, value).split('=');
+      status[wireKey] = handler.extraSetFlags.includes('-I') ? Number(wireValue) : wireValue;
+    }
+    return status;
+  };
+
+  //the default map is left out: its speeds write om alone, and Manual is its
+  //own mode=M, so a speed status there does not say Manual by itself
+  for (const model of mappedModels) {
+    it(`reads back what it writes (${model})`, () => {
+      const handler = makeHandler({ model });
+
+      handler.speeds.forEach((speed, index) => {
+        const cmds = Object.entries(speed).map(([key, value]) => handler.handleCommand(key, value));
+        assert.ok(
+          !handler.extraSetFlags.includes('-I') || handler.intEncodable(cmds),
+          `${model}: speed ${index + 1} is not integer encodable`
+        );
+
+        handler.handleResponse(reported(handler, speed));
+        assert.equal(handler.inAutoMode(), false, `${model}: speed ${index + 1} reads as Auto`);
+        assert.equal(handler.rotationSpeed(), (index + 1) * handler.speedsMinStep(), `${model}: speed ${index + 1}`);
+      });
+
+      for (const [name, state] of Object.entries(handler.modeMaps)) {
+        if (name === 'manual') {
+          continue;
+        }
+
+        handler.handleResponse(reported(handler, state));
+        assert.equal(handler.inAutoMode(), true, `${model}: ${name} does not read as Auto`);
+        //in Auto the slider keeps the last manual step: here the top one
+        assert.equal(handler.rotationSpeed(), 100, `${model}: ${name} moved the slider`);
+      }
+    });
+  }
+});
