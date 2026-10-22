@@ -4,7 +4,7 @@ This package is MIT licensed (see [LICENSE](LICENSE)). Part of its data comes fr
 
 ## ruaan-deysel/ha-philips-airpurifier
 
-Most of the per-model mappings in `src/accessories/accessories.models.js` (every model entry other than the AC0850, AC1715, AC3036 and AC3829, plus the AC3036 Auto value, the AC1715 display values and the AC3829 speed ladder) are derived from the device model data in [ruaan-deysel/ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier), `custom_components/philips_airpurifier/device_models.py` and `const.py`, at commit `eb53e20140d3c9ec06c2370fd7c6a962421c0452`. That project is licensed under the Apache License, Version 2.0, reproduced in full below. It ships no NOTICE file.
+Most of the per-model mappings in `src/accessories/accessories.models.js` (every model entry other than the AC0850, AC1715, AC3036 and AC3829, plus the AC3036 Auto value, the AC1715 display values, the AC3829 speed ladder, the dashed variant of the AC0850 and the power register of the dash-less AC1715 variant) are derived from the device model data in [ruaan-deysel/ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier), `custom_components/philips_airpurifier/device_models.py` and `const.py`, at commit `eb53e20140d3c9ec06c2370fd7c6a962421c0452`. That project is licensed under the Apache License, Version 2.0, reproduced in full below. It ships no NOTICE file.
 
 The data has been **modified**: it was translated from Python into this plugin's model format, presets and controls with no HomeKit surface here were left out, Sleep and Turbo were moved onto the fan speed ladder, and some register choices were replaced with the hardware corrections from homebridge-philips-airctrl (below). The comments in `accessories.models.js` describe each change.
 
@@ -51,7 +51,13 @@ SOFTWARE.
 
 The AC0651 entry in `src/accessories/accessories.models.js` is derived from the `"AC0651/10"` entry of `custom_components/philips_airplus/models.yaml` in [Micheledipaola/homebridge-philips-airplus](https://github.com/Micheledipaola/homebridge-philips-airplus), as published to npm as `homebridge-philips-airplus-cloud` version 0.3.9 (commit `36f6618b271ef89aa92422424c0ca74f04cc4e99`). That data was read from the device over the Philips cloud, not over the local connection this plugin uses. Its power register is the exception: it comes from ha-philips-airpurifier's `const.py` (above).
 
-The data has been **modified**: it was translated from YAML into this plugin's model format, the power register `D0310D` it names was replaced with `D03102`, and the properties with no HomeKit surface here (the fan level, standby monitor, diagnostic and device information registers, and the filter reset values) were left out. The comment on the entry in `accessories.models.js` describes each change. That project is licensed under the MIT License:
+The data has been **modified**: it was translated from YAML into this plugin's model format, the power register `D0310D` it names was replaced with `D03102`, and the properties with no HomeKit surface here (the fan level, standby monitor, diagnostic and device information registers, and the filter reset values) were left out. The comment on the entry in `accessories.models.js` describes each change.
+
+The dash-less variant of the AC1715 entry (its `dialects.dashless`) is derived from the `"AC1715/70"` and `"AC1715/11"` entries of the same file, at the same version: the mode and speed values on `D0310C`, the allergen index, PM2.5 and both filter registers. Its power register is again the exception, `D03102` from ha-philips-airpurifier's gen3 vocabulary in `const.py` (above).
+
+That data has been **modified** the same way: it was translated from YAML into this plugin's variant format, the power register `D0310D` it names was replaced with `D03102` (on the AC0850, `D0310D` is the fan's actual level and only follows power, per issue #46), and the properties with no HomeKit surface here (the fan level, the device information registers, and the filter reset values) were left out. The comment on the variant in `accessories.models.js` describes each change.
+
+That project is licensed under the MIT License:
 
 ```text
 MIT License

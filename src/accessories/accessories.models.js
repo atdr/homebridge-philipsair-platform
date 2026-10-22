@@ -101,13 +101,15 @@ const models = {
     dialects: {
       //Unvalidated: no dash-less AC1715 has been tested with this plugin.
       //Speeds and registers from Micheledipaola/homebridge-philips-airplus
-      //(MIT, models.yaml, AC1715/70 and AC1715/11): D0310C is mode and speed
-      //in one register, 0 Auto, 17 Sleep, 1 Medium, 2 Fast, 18 Turbo. Auto
-      //goes on the selector, leaving four slider steps as in the dashed
-      //dialect. That data names D0310D as power, but ruaan-deysel's gen3
-      //vocabulary (const.py) and a tested AC0850 both write power to D03102,
-      //with D0310D only following it. D0310A is not written: neither source
-      //sends it for this model
+      //(MIT, models.yaml, AC1715/70 and AC1715/11; see THIRD_PARTY_NOTICES.md):
+      //D0310C is mode and speed in one register, 0 Auto, 17 Sleep, 1 Medium,
+      //2 Fast, 18 Turbo. Auto goes on the selector, leaving four slider steps
+      //as in the dashed dialect. That data names D0310D as power, but
+      //ruaan-deysel's gen3 vocabulary (const.py) and a tested AC0850 both
+      //write power to D03102, with D0310D only following it (issue #46).
+      //D0310A is not written: neither source sends it for this model. The
+      //fan level, device information and filter reset properties have no
+      //HomeKit surface here and are left out
       dashless: {
         speeds: [{ D0310C: 17 }, { D0310C: 1 }, { D0310C: 2 }, { D0310C: 18 }],
         modeMaps: {
