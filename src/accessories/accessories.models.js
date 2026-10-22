@@ -88,9 +88,11 @@ const models = {
     ],
     //Auto is a mode, not one of the speeds above, so it goes on the selector:
     //in Auto the slider keeps the last manual step rather than reading 0%,
-    //and Sleep reads as manual
+    //and Sleep reads as manual. Its allergen mode A is automatic too, so the
+    //allergic option makes Auto send it
     modeMaps: {
       auto: { mode: 'P' },
+      allergen: { mode: 'A' },
     },
   },
   AC0850: {

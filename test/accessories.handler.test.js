@@ -830,6 +830,17 @@ describe('Auto on the selector for every model', () => {
 
     assert.deepEqual(sent, ['mode=AG', 'mode=S']);
   });
+
+  it('sends the AC3829 allergen mode as Auto when the option is on', async (t) => {
+    const { handler, sent } = selector({ model: 'AC3829', allergicFunc: true });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    assert.deepEqual(sent, ['mode=A']);
+
+    handler.handleResponse({ pwr: '1', mode: 'A', om: '1' });
+    assert.equal(handler.inAutoMode(), true);
+  });
 });
 
 describe('model mapping check', () => {

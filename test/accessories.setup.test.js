@@ -191,6 +191,7 @@ describe('accessories.setup', () => {
       [
         { active: true, name: 'Bedroom', model: 'AC0850', host: '10.0.1.16', allergicFunc: true },
         { active: true, name: 'Study', host: '10.0.1.17', allergicFunc: true },
+        { active: true, name: 'Lounge', model: 'AC3829', host: '10.0.1.18', allergicFunc: true },
       ],
       uuid.generate
     );
