@@ -5,26 +5,41 @@
 //generic keys to model-specific registers; 'valueMaps' translate values in
 //both directions; 'extraSetFlags' are extra CLI flags for set commands;
 //'unsupported' lists generic keys the model has no register for at all;
-//'modeMaps' gives a model with no 'mode' register an auto/manual concept: its
-//'auto' entry holds the register values that mean Auto, and Manual has none of
-//its own (it restores the last of the 'speeds' the device was in).
-//Models not listed here use the default 'om' based speeds.
+//'modeMaps' is the model's auto/manual concept, the one mechanism behind
+//HomeKit's auto/manual selector on every model: its 'auto' entry holds the
+//register values that mean Auto, which is never one of the 'speeds'. Manual
+//restores the last of the 'speeds' the device was in, unless a 'manual' entry
+//names registers of its own. An 'allergen' entry is a plain allergen mode,
+//automatic too: it reads as Auto, and the allergicFunc option makes Auto
+//send it instead of 'auto'.
+//Models not listed here use the default 'om' based speeds and modes.
 
 const DEFAULT_SPEEDS = [{ om: '1' }, { om: '2' }, { om: 't' }];
 const DEFAULT_SLEEP_SPEEDS = [{ om: 's' }, ...DEFAULT_SPEEDS];
 
+//the legacy 'mode' register: P is Auto, A the allergen mode, M manual. Manual
+//keeps writing M rather than restoring a speed, because the default speeds
+//write 'om' alone and nothing confirms that 'om' takes an unknown model out of
+//Auto; sending 'mode=M' beside a speed is a write no tested model has had
+const DEFAULT_MODE_MAPS = { auto: { mode: 'P' }, allergen: { mode: 'A' }, manual: { mode: 'M' } };
+
 const models = {
   AC3036: {
-    speeds: [{ mode: 'S' }, { mode: 'AG' }, { mode: 'M', om: 1 }, { mode: 'M', om: 2 }, { mode: 'T' }],
+    //Auto is AG (ruaan-deysel/ha-philips-airpurifier), and P is not an AC303x
+    //mode at all. It goes on the selector, leaving four slider steps: 25%
+    //Sleep, 50% and 75% the manual speeds, 100% Turbo
+    speeds: [{ mode: 'S' }, { mode: 'M', om: 1 }, { mode: 'M', om: 2 }, { mode: 'T' }],
+    modeMaps: {
+      auto: { mode: 'AG' },
+    },
   },
   AC1715: {
-    speeds: [
-      { mode: 'Sleep' },
-      { mode: 'Auto General' },
-      { mode: 'Gentle/Speed 1' },
-      { mode: 'Speed 2' },
-      { mode: 'Turbo' },
-    ],
+    //D03-12 takes the mode as words. Auto goes on the selector, leaving four
+    //slider steps: 25% Sleep, 50% and 75% the two speeds, 100% Turbo
+    speeds: [{ mode: 'Sleep' }, { mode: 'Gentle/Speed 1' }, { mode: 'Speed 2' }, { mode: 'Turbo' }],
+    modeMaps: {
+      auto: { mode: 'Auto General' },
+    },
     keyMaps: {
       pwr: 'D03-02',
       om: 'D03-13',
@@ -51,6 +66,14 @@ const models = {
         0: 'OFF',
         1: 'ON',
       },
+      //the display register takes 100/0 where the legacy uil takes '1'/'0'
+      //(ruaan-deysel/ha-philips-airpurifier). A reading of 100 comes back as 1;
+      //the light's HomeKit state is read from aqil, not from this
+      uil: {
+        1: 100,
+        0: 0,
+        100: 1,
+      },
     },
   },
   AC3829: {
@@ -66,9 +89,11 @@ const models = {
     ],
     //Auto is a mode, not one of the speeds above, so it goes on the selector:
     //in Auto the slider keeps the last manual step rather than reading 0%,
-    //and Sleep reads as manual
+    //and Sleep reads as manual. Its allergen mode A is automatic too, so the
+    //allergic option makes Auto send it
     modeMaps: {
       auto: { mode: 'P' },
+      allergen: { mode: 'A' },
     },
   },
   AC0850: {
@@ -149,10 +174,15 @@ const resolveModel = (deviceConfig = {}) => {
   return { key: undefined, source: undefined, nameSuggests: undefined };
 };
 
+//an unmapped model gets the default modes; a mapped one only what it declares
+const modeMapsFor = (key) => (key && models[key] ? models[key].modeMaps : DEFAULT_MODE_MAPS);
+
 const modelConfig = (deviceConfig) => {
   //modelKey is stamped on by accessories.setup.js, which resolves once and logs
   //what it found; resolving again covers a config object built directly
-  const model = models[deviceConfig.modelKey || resolveModel(deviceConfig).key] || {};
+  const key = deviceConfig.modelKey || resolveModel(deviceConfig).key;
+  const model = models[key] || {};
+  const modeMaps = modeMapsFor(key);
 
   return {
     speeds: model.speeds || (deviceConfig.sleepSpeed ? DEFAULT_SLEEP_SPEEDS : DEFAULT_SPEEDS),
@@ -160,7 +190,12 @@ const modelConfig = (deviceConfig) => {
     valueMaps: model.valueMaps || {},
     extraSetFlags: model.extraSetFlags || [],
     unsupported: model.unsupported || [],
-    modeMaps: model.modeMaps,
+    modeMaps,
+    //what Auto on the selector sends. The allergic option picks the allergen
+    //mode, on a model that has one (elsewhere accessories.setup.js warns that
+    //it is ignored); modeMaps stays whole, so either automatic mode still
+    //reads as Auto whichever one the Philips app or the panel started
+    autoWrite: modeMaps && (deviceConfig.allergicFunc && modeMaps.allergen ? modeMaps.allergen : modeMaps.auto),
   };
 };
 
@@ -264,6 +299,10 @@ modelConfig.resolveModel = resolveModel;
 //whether a model brings its own speed table, i.e. whether the sleepSpeed
 //option can do anything for it
 modelConfig.hasOwnSpeeds = (key) => Boolean(key && models[key] && models[key].speeds);
+
+//whether a model has a plain allergen mode, i.e. whether the allergicFunc
+//option can do anything for it
+modelConfig.hasAllergenMode = (key) => Boolean((modeMapsFor(key) || {}).allergen);
 
 //every field a model entry uses, for the drift guard in test/docs.test.js
 modelConfig.modelFields = [...new Set(Object.values(models).flatMap((model) => Object.keys(model)))];

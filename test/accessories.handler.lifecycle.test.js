@@ -80,7 +80,8 @@ describe('processUpdate', () => {
     const handler = makeHandler({});
     handler.purifierService = makeService();
 
-    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2' }));
+    //in Manual, where the slider shows the device's own speed
+    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'M', cl: false, om: '2' }));
 
     assert.deepEqual(updated(handler.purifierService, 'Active'), [['Active', 1]]);
     assert.deepEqual(updated(handler.purifierService, 'RotationSpeed'), [['RotationSpeed', 2 * (100 / 3)]]);
@@ -2128,6 +2129,57 @@ describe('setLightBrightness', () => {
     await handler.setLightBrightness(50);
 
     assert.deepEqual(sent, [], 'a brightness drag raced a light toggle instead of yielding to it');
+  });
+});
+
+describe('light on the AC1715', () => {
+  //the AC1715 display register D03-05 takes 100/0, not the '1'/'0' the legacy
+  //uil key takes (ruaan-deysel/ha-philips-airpurifier)
+  const recording = (t) => {
+    const handler = makeHandler({ model: 'AC1715' });
+    t.after(() => handler.kill(true));
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+    return { handler, sent };
+  };
+
+  it('writes the display register as 100 and 0', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+    const { handler, sent } = recording(t);
+
+    await handler.setLightOn(true);
+    await handler.setLightOn(false);
+
+    assert.deepEqual(sent, [
+      '-H 192.168.1.142 -P 5683 set -I D03-04=100',
+      '-H 192.168.1.142 -P 5683 set -I D03-05=100',
+      '-H 192.168.1.142 -P 5683 set -I D03-04=0',
+      '-H 192.168.1.142 -P 5683 set -I D03-05=0',
+    ]);
+  });
+
+  it('switches the display on with any brightness above 0', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+    const { handler, sent } = recording(t);
+
+    await handler.setLightBrightness(50);
+
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03-04=50', '-H 192.168.1.142 -P 5683 set -I D03-05=100']);
+  });
+
+  it('reads the display register back as the generic on/off', (t) => {
+    const { handler } = recording(t);
+
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-05': 100 });
+    assert.equal(handler.obj.uil, 1);
+
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-05': 0 });
+    assert.equal(handler.obj.uil, 0);
   });
 });
 

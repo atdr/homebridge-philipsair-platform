@@ -183,6 +183,24 @@ describe('accessories.setup', () => {
     assert.ok(warn[1].includes('Study: The sleep speed option does nothing for the AC3829'));
   });
 
+  it('says when the allergic mode option cannot do anything for the model', async () => {
+    const { warn, restore } = capture();
+
+    await Setup(
+      deviceMap,
+      [
+        { active: true, name: 'Bedroom', model: 'AC0850', host: '10.0.1.16', allergicFunc: true },
+        { active: true, name: 'Study', host: '10.0.1.17', allergicFunc: true },
+        { active: true, name: 'Lounge', model: 'AC3829', host: '10.0.1.18', allergicFunc: true },
+      ],
+      uuid.generate
+    );
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.ok(warn[0].includes('Bedroom: The allergic mode option does nothing for the AC0850'));
+  });
+
   it('leaves a trace when a device is skipped for being inactive', async () => {
     const { info, restore } = capture();
 

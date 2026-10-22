@@ -61,9 +61,9 @@ describe('speeds per model', () => {
 
   it('uses mode-based speeds for AC3036', () => {
     const handler = makeHandler({ model: 'AC3036' });
-    assert.equal(handler.speeds.length, 5);
+    assert.equal(handler.speeds.length, 4);
     assert.deepEqual(handler.speeds[0], { mode: 'S' });
-    assert.deepEqual(handler.speeds[2], { mode: 'M', om: 1 });
+    assert.deepEqual(handler.speeds[1], { mode: 'M', om: 1 });
   });
 
   //the device reports om as a number or a string depending on firmware, and
@@ -199,6 +199,16 @@ describe('unsupported controls', () => {
     const modeless = makeHandler({ model: 'AC0850' });
     modeless.modeMaps = undefined;
     assert.equal(modeless.supportsMode(), false);
+  });
+
+  it('reads AUTO, whatever the status says, on a model with no auto/manual concept', () => {
+    //no mapped model is modeless today, but a device with no Auto at all (a fan
+    //heater, say) would be: its selector is pinned to AUTO, so it has to read so
+    const modeless = makeHandler({ model: 'AC0850' });
+    modeless.modeMaps = undefined;
+    modeless.obj = { D0310A: 2, D0310C: 17 };
+
+    assert.equal(modeless.inAutoMode(), true);
   });
 
   it('reads AUTO before the device has reported its mode, as a mode register does', () => {
@@ -443,7 +453,8 @@ describe('deviceKnownOff', () => {
 describe('rotationSpeed', () => {
   it('derives the HomeKit percentage from the matching speed entry', () => {
     const handler = makeHandler({});
-    handler.obj = { om: '2' };
+    //in Manual: in Auto the slider shows the last manual step instead
+    handler.obj = { mode: 'M', om: '2' };
     assert.equal(handler.rotationSpeed(), 2 * (100 / 3));
   });
 
@@ -511,8 +522,8 @@ describe('rotation speed 0', () => {
     assert.equal(shown.CurrentAirPurifierState, 0);
   });
 
-  //a scene captured while the slider read 0% (a legacy model in auto mode, for
-  //one) stores RotationSpeed 0 beside Active 1, and HAP delivers the two in
+  //a scene captured while the slider read 0% (any model in Auto, before Auto
+  //left the slider) stores RotationSpeed 0 beside Active 1, and HAP delivers the two in
   //no guaranteed order
   for (const order of ['power first', 'speed first']) {
     it(`lets a power-on in the same scene win (${order})`, async (t) => {
@@ -584,7 +595,7 @@ describe('mode and speed in one scene', () => {
     t.after(() => handler.kill(true));
 
     await Promise.all([handler.setPurifierRotationSpeed(100), handler.setPurifierTargetState(1)]);
-    assert.deepEqual(sent, ['mode=P']);
+    assert.deepEqual(sent, ['mode=AG']);
 
     sent.length = 0;
     await Promise.all([handler.setPurifierTargetState(0), handler.setPurifierRotationSpeed(100)]);
@@ -713,6 +724,160 @@ describe('AC3829 mode and slider', () => {
     await handler.setPurifierTargetState(1);
 
     assert.deepEqual(sent, ['mode=P']);
+  });
+});
+
+describe('Auto on the selector for every model', () => {
+  //the AC0850 approach applied everywhere: Auto is written and read through
+  //modeMaps, the slider keeps the manual steps, and Manual restores the last one
+  const selector = (config) => {
+    const recorded = recordingWrites(config);
+    return { ...recorded, pending: () => [...recorded.handler.pendingWrites.keys()] };
+  };
+
+  it('writes AC1715 Auto as a word on D03-12, and reads it back', async (t) => {
+    const { handler, sent, pending } = selector({ model: 'AC1715' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    assert.deepEqual(sent, ['D03-12=Auto General']);
+    //expectations are generic key space, which is what the status maps back into
+    assert.deepEqual(pending(), ['mode']);
+
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-12': 'Auto General' });
+    assert.equal(handler.inAutoMode(), true);
+    assert.equal(handler.rotationSpeed(), 25);
+
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-12': 'Speed 2' });
+    assert.equal(handler.inAutoMode(), false);
+    assert.equal(handler.rotationSpeed(), 75);
+  });
+
+  it('restores the last AC1715 manual step on switching to Manual', async (t) => {
+    const { handler, sent, shown } = selector({ model: 'AC1715' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-12': 'Speed 2' });
+    handler.rotationSpeed();
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-12': 'Auto General' });
+
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['D03-12=Speed 2']);
+    assert.equal(shown.RotationSpeed, 75);
+  });
+
+  it('writes AC3036 Auto as AG and Manual as the last manual step', async (t) => {
+    const { handler, sent } = selector({ model: 'AC3036' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['mode=AG', 'mode=S']);
+
+    handler.handleResponse({ pwr: '1', mode: 'AG', om: 'a' });
+    assert.equal(handler.inAutoMode(), true);
+    assert.equal(handler.rotationSpeed(), 25);
+    handler.handleResponse({ pwr: '1', mode: 'M', om: '2' });
+    assert.equal(handler.inAutoMode(), false);
+    assert.equal(handler.rotationSpeed(), 75);
+  });
+
+  it('writes the default map Auto as P and Manual as M', async (t) => {
+    const { handler, sent } = selector({});
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['mode=P', 'mode=M']);
+  });
+
+  it('reads the default map in Auto as the last manual step, not the speed Auto chose', (t) => {
+    const { handler } = selector({});
+    t.after(() => handler.kill(true));
+
+    //before any status the selector reads AUTO and the slider the first step
+    assert.equal(handler.inAutoMode(), true);
+    assert.equal(handler.rotationSpeed(), 100 / 3);
+
+    handler.handleResponse({ pwr: '1', mode: 'M', om: '2' });
+    assert.equal(handler.inAutoMode(), false);
+    assert.equal(handler.rotationSpeed(), 200 / 3);
+
+    handler.handleResponse({ pwr: '1', mode: 'P', om: 't' });
+    assert.equal(handler.inAutoMode(), true);
+    assert.equal(handler.rotationSpeed(), 200 / 3);
+  });
+
+  it('sends the allergen mode as Auto, never as Manual, when the option is on', async (t) => {
+    const { handler, sent } = selector({ allergicFunc: true });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['mode=A', 'mode=M']);
+
+    handler.handleResponse({ pwr: '1', mode: 'A', om: '1' });
+    assert.equal(handler.inAutoMode(), true);
+  });
+
+  //the option only chooses which automatic mode Auto sends; both P and A are
+  //automatic, and the Philips app can start either, so both read as Auto
+  it('reads the allergen mode as Auto when the option is off', (t) => {
+    const { handler } = selector({});
+    t.after(() => handler.kill(true));
+
+    handler.handleResponse({ pwr: '1', mode: 'A', om: '1' });
+    assert.equal(handler.inAutoMode(), true);
+  });
+
+  it('reads general Auto as Auto, not Manual at 0%, when the option is on', (t) => {
+    const { handler } = selector({ model: 'AC3829', allergicFunc: true });
+    t.after(() => handler.kill(true));
+
+    handler.handleResponse({ pwr: '1', mode: 'P', om: '1' });
+
+    assert.equal(handler.inAutoMode(), true);
+    assert.notEqual(handler.rotationSpeed(), 0);
+  });
+
+  //a status that omits the mode says nothing about Auto, so the speed it does
+  //report still counts; only a confirmed Auto hides it
+  it('reads the speed from a status that omits the mode', (t) => {
+    const { handler } = selector({});
+    t.after(() => handler.kill(true));
+
+    assert.equal(handler.rotationSpeed(), 100 / 3, 'before any status: the first step');
+
+    handler.handleResponse({ pwr: '1', om: '2' });
+    assert.equal(handler.rotationSpeed(), 200 / 3);
+
+    handler.handleResponse({ pwr: '1', mode: 'M', om: '2' });
+    handler.handleResponse({ pwr: '1', om: 't' });
+    assert.equal(handler.rotationSpeed(), 100);
+  });
+
+  it('ignores the allergic option on a model with no plain allergen mode', async (t) => {
+    const { handler, sent } = selector({ model: 'AC3036', allergicFunc: true });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['mode=AG', 'mode=S']);
+  });
+
+  it('sends the AC3829 allergen mode as Auto when the option is on', async (t) => {
+    const { handler, sent } = selector({ model: 'AC3829', allergicFunc: true });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    assert.deepEqual(sent, ['mode=A']);
+
+    handler.handleResponse({ pwr: '1', mode: 'A', om: '1' });
+    assert.equal(handler.inAutoMode(), true);
   });
 });
 

@@ -18,7 +18,7 @@ In the Home app you get:
 - Optional **temperature** and **humidity** sensors
 - The device's own **lights** as lightbulbs
 
-Not every model exposes every control. The AC0850, for example, reports no child lock register, so that control is not offered in the Home app for that model. Its Auto mode and its fan speeds share one register, so Auto is on the Home app's auto/manual switch rather than on the fan speed slider, which has two steps: 50% is Sleep and 100% is Turbo. While the purifier is in Auto the slider shows the last manual speed, and switching to Manual goes back to it. As everywhere in the Home app, 0% switches the purifier off.
+Not every model exposes every control. The AC0850, for example, reports no child lock register, so that control is not offered in the Home app for that model. On every model, Auto is on the Home app's auto/manual switch rather than on the fan speed slider, which keeps the manual speeds only (see [Fan speed and Auto](#fan-speed-and-auto)). As everywhere in the Home app, 0% switches the purifier off.
 
 ## Requirements
 
@@ -137,7 +137,7 @@ Each entry in the `devices` array is one purifier. Three fields are required:
 | `temperature`     | Expose device temperature as a temperature sensor to HomeKit.                                                                                                                          | `false`     |
 | `humidity`        | Expose device humidity as a humidity sensor to HomeKit.                                                                                                                                | `false`     |
 | `sleepSpeed`      | Adds a 'sleep' step below the lowest fan speed.[^sleep-speed]                                                                                                                          | `false`     |
-| `allergicFunc`    | Does this device support the 'allergic' function?                                                                                                                                      | `false`     |
+| `allergicFunc`    | Makes Auto in the Home app start the allergen mode instead of the general Auto mode.[^allergic]                                                                                        | `false`     |
 | `preFilter`       | Expose pre-filter status to HomeKit.                                                                                                                                                   | `false`     |
 | `carbonFilter`    | Expose active carbon filter status to HomeKit.                                                                                                                                         | `false`     |
 | `hepaFilter`      | Expose HEPA/NanoProtect filter status to HomeKit.                                                                                                                                      | `false`     |
@@ -151,6 +151,8 @@ For a complete `config.json`, see [`example-config.json`](https://github.com/atd
 [^always-reported]: Faults that stop the plugin working at all, such as an `aioairctrl` it cannot run, are always reported, whatever this is set to.
 
 [^sleep-speed]: Ignored for models that have their own speed mapping. Those use the right speeds automatically, and the plugin warns when the option cannot do anything.
+
+[^allergic]: Ignored for models with no plain allergen mode, which are the AC0850, AC1715 and AC3036, and the plugin warns when the option cannot do anything. Manual never starts the allergen mode.
 
 ## Device support
 
@@ -172,6 +174,20 @@ aioairctrl -H 10.0.1.16 -P 5683 status -J
 ```
 
 That dump is what the mapping is derived from, so a request with one attached can usually be acted on straight away.
+
+### Fan speed and Auto
+
+Auto is never a step on the fan speed slider. It is on the Home app's auto/manual switch, and the slider has only the manual speeds, so that a scene saved in Auto cannot replay as 0%, which means off. While the purifier is in Auto the slider shows the last manual speed, whatever speed Auto itself has chosen, and switching to Manual goes back to that speed. Before the first status arrives the switch reads Auto and the slider the first step.
+
+| Model           | Slider steps                                                                                             | Auto on the switch sends        |
+| --------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| AC0850          | 50% Sleep, 100% Turbo                                                                                    | `D0310C` 0                      |
+| AC1715          | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                          | `Auto General`                  |
+| AC3036          | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                          | `AG`                            |
+| AC3829          | 20% Sleep, 40% Speed 1, 60% Speed 2, 80% Speed 3, 100% Turbo                                             | `P`, or `A` with `allergicFunc` |
+| Any other model | 33% Speed 1, 67% Speed 2, 100% Turbo. With `sleepSpeed`: 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo | `P`, or `A` with `allergicFunc` |
+
+On a model with no mapping of its own, switching to Manual sends the manual mode and leaves the speed to the purifier rather than restoring the last one, because the plugin has no confirmed way to set both at once on hardware it does not know.
 
 ## Troubleshooting
 
