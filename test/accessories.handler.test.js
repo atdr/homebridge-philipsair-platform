@@ -465,6 +465,13 @@ describe('rotationSpeed', () => {
     handler.handleResponse(handler.obj);
     assert.equal(handler.rotationSpeed(), 100);
   });
+
+  it('reads 0% for a speed none of the configured speeds matches', () => {
+    //in Manual on Sleep, with no sleep speed configured to show it as
+    const handler = makeHandler({});
+    handler.obj = { pwr: '1', mode: 'M', om: 's' };
+    assert.equal(handler.rotationSpeed(), 0);
+  });
 });
 
 //records what each write sends (the arguments after 'set') and the last value
