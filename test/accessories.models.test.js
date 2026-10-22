@@ -65,14 +65,23 @@ describe('accessories.models', () => {
     assert.deepEqual(modelConfig({}).modeMaps, { auto: { mode: 'P' }, allergen: { mode: 'A' }, manual: { mode: 'M' } });
   });
 
-  it('makes A the default map Auto when the allergic option is on', () => {
-    assert.deepEqual(modelConfig({ allergicFunc: true }).modeMaps.auto, { mode: 'A' });
-    assert.deepEqual(modelConfig({ allergicFunc: true }).modeMaps.manual, { mode: 'M' });
+  it('makes Auto send A on the default map when the allergic option is on', () => {
+    assert.deepEqual(modelConfig({ allergicFunc: true }).autoWrite, { mode: 'A' });
+    assert.deepEqual(modelConfig({}).autoWrite, { mode: 'P' });
+  });
+
+  it('leaves modeMaps whole under the allergic option, so P still reads as Auto', () => {
+    assert.deepEqual(modelConfig({ allergicFunc: true }).modeMaps, modelConfig({}).modeMaps);
   });
 
   it('ignores the allergic option on a model with no plain allergen mode', () => {
     for (const model of ['AC0850', 'AC1715', 'AC3036']) {
       assert.deepEqual(modelConfig({ model, allergicFunc: true }).modeMaps, modelConfig({ model }).modeMaps, model);
+      assert.deepEqual(
+        modelConfig({ model, allergicFunc: true }).autoWrite,
+        modelConfig({ model }).modeMaps.auto,
+        model
+      );
       assert.equal(modelConfig.hasAllergenMode(model), false, model);
     }
     assert.equal(modelConfig.hasAllergenMode(undefined), true);

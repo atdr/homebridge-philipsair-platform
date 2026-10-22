@@ -474,13 +474,17 @@ back), are:
   `speeds` the device was in or was sent (`Handler.lastManualSpeed`, the first step until one
   is known). Only the default map has one, `{ mode: 'M' }`, because its speeds write `om`
   alone and nothing confirms `om` takes an unknown model out of Auto.
-- `allergen`: a plain allergen mode, which `allergicFunc` puts in place of `auto`. Only the
-  default map has one, `{ mode: 'A' }`; on any other model the option is ignored with a
-  startup warning (`hasAllergenMode`, `accessories.setup.js`).
+- `allergen`: a plain allergen mode, also automatic. The default map (`{ mode: 'A' }`) and
+  the AC3829 have one; on any other model `allergicFunc` is ignored with a startup warning
+  (`hasAllergenMode`, `accessories.setup.js`). The option only changes what Auto sends
+  (`modelConfig(...).autoWrite`, `Handler.autoWrite`); `modeMaps` stays whole.
 
 The default map's entries live in `DEFAULT_MODE_MAPS`, applied to any unmapped model.
-`Handler.inAutoMode()` is true when every `auto` register holds its value, and also before
-any of them has been reported. `Handler.supportsMode()` is true for a model with `modeMaps`,
+`Handler.inAutoMode()` is true when a status matches `auto` or `allergen` (whichever the
+option sends, since the panel or the Philips app can start either), and also before any of
+their registers has been reported. A status that omits those registers confirms nothing:
+`rotationSpeed()` still reads the speed it reports, and hides it behind the last manual step
+only in a confirmed automatic mode (`Handler.confirmedAuto()`). `Handler.supportsMode()` is true for a model with `modeMaps`,
 and gates everything that means "has an auto/manual concept"; `supports('mode')` keeps
 meaning the register itself. Because Auto and the speeds can share registers, a scene that
 writes both in one coalescing window is resolved by `queueWrite`'s `yielding` levels: Auto

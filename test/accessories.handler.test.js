@@ -823,12 +823,40 @@ describe('Auto on the selector for every model', () => {
     assert.equal(handler.inAutoMode(), true);
   });
 
-  it('reads the allergen mode as Manual when the option is off', (t) => {
+  //the option only chooses which automatic mode Auto sends; both P and A are
+  //automatic, and the Philips app can start either, so both read as Auto
+  it('reads the allergen mode as Auto when the option is off', (t) => {
     const { handler } = selector({});
     t.after(() => handler.kill(true));
 
     handler.handleResponse({ pwr: '1', mode: 'A', om: '1' });
-    assert.equal(handler.inAutoMode(), false);
+    assert.equal(handler.inAutoMode(), true);
+  });
+
+  it('reads general Auto as Auto, not Manual at 0%, when the option is on', (t) => {
+    const { handler } = selector({ model: 'AC3829', allergicFunc: true });
+    t.after(() => handler.kill(true));
+
+    handler.handleResponse({ pwr: '1', mode: 'P', om: '1' });
+
+    assert.equal(handler.inAutoMode(), true);
+    assert.notEqual(handler.rotationSpeed(), 0);
+  });
+
+  //a status that omits the mode says nothing about Auto, so the speed it does
+  //report still counts; only a confirmed Auto hides it
+  it('reads the speed from a status that omits the mode', (t) => {
+    const { handler } = selector({});
+    t.after(() => handler.kill(true));
+
+    assert.equal(handler.rotationSpeed(), 100 / 3, 'before any status: the first step');
+
+    handler.handleResponse({ pwr: '1', om: '2' });
+    assert.equal(handler.rotationSpeed(), 200 / 3);
+
+    handler.handleResponse({ pwr: '1', mode: 'M', om: '2' });
+    handler.handleResponse({ pwr: '1', om: 't' });
+    assert.equal(handler.rotationSpeed(), 100);
   });
 
   it('ignores the allergic option on a model with no plain allergen mode', async (t) => {

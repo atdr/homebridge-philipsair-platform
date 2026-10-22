@@ -10,7 +10,8 @@
 //register values that mean Auto, which is never one of the 'speeds'. Manual
 //restores the last of the 'speeds' the device was in, unless a 'manual' entry
 //names registers of its own. An 'allergen' entry is a plain allergen mode,
-//which the allergicFunc option puts in place of 'auto'.
+//automatic too: it reads as Auto, and the allergicFunc option makes Auto
+//send it instead of 'auto'.
 //Models not listed here use the default 'om' based speeds and modes.
 
 const DEFAULT_SPEEDS = [{ om: '1' }, { om: '2' }, { om: 't' }];
@@ -189,10 +190,12 @@ const modelConfig = (deviceConfig) => {
     valueMaps: model.valueMaps || {},
     extraSetFlags: model.extraSetFlags || [],
     unsupported: model.unsupported || [],
-    //the allergic option swaps the allergen mode in for Auto, on a model that
-    //has one; elsewhere accessories.setup.js warns that it is ignored
-    modeMaps:
-      deviceConfig.allergicFunc && modeMaps && modeMaps.allergen ? { ...modeMaps, auto: modeMaps.allergen } : modeMaps,
+    modeMaps,
+    //what Auto on the selector sends. The allergic option picks the allergen
+    //mode, on a model that has one (elsewhere accessories.setup.js warns that
+    //it is ignored); modeMaps stays whole, so either automatic mode still
+    //reads as Auto whichever one the Philips app or the panel started
+    autoWrite: modeMaps && (deviceConfig.allergicFunc && modeMaps.allergen ? modeMaps.allergen : modeMaps.auto),
   };
 };
 

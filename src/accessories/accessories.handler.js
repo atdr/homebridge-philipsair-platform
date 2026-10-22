@@ -255,11 +255,12 @@ class Handler {
       );
     }
 
-    const { speeds, keyMaps, valueMaps, modeMaps, extraSetFlags, unsupported } = modelConfig(config);
+    const { speeds, keyMaps, valueMaps, modeMaps, autoWrite, extraSetFlags, unsupported } = modelConfig(config);
     this.speeds = speeds;
     this.keyMaps = keyMaps;
     this.valueMaps = valueMaps;
     this.modeMaps = modeMaps;
+    this.autoWrite = autoWrite;
     //index into speeds of the last manual step the device was in or was set
     //to. Auto is not a speed on any model, so the slider reads this step while
     //in Auto (0% would mean off) and Manual restores it. The first step until
@@ -702,20 +703,26 @@ class Handler {
   }
 
   rotationSpeed() {
-    //in Auto the slider shows the last manual step, whatever the device chose
-    //for itself: a speed it reports there (the default map's 'om') is Auto's
-    //choice, not the user's, so it neither shows nor becomes the manual step
+    //in a confirmed Auto the slider shows the last manual step, whatever the
+    //device chose for itself: a speed it reports there (the default map's
+    //'om') is Auto's choice, not the user's, so it neither shows nor becomes
+    //the manual step. A status that omits the mode confirms nothing, so the
+    //speed it reports still counts; with no speed either (before the first
+    //status, say), the slider keeps the last manual step
     let speedConfigIndex = this.lastManualSpeed;
 
-    if (!this.modeMaps || !this.inAutoMode()) {
-      speedConfigIndex = this.speeds.findIndex((speedConfig) => {
+    if (!this.confirmedAuto()) {
+      const matched = this.speeds.findIndex((speedConfig) => {
         return Object.entries(speedConfig).every(([cmd, value]) => {
           return (this.obj[cmd] ?? '').toString() == value.toString();
         });
       });
 
-      if (speedConfigIndex >= 0) {
-        this.lastManualSpeed = speedConfigIndex;
+      if (matched >= 0) {
+        this.lastManualSpeed = matched;
+        speedConfigIndex = matched;
+      } else if (!this.modeMaps || this.modeReported()) {
+        speedConfigIndex = -1;
       }
     }
 
@@ -740,23 +747,44 @@ class Handler {
   }
 
   /**
-   * Whether the device is in Auto, as TargetAirPurifierState reports it: every
-   * `modeMaps.auto` register holds its Auto value. A device that has not
-   * reported any of them yet reads as AUTO, and a model with no modeMaps,
-   * whose selector is pinned to AUTO, always does.
+   * The automatic modes a status can be in: Auto, and the allergen mode where
+   * the model has one. Both read as Auto whichever one the allergic option
+   * makes the selector send, since the panel or the Philips app can start
+   * either.
+   *
+   * @returns {Record<string, unknown>[]}
+   */
+  autoStates() {
+    return this.modeMaps ? [this.modeMaps.auto, this.modeMaps.allergen].filter(Boolean) : [];
+  }
+
+  /** @returns {string[]} the registers that tell Auto from Manual */
+  modeKeys() {
+    return [...new Set(this.autoStates().flatMap((state) => Object.keys(state)))];
+  }
+
+  /** Whether the last status reported any of the registers that tell Auto from Manual. */
+  modeReported() {
+    return this.modeKeys().some((key) => this.obj[key] !== undefined);
+  }
+
+  /** Whether the last status confirms one of the automatic modes. */
+  confirmedAuto() {
+    return (
+      this.modeReported() &&
+      this.autoStates().some((state) =>
+        Object.entries(state).every(([cmd, value]) => String(this.obj[cmd]) === String(value))
+      )
+    );
+  }
+
+  /**
+   * Whether the device is in Auto, as TargetAirPurifierState reports it. A
+   * device that has not reported its mode yet reads as AUTO, and a model with
+   * no modeMaps, whose selector is pinned to AUTO, always does.
    */
   inAutoMode() {
-    if (!this.modeMaps) {
-      return true;
-    }
-
-    const registers = Object.entries(this.modeMaps.auto);
-
-    if (registers.every(([cmd]) => this.obj[cmd] === undefined)) {
-      return true;
-    }
-
-    return registers.every(([cmd, value]) => String(this.obj[cmd]) === String(value));
+    return !this.modeMaps || !this.modeReported() || this.confirmedAuto();
   }
 
   async setPurifierTargetState(state) {
@@ -770,7 +798,7 @@ class Handler {
       //unless the model names registers of its own for it (the default map's
       //mode=M), in which case the device picks the speed and reports it
       const restoring = !this.modeMaps.manual;
-      const registers = state ? this.modeMaps.auto : this.modeMaps.manual || this.speeds[this.lastManualSpeed];
+      const registers = state ? this.autoWrite : this.modeMaps.manual || this.speeds[this.lastManualSpeed];
       const cmds = Object.entries(registers).map(([cmd, value]) => this.handleCommand(cmd, value));
       const manualStep = (this.lastManualSpeed + 1) * this.speedsMinStep();
 
@@ -1587,7 +1615,7 @@ class Handler {
           .updateCharacteristic(Characteristic.CurrentAirPurifierState, on ? 2 : 0);
       }
 
-      if (this.modeMaps && key in this.modeMaps.auto) {
+      if (this.modeKeys().includes(key)) {
         this.purifierService.updateCharacteristic(Characteristic.TargetAirPurifierState, this.inAutoMode() ? 1 : 0);
       }
 
