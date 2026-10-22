@@ -1736,7 +1736,9 @@ describe('write verification', { concurrency: 1 }, () => {
       sent.push(args.join(' '));
     };
 
-    await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 17 }));
+    //off, so the power-on is not redundant and is sent: a device already on
+    //would have it left out
+    await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 17 }));
     await handler.setPurifierActive(true);
     await handler.setPurifierRotationSpeed(100);
     sent.length = 0;
@@ -1750,6 +1752,41 @@ describe('write verification', { concurrency: 1 }, () => {
       '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=18',
       '-H 192.168.1.142 -P 5683 set -I D03102=1',
     ]);
+
+    handler.kill(true);
+  });
+
+  it('resends a scene without its power-on once the device reports on', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({ model: 'AC0850' });
+    handler.purifierService = makeService();
+    handler.writeSettle = 0;
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+
+    //off, so the power-on is needed and goes out merged with the speed
+    await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 0 }));
+    await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(25)]);
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1 D0310A=2 D0310C=17']);
+    sent.length = 0;
+
+    //the device came on but ignored the speed merged with the power-on, so the
+    //resend must not repeat the power-on that made it ignore the rest
+    await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 0 }));
+    await delay(50);
+
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=17']);
+    //pwr and D0310A were confirmed by that status, D0310C is the one still owed
+    assert.deepEqual([...handler.pendingWrites.keys()], ['D0310C']);
+
+    //and the resent write is still tracked against the command that went out
+    await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 17 }));
+    assert.equal(handler.pendingWrites.size, 0);
 
     handler.kill(true);
   });

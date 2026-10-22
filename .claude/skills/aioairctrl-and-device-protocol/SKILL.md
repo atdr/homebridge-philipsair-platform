@@ -451,10 +451,12 @@ Defined in `src/accessories/accessories.models.js` (pure data; see
    > issue #46 carries the status-diff experiment that settles it.
    > A **baseline register inventory** is now attached to that issue: 89 status payloads from
    > one unit on firmware `0.1.3`, off versus on, showing the complete set of 27 registers it
-   > reports. That closes the candidate list for `mode`/`cl` to the 16 unmapped constants, and
-   > shows `D0310D` tracking power alongside `D03102`. It **identifies neither key**, because
-   > the unit never changed mode or lock state during the capture, so anything encoding them
-   > would read as constant. The experiment still needs someone at the physical unit.
+   > reports. That closes the candidate list for `mode`/`cl` to the 16 unmapped constants. It
+   > **identifies neither key**, because the unit never changed mode or lock state during the
+   > capture, so anything encoding them would read as constant. The experiment still needs
+   > someone at the physical unit. That capture also showed `D0310D` apparently tracking
+   > power, but only because the air was clean: a later eight-day capture showed it is the
+   > fan level (see `fanLevel` below), which removes it from the `mode`/`cl` candidates.
 
 **Imported models.** 35 entries after these four were imported in bulk from
 ruaan-deysel/ha-philips-airpurifier, with corrections from ruaan-deysel/homebridge-philips-airctrl
@@ -484,8 +486,8 @@ Micheledipaola/homebridge-philips-airplus (MIT, `THIRD_PARTY_NOTICES.md`), whose
 read over the Philips cloud (MQTT) rather than local CoAP. It is the AC0850 shape with a
 Medium step (`D0310C` 17, 1, 18; Auto 0, no `D0310A`) and the pre-filter pair, and like the
 AC0850 it marks `mode` and `cl` unsupported and has no light. Power is `D03102`, not the
-`D0310D` the cloud plugin names, because on the AC0850 `D03102` is power and `D0310D` only
-follows it. It sits right after the AC0850 in `models` so that `identifyModel`, which gives
+`D0310D` the cloud plugin names, because on the AC0850 `D03102` is power and `D0310D` is the
+fan's actual level (`fanLevel` below). It sits right after the AC0850 in `models` so that `identifyModel`, which gives
 a tie to the first entry, picks it over the imported dash-less models on an AC0651 status.
 
 A fourth field, **`unsupported`**, is a per-model list of generic keys the device has no
@@ -522,6 +524,29 @@ imported presets with no place on the selector go here: pollution `P` and gas `F
 `'a'` on the AC4550/AC4558, and bacteria `B` on the AC2889, AC3259, AC5659 and AC5660.
 Without it a device left in one read as Manual at 0%, which a captured scene replays as off.
 
+A seventh field, **`fanLevel`**, is optional, for a model that reports the fan's actual level
+in a register of its own. `key` names that register (a wire register: `handleResponse` passes
+unmapped keys through), and `steps` are the slider's steps, slowest first, each a `level` it
+reads and a `write` it sends: one of the `speeds` (a manual step) or `'auto'` (Auto, as the
+selector sends it). With it, `speedsMinStep` is `100 / steps.length`; `rotationSpeed()` shows
+the level in every mode (`fanLevelPercent`: 0 when off or at level 0, else the matched step),
+and falls back to the speeds when the level is unreported or not one of the steps; and
+`setPurifierRotationSpeed` rounds to the **nearest** step (`fanLevelWrite`, never below the
+first step for a value above 0). An `'auto'` step takes the same path as Auto on the switch
+(`setPurifierTargetState(1)`), so it never yields, and a Manual restore it displaces puts
+the switch back to AUTO; an identical Auto from the switch in the same scene is sent once. A
+manual step yields to Auto and sets MANUAL like any speed. Manual on the switch still
+restores the last of the `speeds`, shown at its step (`speedPercent`).
+
+Only the AC0850 has one, and only because its levels were observed: `D0310D` is its fan's
+actual level. Evidence from the maintainer's AC0850/31 (45,505 statuses, plus a manual Turbo
+capture on 2026-10-22; issue #46): off 0; Sleep (`D0310C` 17) always 1; manual Turbo
+(`D0310C` 18) 18; Auto (`D0310C` 0) 1, 2, 3 or 18, following the allergen index in bands
+1-3, 4-6, 7-9 and 10-12. Levels 2 and 3 occur only in Auto, so its slider is 25% Sleep, 50%
+and 75% Auto, 100% Turbo. Nearest rounding keeps 1.3.1's 33/67/100% scenes on Sleep, Auto and
+Turbo; 1.4.0's 50% Sleep now selects Auto. Other dash-less models may well report `D0310D`
+too, but their levels are unknown, so they keep the existing approach until they are observed.
+
 The default map's entries live in `DEFAULT_MODE_MAPS`, applied to any unmapped model.
 `Handler.inAutoMode()` is true when a status matches `auto`, `allergen` or an `alsoAuto`
 state (whichever the option sends, since the panel or the Philips app can start any), and also before any of
@@ -532,7 +557,11 @@ and gates everything that means "has an auto/manual concept"; `supports('mode')`
 meaning the register itself. Because Auto and the speeds can share registers, a scene that
 writes both in one coalescing window is resolved by `queueWrite`'s `yielding` levels: Auto
 wins over a speed, and a speed wins over Manual's restore (the same levels let a real power
-write win over RotationSpeed 0's implied power-off). The fields are listed in the header of
+write win over RotationSpeed 0's implied power-off). After that, a power-on to a device
+whose last status reports it on is left out of the batch (`dropRedundantPowerOn`), and out
+of any resend (`withoutRedundantPowerOn`), because an AC0850 that is already on ignores every
+register merged with a power-on; a power-on alone is then not sent at all. A power-off, or a
+power-on to a device that is off or has not reported yet, is merged as before. The fields are listed in the header of
 `accessories.models.js`, and `test/docs.test.js` fails if a model uses one that header and this
 section do not name.
 
@@ -551,7 +580,8 @@ Translation mechanics in `accessories.handler.js`:
 `speeds` is an ordered array, slowest first. Each entry is a set of key/value conditions
 that must ALL match the current status (stringified equality) in
 `Handler.rotationSpeed`. HomeKit percentage = `(index + 1) * (100 / speeds.length)`;
-`speedsMinStep` gives the slider step. Writing a speed reverses this: `Math.ceil(value /
+`speedsMinStep` gives the slider step. A model with `fanLevel` (above) replaces both
+directions with its level steps and rounds writes to the nearest one. Writing a speed reverses this: `Math.ceil(value /
 minStep)` picks the entry and every pair in it is sent as a `set` command, and 0% is a power-off
 (#118). In Auto the slider reads the last manual step instead of matching at all, on every
 model: 0% would mean off, so a scene captured in Auto would replay as off, and a speed the
