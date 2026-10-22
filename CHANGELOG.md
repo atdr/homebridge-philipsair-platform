@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.4.0...v1.4.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* make AC0850 scenes reliable and show its real fan speed ([#134](https://github.com/atdr/homebridge-philipsair-platform/issues/134)) ([b8e992d](https://github.com/atdr/homebridge-philipsair-platform/commit/b8e992d0c89eab6596d506cb4c8ce37d61ecc4a4))
+
 ## [1.4.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.3.1...v1.4.0) (2026-10-22)
 
 
