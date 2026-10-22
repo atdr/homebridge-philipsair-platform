@@ -216,6 +216,46 @@ describe('accessories.service optional services', () => {
     });
   });
 
+  //Copilot on PR #133: with the option on, a status like {D03102: 1, D03128:
+  //60} published a threshold of 0 and Active 0, because the humidifier reads
+  //func === 'PH', which these models never report, and its setters wrote the
+  //legacy func=PH they have no register for
+  describe('humidifier option on a model with no humidifier on/off', () => {
+    for (const model of ['AC3420', 'AC3421', 'AC3737']) {
+      it(`offers no humidifier on the ${model}, and publishes and writes nothing for one`, async () => {
+        const accessory = Object.assign(new hap.Accessory('Cached', hap.uuid.generate(`service-test-hum-${model}`)), {
+          context: { config: { host: '192.168.1.142', port: 5683, model, humidifier: true } },
+        });
+        //as paired before the option stopped applying to this model
+        const cached = accessory.addService(hap.Service.HumidifierDehumidifier, 'Humidifier', 'Humidifier');
+        const published = [];
+        cached.on('characteristic-change', ({ characteristic, newValue }) =>
+          published.push(`${characteristic.displayName}=${newValue}`)
+        );
+
+        const { handler } = wireAccessory({}, `hum-${model}`, accessory);
+        const writes = [];
+        handler.queueWrite = async (cmds) => {
+          writes.push(...cmds);
+          return true;
+        };
+
+        assert.ok(!accessory.getService(hap.Service.HumidifierDehumidifier), 'a humidifier was offered');
+
+        handler.handleResponse({ D03102: 1, D03128: 60, D0310C: 0 });
+        await handler.setHumidifierActive(1);
+        await handler.setHumidifierTargetState(60);
+
+        assert.deepEqual(published, []);
+        assert.deepEqual(
+          writes.filter((cmd) => /^(func|D03128)=/.test(cmd)),
+          [],
+          'a humidifier write was sent'
+        );
+      });
+    }
+  });
+
   describe('temperature sensor', () => {
     it('adds the temperature sensor and reports the polled reading', async () => {
       const { accessory, handler } = wireAccessory({ temperature: true }, 'temperature-on');

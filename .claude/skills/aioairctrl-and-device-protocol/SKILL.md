@@ -377,9 +377,9 @@ Meanings below are as this repo uses them, verified against
 | `pwr`           | Power                                       | `'1'`/`'0'` (AC1715 device-side: `'ON'`/`'OFF'`, value-mapped)                                                                                                                                                                                                                                                                                            |
 | `mode`          | Operating mode                              | Through `modeMaps` only. Default map and AC3829: `'P'` Auto, `'A'` allergen (sent for Auto with `allergicFunc`), `'M'` Manual. AC3036: `'AG'` Auto. AC1715 (`D03-12`): `'Auto General'` Auto. Read path: the `modeMaps.auto` or `modeMaps.allergen` value → HomeKit AUTO, with or without `allergicFunc`; no mode reported → AUTO; any other value MANUAL |
 | `om`            | Fan speed register (default dialect)        | `'s'` (sleep), `'1'`, `'2'`, `'t'` (turbo)                                                                                                                                                                                                                                                                                                                |
-| `cl`            | Child lock                                  | boolean                                                                                                                                                                                                                                                                                                                                                   |
+| `cl`            | Child lock                                  | boolean; on the dash-less models `D03103` as `1`/`0`, via `valueMaps.cl`                                                                                                                                                                                                                                                                                  |
 | `aqil`          | Display/light brightness                    | 0–100 (set with `-I`)                                                                                                                                                                                                                                                                                                                                     |
-| `uil`           | Buttons/UI light                            | `'1'`/`'0'`; on the AC1715, `D03-05` as `100`/`0` (set with `-I`, via `valueMaps.uil`)                                                                                                                                                                                                                                                                    |
+| `uil`           | Buttons/UI light                            | `'1'`/`'0'`; on the AC1715, `D03-05` as `100`/`0` (set with `-I`, via `valueMaps.uil`); dash-less: see Imported models below                                                                                                                                                                                                                              |
 | `func`          | Function (humidifier-capable models)        | `'P'` purification, `'PH'` purification + humidification                                                                                                                                                                                                                                                                                                  |
 | `rhset`         | Target humidity                             | 40/50/60/70, mapped to HomeKit threshold 25/50/75/100                                                                                                                                                                                                                                                                                                     |
 | `wl`            | Water level                                 | 0 (empty) or 100 in the code's branches                                                                                                                                                                                                                                                                                                                   |
@@ -458,11 +458,46 @@ Defined in `src/accessories/accessories.models.js` (pure data; see
    > power, but only because the air was clean: a later eight-day capture showed it is the
    > fan level (see `fanLevel` below), which removes it from the `mode`/`cl` candidates.
 
+**Imported models.** 35 entries after these four were imported in bulk from
+ruaan-deysel/ha-philips-airpurifier, with corrections from ruaan-deysel/homebridge-philips-airctrl
+(`THIRD_PARTY_NOTICES.md`), and none is validated here. They fall into the same three
+dialects:
+
+- **Legacy** (20: AC1214, AC2729, AC2889, AC29xx, AC3033/AC3039, AC305x, AC3259, AC3836,
+  AC3854/AC3858, AC4236, AC4550/AC4558, AC5659/AC5660): no key maps, a `mode`/`om` ladder
+  and Auto `P` (with allergen `A`) or `AG` on the selector, like the AC3829 and AC3036.
+  The AC3836 writes and reads Auto as `AG` with `om` `'1'`, and the AC4550/AC4558 as `AG`
+  (allergen `A`) with `om` `'a'`, their manual speeds being `om` alone.
+- **Dashed** (AC0650): the AC1715 shape cut down to `Sleep`/`Turbo`, with no light, lock or
+  pre-filter registers.
+- **Dash-less** (14: AC0950/AC0951, AC22xx, AC32xx, AC3420/AC3421, AC3737, AC4220/AC4221,
+  AMF765): the AC0850 shape plus `cl` → `D03103` (1/0 through `valueMaps.cl`), `rh` →
+  `D03125` and the pre-filter `D0520D`/`D05207`. `D0310C` is mode and speed, Auto is
+  `D0310C` 0, and the AC3737 alone pairs it with `D0310A`. The light maps both `aqil` and
+  `uil` onto one register so the two writes agree: the lamp mode `D03135` (on/off; the
+  `D03105` backlight is read-only on an AC4220/12), or `D0312D` on the AMF765. `temp` is
+  not mapped, because `D03224` reports tenths of a degree and a value map cannot scale it,
+  and the humidifier models (AC3420/AC3421, AC3737) mark `func` unsupported, since it has
+  no dash-less counterpart: the service needs `func`, so the `humidifier` option is ignored
+  there with a startup warning, and their `D03128` target register is left unmapped.
+
+**AC0651.** One more dash-less entry comes from a different source, the cloud plugin
+Micheledipaola/homebridge-philips-airplus (MIT, `THIRD_PARTY_NOTICES.md`), whose data was
+read over the Philips cloud (MQTT) rather than local CoAP. It is the AC0850 shape with a
+Medium step (`D0310C` 17, 1, 18; Auto 0, no `D0310A`) and the pre-filter pair, and like the
+AC0850 it marks `mode` and `cl` unsupported and has no light. Power is `D03102`, not the
+`D0310D` the cloud plugin names, because on the AC0850 `D03102` is power and `D0310D` is the
+fan's actual level (`fanLevel` below). It sits right after the AC0850 in `models` so that `identifyModel`, which gives
+a tie to the first entry, picks it over the imported dash-less models on an AC0651 status.
+
 A fourth field, **`unsupported`**, is a per-model list of generic keys the device has no
 register for at all. `Handler.supports(key)` reads it, and it gates three things: the `set*`
 method, the optimistic push, and the characteristic in `accessories.service.js`. Adding a key
 here removes a control from users' Home apps, so it belongs on observed absence from a status
 dump, never on a mapping that merely has not been worked out yet.
+`func` on the AC3420/AC3421/AC3737 is listed on the imported sources' evidence instead (none
+names a dash-less counterpart), and there it gates the whole humidifier service, both
+humidifier setters, and a startup warning that the `humidifier` option does nothing.
 
 A fifth field, **`modeMaps`**, is every model's auto/manual concept, and the only mechanism
 behind `TargetAirPurifierState`: there is no separate legacy `mode === 'M'` path. Its entries,
@@ -476,12 +511,20 @@ back), are:
   `speeds` the device was in or was sent (`Handler.lastManualSpeed`, the first step until one
   is known). Only the default map has one, `{ mode: 'M' }`, because its speeds write `om`
   alone and nothing confirms `om` takes an unknown model out of Auto.
-- `allergen`: a plain allergen mode, also automatic. The default map (`{ mode: 'A' }`) and
-  the AC3829 have one; on any other model `allergicFunc` is ignored with a startup warning
+- `allergen`: a plain allergen mode, also automatic. The default map (`{ mode: 'A' }`),
+  the AC3829, the imported P/A models and the AC4550/AC4558 (`A` with `om` `'a'`) have one;
+  on any other model `allergicFunc` is ignored with a startup warning
   (`hasAllergenMode`, `accessories.setup.js`). The option only changes what Auto sends
   (`modelConfig(...).autoWrite`, `Handler.autoWrite`); `modeMaps` stays whole.
 
-A sixth field, **`fanLevel`**, is optional, for a model that reports the fan's actual level
+A sixth field, **`alsoAuto`**, sits beside `modeMaps` rather than in it: a read-only list of
+further automatic states a device can be put in from its panel or the Philips app. They read
+as Auto (`Handler.autoStates()`), and are never written, offered, or sent by Auto. The
+imported presets with no place on the selector go here: pollution `P` and gas `F` with `om`
+`'a'` on the AC4550/AC4558, and bacteria `B` on the AC2889, AC3259, AC5659 and AC5660.
+Without it a device left in one read as Manual at 0%, which a captured scene replays as off.
+
+A seventh field, **`fanLevel`**, is optional, for a model that reports the fan's actual level
 in a register of its own. `key` names that register (a wire register: `handleResponse` passes
 unmapped keys through), and `steps` are the slider's steps, slowest first, each a `level` it
 reads and a `write` it sends: one of the `speeds` (a manual step) or `'auto'` (Auto, as the
@@ -505,8 +548,8 @@ Turbo; 1.4.0's 50% Sleep now selects Auto. Other dash-less models may well repor
 too, but their levels are unknown, so they keep the existing approach until they are observed.
 
 The default map's entries live in `DEFAULT_MODE_MAPS`, applied to any unmapped model.
-`Handler.inAutoMode()` is true when a status matches `auto` or `allergen` (whichever the
-option sends, since the panel or the Philips app can start either), and also before any of
+`Handler.inAutoMode()` is true when a status matches `auto`, `allergen` or an `alsoAuto`
+state (whichever the option sends, since the panel or the Philips app can start any), and also before any of
 their registers has been reported. A status that omits those registers confirms nothing:
 `rotationSpeed()` still reads the speed it reports, and hides it behind the last manual step
 only in a confirmed automatic mode (`Handler.confirmedAuto()`). `Handler.supportsMode()` is true for a model with `modeMaps`,

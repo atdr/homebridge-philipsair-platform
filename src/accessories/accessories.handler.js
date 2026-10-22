@@ -255,7 +255,7 @@ class Handler {
       );
     }
 
-    const { speeds, keyMaps, valueMaps, modeMaps, fanLevel, autoWrite, extraSetFlags, unsupported } =
+    const { speeds, keyMaps, valueMaps, modeMaps, alsoAuto, fanLevel, autoWrite, extraSetFlags, unsupported } =
       modelConfig(config);
     this.speeds = speeds;
     //the slider's steps when the model reports its fan's actual level, see
@@ -264,6 +264,9 @@ class Handler {
     this.keyMaps = keyMaps;
     this.valueMaps = valueMaps;
     this.modeMaps = modeMaps;
+    //automatic states that read as Auto but are never written (see the
+    //accessories.models.js header)
+    this.alsoAuto = alsoAuto;
     this.autoWrite = autoWrite;
     //index into speeds of the last manual step the device was in or was set
     //to. Auto is not a speed on any model, so the slider reads this step while
@@ -960,15 +963,15 @@ class Handler {
   }
 
   /**
-   * The automatic modes a status can be in: Auto, and the allergen mode where
-   * the model has one. Both read as Auto whichever one the allergic option
-   * makes the selector send, since the panel or the Philips app can start
-   * either.
+   * The automatic modes a status can be in: Auto, the allergen mode where the
+   * model has one, and any read-only `alsoAuto` states (a pollution or gas
+   * preset, say). All read as Auto whichever one the allergic option makes the
+   * selector send, since the panel or the Philips app can start any of them.
    *
    * @returns {Record<string, unknown>[]}
    */
   autoStates() {
-    return this.modeMaps ? [this.modeMaps.auto, this.modeMaps.allergen].filter(Boolean) : [];
+    return this.modeMaps ? [this.modeMaps.auto, this.modeMaps.allergen, ...this.alsoAuto].filter(Boolean) : [];
   }
 
   /** @returns {string[]} the registers that tell Auto from Manual */
@@ -1166,6 +1169,11 @@ class Handler {
 
   //Humidifier
   async setHumidifierActive(state) {
+    if (!this.supports('func')) {
+      logger.debug(`This model has no humidifier on/off, ignoring ${state}`, this.accessory.displayName);
+      return;
+    }
+
     try {
       const values = {
         func: state ? 'PH' : 'P',
@@ -1214,6 +1222,11 @@ class Handler {
   }*/
 
   async setHumidifierTargetState(state) {
+    if (!this.supports('func')) {
+      logger.debug(`This model has no humidifier on/off, ignoring ${state}`, this.accessory.displayName);
+      return;
+    }
+
     try {
       const speed = state;
 

@@ -1291,3 +1291,135 @@ describe('model mapping check', () => {
     assert.equal(handler.keyMaps.pwr, 'D03-02');
   });
 });
+
+describe('dash-less child lock and light', () => {
+  it('sends the child lock as 1/0 with -I and reads it back as locked', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC2221' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierLockPhysicalControls(1);
+    await handler.setPurifierLockPhysicalControls(0);
+    assert.deepEqual(sent, ['-I D03103=1', '-I D03103=0']);
+
+    handler.handleResponse({ D03102: 1, D03103: 1 });
+    assert.equal(handler.obj.cl, true);
+    handler.handleResponse({ D03102: 1, D03103: 0 });
+    assert.equal(handler.obj.cl, false);
+  });
+
+  //both light writes land on the one lamp register, so they must agree
+  it('switches the lamp with both light writes agreeing, and reads it back', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC4220' });
+    t.after(() => handler.kill(true));
+
+    await handler.setLightBrightness(50);
+    await handler.setLightOn(false);
+    assert.deepEqual(sent, ['-I D03135=1', '-I D03135=1', '-I D03135=0', '-I D03135=0']);
+
+    handler.handleResponse({ D03102: 1, D03135: 2 });
+    assert.equal(handler.obj.aqil, 100);
+    handler.handleResponse({ D03102: 1, D03135: 0 });
+    assert.equal(handler.obj.aqil, 0);
+  });
+});
+
+//Every model's table, read back through the handler: each speed and each
+//automatic mode is written with handleCommand, reported in the device's own
+//dialect, and read back through handleResponse. A model whose Auto or a step
+//does not survive the trip would show the wrong step or the wrong mode
+//Copilot on PR #133: ha-philips-airpurifier gives these models automatic
+//presets the selector never writes (pollution P and gas F with om a on the
+//AC4550/AC4558, bacteria B on the AC2889, AC3259, AC5659, AC5660). A device
+//left in one by the Philips app or the panel is still in an automatic mode,
+//so it must read as Auto, not as Manual at 0% that a scene would replay as off
+describe('automatic presets the selector does not write', () => {
+  const presets = {
+    AC4550: [
+      { mode: 'P', om: 'a' },
+      { mode: 'F', om: 'a' },
+    ],
+    AC4558: [
+      { mode: 'P', om: 'a' },
+      { mode: 'F', om: 'a' },
+    ],
+    AC2889: [{ mode: 'B', om: '2' }],
+    AC3259: [{ mode: 'B', om: '1' }],
+    AC5659: [{ mode: 'B', om: 's' }],
+    AC5660: [{ mode: 'B', om: 't' }],
+  };
+
+  for (const [model, statuses] of Object.entries(presets)) {
+    it(`reads the ${model} automatic presets as Auto, without writing or offering them`, () => {
+      const handler = makeHandler({ model });
+      const autoWrite = { ...handler.autoWrite };
+
+      for (const preset of statuses) {
+        //as the device reports it: strings, with power and a reading alongside
+        handler.handleResponse({ pwr: '1', iaql: '2', ...preset });
+        assert.equal(handler.inAutoMode(), true, `${model}: ${JSON.stringify(preset)} reads as Manual`);
+        assert.equal(handler.rotationSpeed(), handler.speedsMinStep(), `${model}: the slider left the manual step`);
+      }
+
+      assert.deepEqual(handler.autoWrite, autoWrite, `${model}: Auto writes something else now`);
+      for (const preset of statuses) {
+        assert.ok(
+          !Object.values(handler.modeMaps).some((state) => JSON.stringify(state) === JSON.stringify(preset)),
+          `${model}: ${JSON.stringify(preset)} became a selectable mode`
+        );
+      }
+
+      //and a manual step after it still reads as Manual
+      handler.handleResponse({ pwr: '1', ...handler.speeds[1] });
+      assert.equal(handler.inAutoMode(), false, `${model}: a manual step reads as Auto`);
+    });
+  }
+});
+
+describe('every mapped model round-trips its speeds and Auto', () => {
+  const { mappedModels } = require('../src/accessories/accessories.models');
+
+  //what the device reports after a write: the wire pair handleCommand built,
+  //with a number where the dialect is numeric
+  const reported = (handler, values) => {
+    const status = {};
+    for (const [key, value] of Object.entries({ pwr: 1, ...values })) {
+      const [wireKey, wireValue] = handler.handleCommand(key, value).split('=');
+      status[wireKey] = handler.extraSetFlags.includes('-I') ? Number(wireValue) : wireValue;
+    }
+    return status;
+  };
+
+  //the default map is left out: its speeds write om alone, and Manual is its
+  //own mode=M, so a speed status there does not say Manual by itself
+  for (const model of mappedModels) {
+    it(`reads back what it writes (${model})`, () => {
+      const handler = makeHandler({ model });
+
+      handler.speeds.forEach((speed, index) => {
+        const cmds = Object.entries(speed).map(([key, value]) => handler.handleCommand(key, value));
+        assert.ok(
+          !handler.extraSetFlags.includes('-I') || handler.intEncodable(cmds),
+          `${model}: speed ${index + 1} is not integer encodable`
+        );
+
+        handler.handleResponse(reported(handler, speed));
+        assert.equal(handler.inAutoMode(), false, `${model}: speed ${index + 1} reads as Auto`);
+        //a fan level model shows a speed at the step that writes it, not at its own index
+        const step = handler.fanLevel ? handler.fanLevel.steps.findIndex(({ write }) => write === speed) : index;
+        assert.ok(step >= 0, `${model}: speed ${index + 1} has no fan level step`);
+        assert.equal(handler.rotationSpeed(), (step + 1) * handler.speedsMinStep(), `${model}: speed ${index + 1}`);
+      });
+
+      for (const [name, state] of Object.entries(handler.modeMaps)) {
+        if (name === 'manual') {
+          continue;
+        }
+
+        handler.handleResponse(reported(handler, state));
+        assert.equal(handler.inAutoMode(), true, `${model}: ${name} does not read as Auto`);
+        //in Auto the slider keeps the last manual step: here the top one
+        assert.equal(handler.rotationSpeed(), 100, `${model}: ${name} moved the slider`);
+      }
+    });
+  }
+});
