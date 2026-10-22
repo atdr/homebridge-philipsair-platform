@@ -979,3 +979,34 @@ describe('model mapping check', () => {
     assert.equal(handler.keyMaps.pwr, 'D03-02');
   });
 });
+
+describe('dash-less child lock and light', () => {
+  it('sends the child lock as 1/0 with -I and reads it back as locked', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC2221' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierLockPhysicalControls(1);
+    await handler.setPurifierLockPhysicalControls(0);
+    assert.deepEqual(sent, ['-I D03103=1', '-I D03103=0']);
+
+    handler.handleResponse({ D03102: 1, D03103: 1 });
+    assert.equal(handler.obj.cl, true);
+    handler.handleResponse({ D03102: 1, D03103: 0 });
+    assert.equal(handler.obj.cl, false);
+  });
+
+  //both light writes land on the one lamp register, so they must agree
+  it('switches the lamp with both light writes agreeing, and reads it back', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC4220' });
+    t.after(() => handler.kill(true));
+
+    await handler.setLightBrightness(50);
+    await handler.setLightOn(false);
+    assert.deepEqual(sent, ['-I D03135=1', '-I D03135=1', '-I D03135=0', '-I D03135=0']);
+
+    handler.handleResponse({ D03102: 1, D03135: 2 });
+    assert.equal(handler.obj.aqil, 100);
+    handler.handleResponse({ D03102: 1, D03135: 0 });
+    assert.equal(handler.obj.aqil, 0);
+  });
+});

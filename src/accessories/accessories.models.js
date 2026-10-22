@@ -163,6 +163,69 @@ const AC303X_SPEEDS = [
 const P_AND_A_MODES = { auto: { mode: 'P' }, allergen: { mode: 'A' } };
 const AG_MODES = { auto: { mode: 'AG' } };
 
+//The dash-less dialect's registers (const.py NEW2_*). Temperature is left out:
+//D03224 reports tenths of a degree, and a value map cannot scale a reading
+const DASHLESS_KEYS = {
+  pwr: 'D03102',
+  cl: 'D03103',
+  iaql: 'D03120',
+  pm25: 'D03221',
+  rh: 'D03125',
+  fltsts0: 'D0520D',
+  flttotal0: 'D05207',
+  fltsts1: 'D0540E',
+  flttotal1: 'D05408',
+};
+
+//D03103 takes 1/0 where the legacy cl takes a boolean
+const DASHLESS_VALUES = {
+  cl: { true: 1, false: 0, 1: true, 0: false },
+};
+
+//D0310C is mode and speed in one register here, as on the AC0850
+const DASHLESS_AUTO = { auto: { D0310C: 0 } };
+
+const dashless = (entry) => ({
+  ...entry,
+  keyMaps: { ...DASHLESS_KEYS, ...entry.keyMaps },
+  valueMaps: { ...DASHLESS_VALUES, ...entry.valueMaps },
+  extraSetFlags: ['-I'],
+});
+
+//The light on these is the lamp mode register D03135 (0 off, 1 on, 2 dim), not
+//the D03105 backlight ruaan-deysel/ha-philips-airpurifier names:
+//homebridge-philips-airctrl found D03105 read-only on an AC4220/12, writes
+//acknowledged and discarded. Both light writes land on D03135, so the light is
+//on or off: any brightness switches it on
+const LAMP_LIGHT = {
+  keyMaps: { aqil: 'D03135', uil: 'D03135' },
+  valueMaps: {
+    aqil: { 0: 0, 25: 1, 50: 1, 75: 1, 100: 1, 1: 100, 2: 100 },
+    uil: { 1: 1, 0: 0 },
+  },
+};
+
+//the humidity target, 40 to 70 in steps of 10 like the legacy rhset. The
+//humidifier's on/off has no register this plugin can write: the legacy func
+//P/PH has no dash-less counterpart
+const DASHLESS_HUMIDIFIER = { rhset: 'D03128' };
+
+//ruaan-deysel/ha-philips-airpurifier's AC32xx ladder: speeds 1 to 5, with its
+//Sleep and Turbo presets as the outer steps. Its medium preset (19) is left
+//out, having no place on the ladder
+const AC32XX_SPEEDS = [
+  { D0310C: 17 },
+  { D0310C: 1 },
+  { D0310C: 2 },
+  { D0310C: 3 },
+  { D0310C: 4 },
+  { D0310C: 5 },
+  { D0310C: 18 },
+];
+
+//sleep, medium, turbo
+const AC0950_SPEEDS = [{ D0310C: 17 }, { D0310C: 19 }, { D0310C: 18 }];
+
 Object.assign(models, {
   //dashed dialect, the AC0850 AWS_Philips_AIR configuration
   //ruaan-deysel/ha-philips-airpurifier gives the AC0650: Sleep and Turbo only,
@@ -294,6 +357,114 @@ Object.assign(models, {
     speeds: manualOmSpeeds({ mode: 'M', om: 's' }),
     modeMaps: P_AND_A_MODES,
   },
+
+  //dash-less dialect, numeric values sent with -I. ruaan-deysel's
+  //ha-philips-airpurifier offers no light on the AC0950 and AC0951
+  AC0950: dashless({
+    speeds: AC0950_SPEEDS,
+    modeMaps: DASHLESS_AUTO,
+  }),
+  AC0951: dashless({
+    speeds: AC0950_SPEEDS,
+    modeMaps: DASHLESS_AUTO,
+  }),
+  AC2210: dashless({
+    speeds: AC32XX_SPEEDS,
+    modeMaps: DASHLESS_AUTO,
+    ...LAMP_LIGHT,
+  }),
+  AC2220: dashless({
+    speeds: AC32XX_SPEEDS,
+    modeMaps: DASHLESS_AUTO,
+    ...LAMP_LIGHT,
+  }),
+  AC2221: dashless({
+    speeds: AC32XX_SPEEDS,
+    modeMaps: DASHLESS_AUTO,
+    ...LAMP_LIGHT,
+  }),
+  AC3210: dashless({
+    speeds: AC32XX_SPEEDS,
+    modeMaps: DASHLESS_AUTO,
+    ...LAMP_LIGHT,
+  }),
+  AC3220: dashless({
+    speeds: AC32XX_SPEEDS,
+    modeMaps: DASHLESS_AUTO,
+    ...LAMP_LIGHT,
+  }),
+  AC3221: dashless({
+    speeds: AC32XX_SPEEDS,
+    modeMaps: DASHLESS_AUTO,
+    ...LAMP_LIGHT,
+  }),
+  //humidifiers: target humidity only (see DASHLESS_HUMIDIFIER)
+  AC3420: dashless({
+    speeds: AC0950_SPEEDS,
+    modeMaps: DASHLESS_AUTO,
+    keyMaps: { ...LAMP_LIGHT.keyMaps, ...DASHLESS_HUMIDIFIER },
+    valueMaps: LAMP_LIGHT.valueMaps,
+  }),
+  AC3421: dashless({
+    speeds: AC0950_SPEEDS,
+    modeMaps: DASHLESS_AUTO,
+    keyMaps: { ...LAMP_LIGHT.keyMaps, ...DASHLESS_HUMIDIFIER },
+    valueMaps: LAMP_LIGHT.valueMaps,
+  }),
+  //a humidifier whose steps are D0310A/D0310C pairs, turbo on D0310A 3. Its
+  //only light register is D03105, read-only on this dialect (see LAMP_LIGHT),
+  //so it has no light here
+  AC3737: dashless({
+    speeds: [
+      { D0310A: 2, D0310C: 17 },
+      { D0310A: 2, D0310C: 1 },
+      { D0310A: 2, D0310C: 2 },
+      { D0310A: 3, D0310C: 18 },
+    ],
+    modeMaps: {
+      auto: { D0310A: 2, D0310C: 0 },
+    },
+    keyMaps: DASHLESS_HUMIDIFIER,
+  }),
+  //homebridge-philips-airctrl, on an AC4220/12: D0310C 5 already runs at
+  //Turbo, and Turbo (18) and medium (19) only repeat speeds 5 and 3. So the
+  //ladder stops at 5 here, where ruaan-deysel/ha-philips-airpurifier adds
+  //Turbo above it as on the AC32xx
+  AC4220: dashless({
+    speeds: AC32XX_SPEEDS.slice(0, -1),
+    modeMaps: DASHLESS_AUTO,
+    ...LAMP_LIGHT,
+  }),
+  AC4221: dashless({
+    speeds: AC32XX_SPEEDS.slice(0, -1),
+    modeMaps: DASHLESS_AUTO,
+    ...LAMP_LIGHT,
+  }),
+  //a purifier and fan, speeds 1 to 10 between Sleep and Turbo. Its backlight
+  //D0312D takes 0/100 (both projects agree), so both light writes land there
+  //and the light is on or off. Oscillation has no HomeKit surface here
+  AMF765: dashless({
+    speeds: [
+      { D0310C: 17 },
+      { D0310C: 1 },
+      { D0310C: 2 },
+      { D0310C: 3 },
+      { D0310C: 4 },
+      { D0310C: 5 },
+      { D0310C: 6 },
+      { D0310C: 7 },
+      { D0310C: 8 },
+      { D0310C: 9 },
+      { D0310C: 10 },
+      { D0310C: 18 },
+    ],
+    modeMaps: DASHLESS_AUTO,
+    keyMaps: { aqil: 'D0312D', uil: 'D0312D' },
+    valueMaps: {
+      aqil: { 0: 0, 25: 100, 50: 100, 75: 100, 100: 100 },
+      uil: { 1: 100, 0: 0 },
+    },
+  }),
 });
 
 //Philips prints the model on the device as 'AC0850/11'; the suffix after the

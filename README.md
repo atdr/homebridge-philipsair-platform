@@ -163,10 +163,10 @@ The `model` field selects how the plugin encodes power, mode and fan speed, beca
 | **Description** | As Supported, and also confirmed on hardware by this project. | Dedicated mapping, taken from a source with hardware evidence. | Default mapping. Often fits, never guaranteed. |
 
 - **Supported, validated ★:** AC0850 ★
-- **Supported:** AC0650, AC1214, AC1715, AC2729, AC2889, AC2936, AC2939, AC2958, AC2959, AC3033, AC3036, AC3039, AC3055, AC3059, AC3259, AC3829, AC3836, AC3854, AC3858, AC4236, AC4550, AC4558, AC5659, AC5660
+- **Supported:** AC0650, AC0950, AC0951, AC1214, AC1715, AC2210, AC2220, AC2221, AC2729, AC2889, AC2936, AC2939, AC2958, AC2959, AC3033, AC3036, AC3039, AC3055, AC3059, AC3210, AC3220, AC3221, AC3259, AC3420, AC3421, AC3737, AC3829, AC3836, AC3854, AC3858, AC4220, AC4221, AC4236, AC4550, AC4558, AC5659, AC5660, AMF765
 - **Other models:** Any other model
 
-A Supported mapping comes from the people who own the hardware: users and contributors of the [original plugin](https://github.com/seydx/homebridge-philipsair-platform), or the [ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier) Home Assistant integration. The model dropdown in the Homebridge UI offers every Supported model. Anything else falls back to the default.
+A Supported mapping comes from the people who own the hardware: users and contributors of the [original plugin](https://github.com/seydx/homebridge-philipsair-platform), or the [ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier) Home Assistant integration, with corrections from its Homebridge port [homebridge-philips-airctrl](https://github.com/ruaan-deysel/homebridge-philips-airctrl). Most Supported models come from the integration and have not been tried on hardware by this project, so a report of how yours behaves is welcome either way. The model dropdown in the Homebridge UI offers every Supported model. Anything else falls back to the default.
 
 The symptom of a mapping that does not fit is an accessory that appears in the Home app with controls that do nothing. The plugin compares the first status a device sends against the mapping in force and reports a mismatch in the log, so it usually tells you when it has guessed wrong.
 
@@ -182,20 +182,35 @@ That dump is what the mapping is derived from, so a request with one attached ca
 
 Auto is never a step on the fan speed slider. It is on the Home app's auto/manual switch, and the slider has only the manual speeds, so that a scene saved in Auto cannot replay as 0%, which means off. While the purifier is in Auto the slider shows the last manual speed, whatever speed Auto itself has chosen, and switching to Manual goes back to that speed. Before the first status arrives the switch reads Auto and the slider the first step.
 
-| Model                                                          | Slider steps                                                                                             | Auto on the switch sends                                |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| AC0650                                                         | 50% Sleep, 100% Turbo                                                                                    | `Auto General`                                          |
-| AC0850                                                         | 50% Sleep, 100% Turbo                                                                                    | `D0310C` 0                                              |
-| AC1214                                                         | 20% Night, 40% Speed 1, 60% Speed 2, 80% Speed 3, 100% Turbo                                             | `P`, or `A` with `allergicFunc`                         |
-| AC1715                                                         | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                          | `Auto General`                                          |
-| AC2729, AC2889, AC3259, AC3829, AC5659, AC5660                 | 20% Sleep, 40% Speed 1, 60% Speed 2, 80% Speed 3, 100% Turbo                                             | `P`, or `A` with `allergicFunc`                         |
-| AC2936, AC2939, AC2958, AC2959                                 | 33% Sleep, 67% Gentle, 100% Turbo                                                                        | `AG`                                                    |
-| AC3033, AC3036, AC3039, AC3055, AC3059, AC3854, AC3858, AC4236 | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                          | `AG`                                                    |
-| AC3836                                                         | 50% Sleep, 100% Turbo                                                                                    | `AG` with `om` 1                                        |
-| AC4550, AC4558                                                 | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                          | `AG` with `om` a, or `A` with `om` a and `allergicFunc` |
-| Any other model                                                | 33% Speed 1, 67% Speed 2, 100% Turbo. With `sleepSpeed`: 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo | `P`, or `A` with `allergicFunc`                         |
+| Model                                                          | Slider steps                                                                                                                                            | Auto on the switch sends                                |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| AC0650                                                         | 50% Sleep, 100% Turbo                                                                                                                                   | `Auto General`                                          |
+| AC0850                                                         | 50% Sleep, 100% Turbo                                                                                                                                   | `D0310C` 0                                              |
+| AC0950, AC0951, AC3420, AC3421                                 | 33% Sleep, 67% Medium, 100% Turbo                                                                                                                       | `D0310C` 0                                              |
+| AC1214                                                         | 20% Night, 40% Speed 1, 60% Speed 2, 80% Speed 3, 100% Turbo                                                                                            | `P`, or `A` with `allergicFunc`                         |
+| AC1715                                                         | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                                                                         | `Auto General`                                          |
+| AC2210, AC2220, AC2221, AC3210, AC3220, AC3221                 | 14% Sleep, 29% Speed 1, 43% Speed 2, 57% Speed 3, 71% Speed 4, 86% Speed 5, 100% Turbo                                                                  | `D0310C` 0                                              |
+| AC2729, AC2889, AC3259, AC3829, AC5659, AC5660                 | 20% Sleep, 40% Speed 1, 60% Speed 2, 80% Speed 3, 100% Turbo                                                                                            | `P`, or `A` with `allergicFunc`                         |
+| AC2936, AC2939, AC2958, AC2959                                 | 33% Sleep, 67% Gentle, 100% Turbo                                                                                                                       | `AG`                                                    |
+| AC3033, AC3036, AC3039, AC3055, AC3059, AC3854, AC3858, AC4236 | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                                                                         | `AG`                                                    |
+| AC3737                                                         | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                                                                         | `D0310A` 2 and `D0310C` 0                               |
+| AC3836                                                         | 50% Sleep, 100% Turbo                                                                                                                                   | `AG` with `om` 1                                        |
+| AC4220, AC4221                                                 | 17% Sleep, 33% Speed 1, 50% Speed 2, 67% Speed 3, 83% Speed 4, 100% Speed 5                                                                             | `D0310C` 0                                              |
+| AC4550, AC4558                                                 | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                                                                         | `AG` with `om` a, or `A` with `om` a and `allergicFunc` |
+| AMF765                                                         | 8% Sleep, 17% Speed 1, 25% Speed 2, 33% Speed 3, 42% Speed 4, 50% Speed 5, 58% Speed 6, 67% Speed 7, 75% Speed 8, 83% Speed 9, 92% Speed 10, 100% Turbo | `D0310C` 0                                              |
+| Any other model                                                | 33% Speed 1, 67% Speed 2, 100% Turbo. With `sleepSpeed`: 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                | `P`, or `A` with `allergicFunc`                         |
 
 On a model with no mapping of its own, switching to Manual sends the manual mode and leaves the speed to the purifier rather than restoring the last one, because the plugin has no confirmed way to set both at once on hardware it does not know.
+
+### Other controls by model
+
+Some controls depend on what a model's registers can do:
+
+- **Child lock** is offered on every model except the AC0850. ha-philips-airpurifier offers no child lock on the AC0650, AC2889, AC3033, AC3036, AC3039, AC3055, AC3059, AC3259, AC3836, AC5659, AC5660, and the /50 variants of the AC3854 and AC3858, so there it may do nothing.
+- On the models that report dash-less registers such as `D03102` (the AC0950, AC0951, AC2210, AC2220, AC2221, AC3210, AC3220, AC3221, AC3420, AC3421, AC3737, AC4220, AC4221 and AMF765):
+  - The **light** is on or off, and any brightness switches it on. On most of them it is the lamp (`D03135`), because the display backlight register only reports there. The AC0950, AC0951 and AC3737 have no light the plugin can switch.
+  - The **temperature** sensor reads 0: these models report tenths of a degree, which the plugin does not convert.
+  - The **humidifier** on the AC3420, AC3421 and AC3737 sets the target humidity, but cannot switch humidifying on or off.
 
 ## Troubleshooting
 
@@ -422,6 +437,7 @@ This plugin stands on other people's work:
 - [NikDevx/homebridge-philips-air](https://github.com/NikDevx/homebridge-philips-air), originally by Sunoo, which seydx's plugin drew heavily on.
 - [we5/homebridge-philipsair-platform](https://github.com/we5/homebridge-philipsair-platform/tree/refactor/use-config-mappings), for the mappable config parameters.
 - [ruaan-deysel/ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier), the Home Assistant integration most of the Supported model mappings are derived from, under the Apache License 2.0 (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
+- [ruaan-deysel/homebridge-philips-airctrl](https://github.com/ruaan-deysel/homebridge-philips-airctrl), for the hardware corrections applied to that data, also under the Apache License 2.0.
 - [kandelvijaya/homebridge-philipsair-platform](https://github.com/kandelvijaya/homebridge-philipsair-platform), for AC1715 speed and power mode fixes.
 - [`aioairctrl`](https://github.com/kongo09/aioairctrl), maintained by kongo09 and written by [betaboon](https://github.com/betaboon/aioairctrl), which does all of the talking to the device.
 

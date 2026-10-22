@@ -285,6 +285,22 @@ describe('imported models', () => {
       'AC5660',
     ],
     dashed: ['AC0650'],
+    dashless: [
+      'AC0950',
+      'AC0951',
+      'AC2210',
+      'AC2220',
+      'AC2221',
+      'AC3210',
+      'AC3220',
+      'AC3221',
+      'AC3420',
+      'AC3421',
+      'AC3737',
+      'AC4220',
+      'AC4221',
+      'AMF765',
+    ],
   };
 
   it('maps every imported model', () => {
@@ -308,6 +324,26 @@ describe('imported models', () => {
     }
   });
 
+  it('puts every dash-less model on its registers, sent with -I', () => {
+    for (const model of imported.dashless) {
+      const config = modelConfig({ model });
+
+      assert.equal(config.keyMaps.pwr, 'D03102', model);
+      assert.equal(config.keyMaps.cl, 'D03103', model);
+      assert.deepEqual(config.extraSetFlags, ['-I'], model);
+      assert.deepEqual(config.modeMaps.auto, model === 'AC3737' ? { D0310A: 2, D0310C: 0 } : { D0310C: 0 }, model);
+    }
+  });
+
+  it('sends the dash-less child lock as 1/0 and reads it back as a boolean', () => {
+    const { valueMaps } = modelConfig({ model: 'AC2221' });
+
+    assert.equal(valueMaps.cl.true, 1);
+    assert.equal(valueMaps.cl.false, 0);
+    assert.equal(valueMaps.cl[1], true);
+    assert.equal(valueMaps.cl[0], false);
+  });
+
   it('gives the AC0650 the dashed power words and mode words', () => {
     const config = modelConfig({ model: 'AC0650' });
 
@@ -316,6 +352,27 @@ describe('imported models', () => {
     assert.equal(config.valueMaps.pwr[1], 'ON');
     assert.deepEqual(config.speeds, [{ mode: 'Sleep' }, { mode: 'Turbo' }]);
     assert.deepEqual(config.modeMaps, { auto: { mode: 'Auto General' } });
+  });
+
+  //homebridge-philips-airctrl, on an AC4220/12: D0310C 5 is already Turbo
+  it('stops the AC4220 ladder at speed 5, after Sleep', () => {
+    assert.deepEqual(
+      modelConfig({ model: 'AC4220' }).speeds.map((speed) => speed.D0310C),
+      [17, 1, 2, 3, 4, 5]
+    );
+    assert.deepEqual(
+      modelConfig({ model: 'AC3210' }).speeds.map((speed) => speed.D0310C),
+      [17, 1, 2, 3, 4, 5, 18]
+    );
+  });
+
+  it('writes the AC3737 speeds as register pairs', () => {
+    assert.deepEqual(modelConfig({ model: 'AC3737' }).speeds, [
+      { D0310A: 2, D0310C: 17 },
+      { D0310A: 2, D0310C: 1 },
+      { D0310A: 2, D0310C: 2 },
+      { D0310A: 3, D0310C: 18 },
+    ]);
   });
 
   it('reads the AC4558 automatic modes from mode and om together', () => {
@@ -329,7 +386,7 @@ describe('imported models', () => {
     for (const model of ['AC1214', 'AC2729', 'AC2889', 'AC3259', 'AC4550', 'AC4558', 'AC5659', 'AC5660']) {
       assert.equal(modelConfig.hasAllergenMode(model), true, model);
     }
-    for (const model of ['AC2936', 'AC3033', 'AC3854', 'AC4236', 'AC0650']) {
+    for (const model of ['AC2936', 'AC3033', 'AC3854', 'AC4236', 'AC0650', 'AC0950', 'AC4220', 'AMF765']) {
       assert.equal(modelConfig.hasAllergenMode(model), false, model);
     }
   });
