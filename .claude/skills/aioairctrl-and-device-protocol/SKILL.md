@@ -413,7 +413,7 @@ Defined in `src/accessories/accessories.models.js` (pure data; see
    are `mode`-word steps (`Sleep`, `Gentle/Speed 1`, `Speed 2`, `Turbo`), and Auto is
    `modeMaps.auto` `{ mode: 'Auto General' }`, written as `D03-12=Auto General` because
    `handleCommand` maps the generic `mode` key like any other. It used to write `D03-12=P`/`M`,
-   which that register does not take.
+   which that register does not take. The AC0850 also has a dashed variant (below).
 3. **AC0850-style**: wire keys are dash-less registers (`pwr` → `D03102`), values are
    numeric, every `set` asks for `-I` (`extraSetFlags`). Speeds are composite register
    pairs (`{ D0310A: 2, D0310C: 17|18 }`, Sleep and Turbo). `D0310C` is mode and speed in
@@ -424,7 +424,7 @@ Defined in `src/accessories/accessories.models.js` (pure data; see
    suffix printed on the device, and falls back to a model ID left in the device
    name. Failing all that, `identifyModel` reads the model out of the status
    itself on the first reading and adopts it from the next restart
-   (`Handler.checkModelMapping`).
+   (`Handler.checkModelMapping`). The AC1715 also has a dash-less variant (below).
 
    > ⚠️ **Correction, 2026-08-19.** This file previously said the AC0850 reports
    > no name, type or model field of any kind. That came from the dump on issue
@@ -538,7 +538,7 @@ the switch back to AUTO; an identical Auto from the switch in the same scene is 
 manual step yields to Auto and sets MANUAL like any speed. Manual on the switch still
 restores the last of the `speeds`, shown at its step (`speedPercent`).
 
-Only the AC0850 has one, and only because its levels were observed: `D0310D` is its fan's
+Only the dash-less AC0850 has one, and only because its levels were observed: `D0310D` is its fan's
 actual level. Evidence from the maintainer's AC0850/31 (45,505 statuses, plus a manual Turbo
 capture on 2026-10-22; issue #46): off 0; Sleep (`D0310C` 17) always 1; manual Turbo
 (`D0310C` 18) 18; Auto (`D0310C` 0) 1, 2, 3 or 18, following the allergen index in bands
@@ -546,6 +546,64 @@ capture on 2026-10-22; issue #46): off 0; Sleep (`D0310C` 17) always 1; manual T
 and 75% Auto, 100% Turbo. Nearest rounding keeps 1.3.1's 33/67/100% scenes on Sleep, Auto and
 Turbo; 1.4.0's 50% Sleep now selects Auto. Other dash-less models may well report `D0310D`
 too, but their levels are unknown, so they keep the existing approach until they are observed.
+
+**Two dialects under one model ID: `dialect` and `dialects`.** Some models ship both register
+dialects, depending on the Wi-Fi firmware, so the model ID alone does not say which mapping a
+device needs. ruaan-deysel/ha-philips-airpurifier keys this off `WifiVersion`: AC0850 units on
+`AWS_Philips_AIR` firmware speak dashed registers (`D03-02`, words on `D03-12`), units on
+`AWS_Philips_AIR_Combo` and the AC0850/81 dash-less ones. Its per-suffix table does not hold
+here, though: it files the AC0850/31 as dashed, and the validated AC0850/31 is on
+`AWS_Philips_AIR_Combo@86` and dash-less. So the plugin trusts the key shape it observes, not
+the suffix or the firmware string. The AC1715 is the mirror image: validated dashed, while
+Micheledipaola/homebridge-philips-airplus defines AC1715/70 and AC1715/11 dash-less.
+
+Such an entry names the dialect its plain fields are written in as `dialect` (`'dashed'` or
+`'dashless'`), and carries the other in `dialects`, a map from dialect name to an ordinary entry
+that **replaces** the plain fields whole (nothing merges, so `extraSetFlags: ['-I']` or an
+`unsupported` list cannot leak across). A plain entry has neither and is untouched by all of this:
+`modelConfig` returns it unchanged whatever dialect it is asked for, with `dialect` undefined and
+`dialects` empty. The plain fields are also what `identifyModel` fingerprints against, so adding
+a variant never changes which model a status fingerprints as.
+
+The flow mirrors model detection (`Handler.checkModelMapping` → `Handler.checkDialect`):
+`detectDialect` reads the first substantial status (dashed keys `/^D\d{2}-\d{2,3}$/` versus
+dash-less `/^D\d{2}[0-9A-F]{3}$/`; a status with both or neither names none). When the configured
+model has a variant for that dialect and it is not the one in force, it is recorded as
+`accessory.context.detectedDialect = { model, dialect }`, flushed with `updatePlatformAccessories`,
+warned about once, and applied by the constructor on the next start (the slider steps and
+`unsupported` shape the services built at startup, so it cannot switch mid-run). A firmware update
+that flips it back is caught the same way. A device naming another model (`certainty: 'reported'`)
+is handled as a model mismatch first, and its dialect is judged against the model it names, not
+the configured one (`Handler.recordDialectFor`): a non-default variant is recorded with
+`detectedModel` before the one flush, so a single restart adopts both. Short of a named model, a
+status in the model's other dialect is not treated as a wrong model, though it fingerprints as one
+(a dashed AC0850 looks like an AC1715). The constructor adopts a detected model first, then applies
+the recorded dialect only if its `model` is the model now in force, so a dialect never follows a
+config edit or a later detection onto a different model. The debug log carries
+what the status says about the device (`deviceDetails`: model as printed from `D01S05` or the
+dashed `D01-05`, its regional suffix, and `WifiVersion`), for diagnostics only: none of it touches
+an accessory's UUID or the meaning of the config.
+
+The two variants, both **unvalidated**:
+
+- **AC0850 dashed** (ruaan-deysel, Apache-2.0, `device_models.py` gen2 config and `const.py`):
+  `pwr` → `D03-02` as `ON`/`OFF`; `mode` → `D03-12`, speeds `Sleep`, `Turbo`, `modeMaps.auto`
+  `Auto General`; `iaql` `D03-32`; `pm25` `D03-33`; `fltsts1`/`flttotal1` `D05-14`/`D05-08` (ruaan
+  lists the `D05-13` pre-filter as unavailable); no set flags; `cl` unsupported (ruaan exposes no
+  lock for the family).
+- **AC1715 dash-less** (homebridge-philips-airplus `models.yaml`, MIT, plus ruaan's gen3
+  vocabulary): `D0310C` speeds 17 Sleep, 1 Medium, 2 Fast, 18 Turbo, `modeMaps.auto` `D0310C` 0;
+  `pwr` `D03102` (ruaan's `NEW2_POWER`; airplus names `D0310D`, which on the AC0850 only follows
+  power); `iaql` `D03120`; `pm25` `D03221`; filters `D0520D`/`D05207` (pre) and `D0540E`/`D05408`;
+  `-I`; `mode` and `cl` unsupported. No `D0310A`, since neither source writes it for this model.
+
+A variant replaces `fanLevel` too, so the dashed AC0850 has none: its firmware has no `D0310D`,
+and its slider is its own two `speeds`, 50% Sleep and 100% Turbo (`speedsMinStep` 50), while the
+dash-less AC0850 keeps the four fan-level steps. The AC1715 has four steps in both dialects. The
+README gives each dialect of such a model its own slider row, named like `AC0850 (dash-less)`,
+and `test/docs.test.js` counts each row against that variant's `fanLevel.steps` or `speeds`.
+`test/accessories.models.test.js` guards that every variant's registers have the shape of the
+dialect it is filed under, and the data-driven round trip covers each variant with it in force.
 
 The default map's entries live in `DEFAULT_MODE_MAPS`, applied to any unmapped model.
 `Handler.inAutoMode()` is true when a status matches `auto`, `allergen` or an `alsoAuto`

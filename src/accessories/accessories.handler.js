@@ -6,7 +6,7 @@ const logger = require('../utils/logger');
 const { hapNumber } = require('../utils/utils');
 const { DEFAULT_BINARY } = require('../utils/preflight');
 const modelConfig = require('./accessories.models');
-const { resolveModel, identifyModel, readsStatus, looksLikeRegisters } = modelConfig;
+const { resolveModel, identifyModel, readsStatus, looksLikeRegisters, detectDialect, deviceDetails } = modelConfig;
 
 //status lines are small JSON objects; anything beyond this is a misbehaving
 //device or CLI streaming data without newlines
@@ -155,6 +155,30 @@ const YIELD = Object.freeze({
  *   recordedAt: number, knownOff: boolean, window: number, blindResent: boolean, token: number }} PendingWrite
  */
 
+//the dialect names used in log messages
+const DIALECT_NAMES = { dashed: 'dashed', dashless: 'dash-less' };
+
+/** @param {string | undefined} dialect */
+const dialectName = (dialect) => (dialect && DIALECT_NAMES[dialect]) || String(dialect);
+
+/**
+ * What a status says about the device, as one phrase for the log: model as
+ * printed, regional suffix, Wi-Fi firmware and register dialect, whichever it
+ * reports. Empty when it reports none of them.
+ *
+ * @param {{ model?: string, region?: string, wifiVersion?: string }} details
+ * @param {string | undefined} dialect
+ */
+const describeDevice = ({ model, region, wifiVersion }, dialect) =>
+  [
+    model && `model ${model}`,
+    region && `region ${region}`,
+    wifiVersion && `Wi-Fi firmware ${wifiVersion}`,
+    dialect && `${dialectName(dialect)} registers`,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
 class Handler {
   constructor(api, accessory) {
     this.api = api;
@@ -255,8 +279,39 @@ class Handler {
       );
     }
 
-    const { speeds, keyMaps, valueMaps, modeMaps, alsoAuto, fanLevel, autoWrite, extraSetFlags, unsupported } =
-      modelConfig(config);
+    //the register dialect this device spoke on an earlier run, for a model that
+    //ships more than one. Applied here for the same reason a detected model
+    //is: the speed steps and `unsupported` shape the services built next. It
+    //is not stamped on the config, which stays exactly what the user wrote.
+    //It is recorded with the model it was judged against and applied to that
+    //model only, after any detected model above has been adopted, so a config
+    //or detection naming another model since never inherits it
+    const recorded = this.accessory.context.detectedDialect;
+    const detectedDialect = recorded && recorded.model === this.modelKey ? recorded.dialect : undefined;
+    const {
+      speeds,
+      keyMaps,
+      valueMaps,
+      modeMaps,
+      alsoAuto,
+      fanLevel,
+      autoWrite,
+      extraSetFlags,
+      unsupported,
+      dialect,
+      dialects,
+    } = modelConfig({ ...config, modelKey: this.modelKey, dialect: detectedDialect });
+    this.dialect = dialect;
+    this.dialects = dialects;
+
+    if (detectedDialect && dialect === detectedDialect && dialects.length && dialect !== modelConfig(config).dialect) {
+      logger.info(
+        `Using the ${dialectName(dialect)} ${this.modelKey} command set, ` +
+          "detected from this device's own status on an earlier run.",
+        this.accessory.displayName
+      );
+    }
+
     this.speeds = speeds;
     //the slider's steps when the model reports its fan's actual level, see
     //accessories.models.js
@@ -765,6 +820,20 @@ class Handler {
 
     const { key, certainty } = identifyModel(status);
     const readable = readsStatus(status, this.keyMaps);
+    const spoken = detectDialect(status);
+    const details = deviceDetails(status);
+    const reported = describeDevice(details, spoken);
+
+    if (reported) {
+      logger.debug(`This device reports ${reported}.`, this.accessory.displayName);
+    }
+
+    //a device naming another model settles that first. Short of that, a
+    //status in this model's other dialect is not a wrong model, though it
+    //fingerprints as one: the dialects share registers across models
+    if (!(key && key !== this.modelKey && certainty === 'reported') && this.checkDialect(spoken, reported)) {
+      return;
+    }
 
     if (key && key !== this.modelKey) {
       //a partial register overlap is not evidence against a mapping that is
@@ -774,6 +843,9 @@ class Handler {
       }
 
       this.accessory.context.detectedModel = key;
+      //judged against the model the device reports, not the configured one,
+      //and recorded before the flush below so one restart adopts both
+      const variant = this.recordDialectFor(key, spoken);
       //accessory.context is otherwise only written out when Homebridge shuts
       //down cleanly, so a power cut or an OOM kill between here and then loses
       //the finding and the next start repeats this run rather than adopting it
@@ -786,7 +858,10 @@ class Handler {
               .slice(0, 4)
               .join(', ')}), and they match the ${key} mapping. `) +
           `Its controls will not work until the model is set to ${key} in the plugin config. ` +
-          `Until then the ${key} command set will be used from the next restart.`,
+          (variant
+            ? `Until then the ${dialectName(variant)} ${key} command set, matching the ${dialectName(variant)} ` +
+              'registers it reports, will be used from the next restart.'
+            : `Until then the ${key} command set will be used from the next restart.`),
         this.accessory.displayName
       );
 
@@ -802,6 +877,68 @@ class Handler {
         this.accessory.displayName
       );
     }
+  }
+
+  /**
+   * Records a register dialect the configured model has another mapping for,
+   * for the constructor to apply on the next start. Part of checkModelMapping,
+   * and as quiet as it: a device already speaking the dialect in force, or a
+   * model that ships only one, says nothing.
+   *
+   * @param {'dashed' | 'dashless' | undefined} spoken
+   * @param {string} reported what the device says about itself, for the log
+   * @returns {boolean} whether the status was in another dialect
+   */
+  checkDialect(spoken, reported) {
+    if (!spoken || spoken === this.dialect || !this.dialects.includes(spoken)) {
+      return false;
+    }
+
+    this.accessory.context.detectedDialect = { model: this.modelKey, dialect: spoken };
+    //flushed now for the reason checkModelMapping gives
+    this.api.updatePlatformAccessories([this.accessory]);
+
+    logger.warn(
+      `This device reports ${reported}, not the ${dialectName(this.dialect)} registers ` +
+        `the ${this.modelKey} mapping in force uses, so its controls will not work until the next restart. ` +
+        `From the next restart the ${dialectName(spoken)} ${this.modelKey} command set will be used.`,
+      this.accessory.displayName
+    );
+
+    return true;
+  }
+
+  /**
+   * Records the dialect a status is in for a model the device was just found to
+   * be, when that model has a mapping for it, so the constructor applies it
+   * together with the model on the next start. The caller flushes the context.
+   *
+   * @param {string} key the model the device was found to be
+   * @param {'dashed' | 'dashless' | undefined} spoken
+   * @returns {'dashed' | 'dashless' | undefined} the dialect recorded: one
+   *   that model has a variant for, not the one it uses by default
+   */
+  recordDialectFor(key, spoken) {
+    const { dialect, dialects } = modelConfig({ ...this.accessory.context.config, modelKey: key });
+    const context = this.accessory.context;
+
+    if (!spoken || !dialects.includes(spoken)) {
+      return undefined;
+    }
+
+    if (spoken === dialect) {
+      //the model's default needs no record, but replaces any variant an
+      //earlier run left for the same model
+      if (context.detectedDialect && context.detectedDialect.model === key) {
+        delete context.detectedDialect;
+      }
+
+      return undefined;
+    }
+
+    context.detectedDialect = { model: key, dialect: spoken };
+
+    return spoken;
   }
 
   handleResponse(json) {

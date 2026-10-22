@@ -271,19 +271,28 @@ describe('docs', () => {
       .map((line) => line.split('|').map((cell) => cell.trim()));
     const modelConfig = require('../src/accessories/accessories.models');
 
-    //a row can name several models that share one slider, comma separated
-    for (const model of mappedModels) {
-      const row = rows.find((cells) => cells[1].split(',').some((cell) => cell.trim() === model));
-      assert.ok(row, `the README 'Fan speed and Auto' table has no row for ${model}`);
+    //the README's name for each register dialect
+    const DIALECT_LABELS = { dashed: 'dashed', dashless: 'dash-less' };
 
-      //a model whose slider follows the fan level has a step per level, not per speed
-      const { fanLevel, speeds } = modelConfig({ model });
-      const steps = (row[2].match(/\d+%/g) || []).length;
-      assert.equal(
-        steps,
-        (fanLevel ? fanLevel.steps : speeds).length,
-        `the README slider row for ${model} is out of date`
-      );
+    //a row can name several models that share one slider, comma separated. A
+    //model that ships more than one register dialect needs a row per dialect,
+    //named like 'AC0850 (dash-less)', since a variant can change the slider
+    for (const model of mappedModels) {
+      const { dialects } = modelConfig({ model });
+      for (const dialect of dialects.length ? dialects : [undefined]) {
+        const name = dialect ? `${model} (${DIALECT_LABELS[dialect]})` : model;
+        const row = rows.find((cells) => cells[1].split(',').some((cell) => cell.trim() === name));
+        assert.ok(row, `the README 'Fan speed and Auto' table has no row for ${name}`);
+
+        //a model whose slider follows the fan level has a step per level, not per speed
+        const { fanLevel, speeds } = modelConfig({ model, dialect });
+        const steps = (row[2].match(/\d+%/g) || []).length;
+        assert.equal(
+          steps,
+          (fanLevel ? fanLevel.steps : speeds).length,
+          `the README slider row for ${name} is out of date`
+        );
+      }
     }
   });
 });

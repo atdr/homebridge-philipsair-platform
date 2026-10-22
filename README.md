@@ -182,15 +182,17 @@ That dump is what the mapping is derived from, so a request with one attached ca
 
 Auto is on the Home app's auto/manual switch, and on most models the slider has only the manual speeds, so that a scene saved in Auto cannot replay as 0%, which means off. While the purifier is in Auto the slider shows the last manual speed, whatever speed Auto itself has chosen, and switching to Manual goes back to that speed. Before the first status arrives the switch reads Auto and the slider the first step.
 
-The AC0850 is the exception: it reports the fan's actual speed, so its slider shows that speed in every mode, Auto included. Auto runs the fan at one of four speeds, and the slider has a step for each. 25% and 100% are the manual speeds, Sleep and Turbo. 50% and 75% are speeds only Auto uses, so setting either selects Auto. A value between steps goes to the nearest one. Switching to Manual goes back to Sleep or Turbo, whichever was last.
+The dash-less AC0850 is the exception: it reports the fan's actual speed, so its slider shows that speed in every mode, Auto included. Auto runs the fan at one of four speeds, and the slider has a step for each. 25% and 100% are the manual speeds, Sleep and Turbo. 50% and 75% are speeds only Auto uses, so setting either selects Auto. A value between steps goes to the nearest one. Switching to Manual goes back to Sleep or Turbo, whichever was last.
 
 | Model                                                          | Slider steps                                                                                                                                            | Auto on the switch sends                                |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
 | AC0650                                                         | 50% Sleep, 100% Turbo                                                                                                                                   | `Auto General`                                          |
-| AC0850                                                         | 25% Sleep, 50% and 75% Auto, 100% Turbo                                                                                                                 | `D0310C` 0                                              |
+| AC0850 (dash-less)                                             | 25% Sleep, 50% and 75% Auto, 100% Turbo                                                                                                                 | `D0310C` 0 ¹                                            |
+| AC0850 (dashed)                                                | 50% Sleep, 100% Turbo                                                                                                                                   | `Auto General` ¹                                        |
 | AC0651, AC0950, AC0951, AC3420, AC3421                         | 33% Sleep, 67% Medium, 100% Turbo                                                                                                                       | `D0310C` 0                                              |
 | AC1214                                                         | 20% Night, 40% Speed 1, 60% Speed 2, 80% Speed 3, 100% Turbo                                                                                            | `P`, or `A` with `allergicFunc`                         |
-| AC1715                                                         | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                                                                         | `Auto General`                                          |
+| AC1715 (dashed)                                                | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                                                                         | `Auto General` ¹                                        |
+| AC1715 (dash-less)                                             | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                                                                         | `D0310C` 0 ¹                                            |
 | AC2210, AC2220, AC2221, AC3210, AC3220, AC3221                 | 14% Sleep, 29% Speed 1, 43% Speed 2, 57% Speed 3, 71% Speed 4, 86% Speed 5, 100% Turbo                                                                  | `D0310C` 0                                              |
 | AC2729, AC2889, AC3259, AC3829, AC5659, AC5660                 | 20% Sleep, 40% Speed 1, 60% Speed 2, 80% Speed 3, 100% Turbo                                                                                            | `P`, or `A` with `allergicFunc`                         |
 | AC2936, AC2939, AC2958, AC2959                                 | 33% Sleep, 67% Gentle, 100% Turbo                                                                                                                       | `AG`                                                    |
@@ -202,9 +204,11 @@ The AC0850 is the exception: it reports the fan's actual speed, so its slider sh
 | AMF765                                                         | 8% Sleep, 17% Speed 1, 25% Speed 2, 33% Speed 3, 42% Speed 4, 50% Speed 5, 58% Speed 6, 67% Speed 7, 75% Speed 8, 83% Speed 9, 92% Speed 10, 100% Turbo | `D0310C` 0                                              |
 | Any other model                                                | 33% Speed 1, 67% Speed 2, 100% Turbo. With `sleepSpeed`: 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                | `P`, or `A` with `allergicFunc`                         |
 
+¹ The AC0850 and the AC1715 each ship in two register dialects under the same model ID, depending on the Wi-Fi firmware. **Dashed** firmware reports registers like `D03-02` and takes words (`Auto General`, `Sleep`, `Turbo`); **dash-less** firmware reports registers like `D03102` and takes numbers. The plugin starts each model on the dialect it was tested in (dash-less for the AC0850, dashed for the AC1715), reads which one the device actually speaks from its first status, and switches to the other from the next restart if they differ. The AC1715 slider keeps the same steps in both. The AC0850 does not: only dash-less firmware reports the fan's actual speed (`D0310D`), so the dashed AC0850 has the two manual steps alone, and Auto stays on the switch. The dashed AC0850 and dash-less AC1715 mappings come from other projects' data (ruaan-deysel/ha-philips-airpurifier and Micheledipaola/homebridge-philips-airplus) and have not yet been tested with this plugin.
+
 A purifier put into one of its other automatic presets from its panel or the Philips app also shows as Auto: pollution and gas on the AC4550 and AC4558, and bacteria on the AC2889, AC3259, AC5659 and AC5660. The switch never selects those presets, and Auto still sends what the table says.
 
-AC0850 scenes and automations saved on 1.3.1 keep working: its 33%, 67% and 100% land on Sleep, Auto and Turbo. A scene saved on 1.4.0 at 50% now selects Auto rather than Sleep, so re-save a Sleep scene at 25%.
+Dash-less AC0850 scenes and automations saved on 1.3.1 keep working: its 33%, 67% and 100% land on Sleep, Auto and Turbo. A scene saved on 1.4.0 at 50% now selects Auto rather than Sleep, so re-save a Sleep scene at 25%.
 
 On a model with no mapping of its own, switching to Manual sends the manual mode and leaves the speed to the purifier rather than restoring the last one, because the plugin has no confirmed way to set both at once on hardware it does not know.
 
@@ -212,7 +216,7 @@ On a model with no mapping of its own, switching to Manual sends the manual mode
 
 Some controls depend on what a model's registers can do:
 
-- **Child lock** is offered on every model except the AC0651 and AC0850. ha-philips-airpurifier offers no child lock on the AC0650, AC2889, AC3033, AC3036, AC3039, AC3055, AC3059, AC3259, AC3836, AC5659, AC5660, and the /50 variants of the AC3854 and AC3858, so there it may do nothing.
+- **Child lock** is offered on every model except the AC0651, the AC0850 and the dash-less AC1715. ha-philips-airpurifier offers no child lock on the AC0650, AC2889, AC3033, AC3036, AC3039, AC3055, AC3059, AC3259, AC3836, AC5659, AC5660, and the /50 variants of the AC3854 and AC3858, so there it may do nothing.
 - On the models that report dash-less registers such as `D03102` (the AC0950, AC0951, AC2210, AC2220, AC2221, AC3210, AC3220, AC3221, AC3420, AC3421, AC3737, AC4220, AC4221 and AMF765):
   - The **light** is on or off, and any brightness switches it on. On most of them it is the lamp (`D03135`), because the display backlight register only reports there. The AC0950, AC0951 and AC3737 have no light the plugin can switch.
   - The **temperature** sensor reads 0: these models report tenths of a degree, which the plugin does not convert.
@@ -267,6 +271,14 @@ Bedroom: Using the AC0850 command set instead of the default, detected from this
 Expect the Home app to change at the restart that adopts a model. A mapping knows which controls a model has no register for, so tiles the previous run offered can disappear. That is the plugin matching what the device can actually do, not a fault.
 
 That is a fallback, not a fix. Setting `model` correctly is what makes the plugin get the device right on its first run, including which services it offers in the Home app.
+
+The same check covers a model that ships in two register dialects (see [Fan speed and Auto](#fan-speed-and-auto)). A device that answers in the model's other dialect, for instance after a Wi-Fi firmware update, is reported once, and its controls work from the next restart:
+
+```text
+Bedroom: This device reports model AC0850/11, region 11, Wi-Fi firmware AWS_Philips_AIR@62, dashed registers, not the dash-less registers the AC0850 mapping in force uses, so its controls will not work until the next restart. From the next restart the dashed AC0850 command set will be used.
+```
+
+When the device names a different model from the one configured, its dialect is judged against the model it names, and the restart that adopts that model adopts the matching dialect with it.
 
 If the model is right and the controls still do nothing, set `debug` to true, copy a logged status line, and open an issue with it.
 

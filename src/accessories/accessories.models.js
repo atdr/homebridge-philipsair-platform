@@ -24,6 +24,12 @@
 //one of the 'speeds' (a manual step) or the word 'auto' (Auto, as the selector
 //sends it). The slider then shows the level in every mode, and a write rounds
 //to the nearest step rather than up.
+//A model that ships two register dialects under one model ID, depending on
+//its Wi-Fi firmware, names the one its plain fields are written in as
+//'dialect' ('dashed': keys like D03-02 and word values; 'dashless': keys like
+//D03102 and numbers), and carries the other as 'dialects', a map from dialect
+//name to an ordinary entry that replaces the plain fields whole. The plain
+//fields stay the default until a status shows the device speaks another.
 //Models not listed here use the default 'om' based speeds and modes.
 
 const DEFAULT_SPEEDS = [{ om: '1' }, { om: '2' }, { om: 't' }];
@@ -91,6 +97,39 @@ const models = {
         100: 1,
       },
     },
+    dialect: 'dashed',
+    dialects: {
+      //Unvalidated: no dash-less AC1715 has been tested with this plugin.
+      //Speeds and registers from Micheledipaola/homebridge-philips-airplus
+      //(MIT, models.yaml, AC1715/70 and AC1715/11; see THIRD_PARTY_NOTICES.md):
+      //D0310C is mode and speed in one register, 0 Auto, 17 Sleep, 1 Medium,
+      //2 Fast, 18 Turbo. Auto goes on the selector, leaving four slider steps
+      //as in the dashed dialect. That data names D0310D as power, but
+      //ruaan-deysel's gen3 vocabulary (const.py) and a tested AC0850 both
+      //write power to D03102, with D0310D only following it (issue #46).
+      //D0310A is not written: neither source sends it for this model. The
+      //fan level, device information and filter reset properties have no
+      //HomeKit surface here and are left out
+      dashless: {
+        speeds: [{ D0310C: 17 }, { D0310C: 1 }, { D0310C: 2 }, { D0310C: 18 }],
+        modeMaps: {
+          auto: { D0310C: 0 },
+        },
+        keyMaps: {
+          pwr: 'D03102',
+          iaql: 'D03120',
+          pm25: 'D03221',
+          fltsts0: 'D0520D',
+          flttotal0: 'D05207',
+          fltsts1: 'D0540E',
+          flttotal1: 'D05408',
+        },
+        extraSetFlags: ['-I'],
+        //no generic mode register (D0310C carries it) and no child lock in
+        //either source, as on the AC0850
+        unsupported: ['mode', 'cl'],
+      },
+    },
   },
   AC3829: {
     //speed ladder from ruaan-deysel/ha-philips-airpurifier (device_models.py):
@@ -148,6 +187,42 @@ const models = {
     //is still offered, through modeMaps, because Auto lives in D0310C.
     //Issue #46 carries the hardware experiment that can overturn this.
     unsupported: ['mode', 'cl'],
+    dialect: 'dashless',
+    dialects: {
+      //Unvalidated: no dashed AC0850 has been tested with this plugin.
+      //From ruaan-deysel/ha-philips-airpurifier (Apache-2.0, device_models.py
+      //and const.py), whose gen2 AC0850 config covers units on
+      //AWS_Philips_AIR firmware: power on D03-02 as ON/OFF, mode and speed as
+      //words on D03-12 ('Auto General', 'Sleep', 'Turbo'), allergen index
+      //D03-32, PM2.5 D03-33, and one filter, D05-14 out of D05-08 (it lists
+      //the D05-13 pre-filter as unavailable). Auto goes on the selector,
+      //leaving the same two slider steps as the dash-less dialect
+      dashed: {
+        speeds: [{ mode: 'Sleep' }, { mode: 'Turbo' }],
+        modeMaps: {
+          auto: { mode: 'Auto General' },
+        },
+        keyMaps: {
+          pwr: 'D03-02',
+          mode: 'D03-12',
+          iaql: 'D03-32',
+          pm25: 'D03-33',
+          fltsts1: 'D05-14',
+          flttotal1: 'D05-08',
+        },
+        valueMaps: {
+          pwr: {
+            OFF: 0,
+            ON: 1,
+            0: 'OFF',
+            1: 'ON',
+          },
+        },
+        //ruaan-deysel exposes no child lock for this family, and the
+        //dash-less unit reports none either
+        unsupported: ['cl'],
+      },
+    },
   },
   //From Micheledipaola/homebridge-philips-airplus (custom_components/
   //philips_airplus/models.yaml, MIT; see THIRD_PARTY_NOTICES.md). That data was
@@ -603,12 +678,18 @@ const resolveModel = (deviceConfig = {}) => {
 //an unmapped model gets the default modes; a mapped one only what it declares
 const modeMapsFor = (key) => (key && models[key] ? models[key].modeMaps : DEFAULT_MODE_MAPS);
 
+//the entry a model uses in a dialect: one of its variants, or its plain
+//fields for its own dialect and for any it has no variant for
+const variantFor = (model, dialect) =>
+  (dialect && dialect !== model.dialect && model.dialects && model.dialects[dialect]) || model;
+
 const modelConfig = (deviceConfig) => {
   //modelKey is stamped on by accessories.setup.js, which resolves once and logs
   //what it found; resolving again covers a config object built directly
   const key = deviceConfig.modelKey || resolveModel(deviceConfig).key;
-  const model = models[key] || {};
-  const modeMaps = modeMapsFor(key);
+  const base = models[key] || {};
+  const model = variantFor(base, deviceConfig.dialect);
+  const modeMaps = key && models[key] ? model.modeMaps : DEFAULT_MODE_MAPS;
 
   return {
     speeds: model.speeds || (deviceConfig.sleepSpeed ? DEFAULT_SLEEP_SPEEDS : DEFAULT_SPEEDS),
@@ -624,6 +705,10 @@ const modelConfig = (deviceConfig) => {
     //it is ignored); modeMaps stays whole, so either automatic mode still
     //reads as Auto whichever one the Philips app or the panel started
     autoWrite: modeMaps && (deviceConfig.allergicFunc && modeMaps.allergen ? modeMaps.allergen : modeMaps.auto),
+    //the dialect in force, and every one the model has a mapping for; both
+    //empty for a model that ships only one
+    dialect: model === base ? base.dialect : deviceConfig.dialect,
+    dialects: base.dialect ? [base.dialect, ...Object.keys(base.dialects || {})] : [],
   };
 };
 
@@ -656,6 +741,13 @@ const GENERIC_KEYS = new Set([
 //both register dialects: 'D03-02' (AC1715 style) and 'D03102' (AC0850 style)
 const REGISTER_KEY = /^D\d{2}-?\d{2,3}$/;
 
+//each dialect on its own. Dash-less registers end in hex ('D0310C', 'D0540E');
+//the D01S0x name and model fields are not registers and count for neither
+const DIALECT_KEYS = {
+  dashed: /^D\d{2}-\d{2,3}$/,
+  dashless: /^D\d{2}[0-9A-F]{3}$/,
+};
+
 //Status fields that carry the model itself. `D01S05` is observed: a full
 //AC0850/31 dump reports `"D01S05":"AC0850/31"` alongside `D01S03` and `D01S04`,
 //which hold user-settable names. `type` and `modelid` are the legacy-dialect
@@ -664,7 +756,9 @@ const REGISTER_KEY = /^D\d{2}-?\d{2,3}$/;
 //This is an allowlist rather than a scan of every string value, and that is the
 //point: `D01S03` is whatever the owner typed into the Philips app, so a device
 //named 'AC1715' by its owner would otherwise be identified as one.
-const MODEL_FIELDS = ['D01S05', 'type', 'modelid'];
+//`D01-05` is the dashed dialect's model field, as ruaan-deysel's
+//ha-philips-airpurifier names it (const.py, NEW_MODEL_ID).
+const MODEL_FIELDS = ['D01S05', 'D01-05', 'type', 'modelid'];
 
 /**
  * Which model a device's own status says it is.
@@ -718,6 +812,43 @@ const readsStatus = (status, keyMaps) => {
 
 const looksLikeRegisters = (status) => Object.keys(status || {}).some((key) => REGISTER_KEY.test(key));
 
+/**
+ * Which register dialect a status is written in: the one its register keys
+ * all share. A status with no register keys, or with keys of both shapes,
+ * names none, since neither is evidence against the mapping in force.
+ *
+ * @param {Record<string, unknown>} status
+ * @returns {'dashed' | 'dashless' | undefined}
+ */
+const detectDialect = (status) => {
+  const keys = Object.keys(status || {});
+  const found = /** @type {('dashed' | 'dashless')[]} */ (Object.keys(DIALECT_KEYS)).filter((dialect) =>
+    keys.some((key) => DIALECT_KEYS[dialect].test(key))
+  );
+
+  return found.length === 1 ? found[0] : undefined;
+};
+
+/**
+ * What a device says about itself, for diagnostics only: the model as printed
+ * on it, the regional suffix after the slash, and its Wi-Fi firmware. None of
+ * it decides an accessory's identity or what the config means.
+ *
+ * @param {Record<string, unknown>} status
+ */
+const deviceDetails = (status) => {
+  const field = MODEL_FIELDS.find((name) => typeof (status || {})[name] === 'string');
+  const model = field ? String(status[field]).trim() : undefined;
+  const suffix = model && model.match(/\/(.+)$/);
+  const wifi = (status || {}).WifiVersion;
+
+  return {
+    model,
+    region: suffix ? suffix[1] : undefined,
+    wifiVersion: typeof wifi === 'string' ? wifi : undefined,
+  };
+};
+
 //Every model listed here must also appear in the config.schema.json model
 //typeahead suggestions (enforced by test/config.schema.test.js).
 modelConfig.mappedModels = Object.keys(models);
@@ -737,10 +868,18 @@ modelConfig.hasAllergenMode = (key) => Boolean((modeMapsFor(key) || {}).allergen
 modelConfig.hasHumidifier = (key) => !(key && models[key] && (models[key].unsupported || []).includes('func'));
 
 //every field a model entry uses, for the drift guard in test/docs.test.js
-modelConfig.modelFields = [...new Set(Object.values(models).flatMap((model) => Object.keys(model)))];
+modelConfig.modelFields = [
+  ...new Set(
+    Object.values(models).flatMap((model) =>
+      [model, ...Object.values(model.dialects || {})].flatMap((entry) => Object.keys(entry))
+    )
+  ),
+];
 
 modelConfig.identifyModel = identifyModel;
 modelConfig.readsStatus = readsStatus;
 modelConfig.looksLikeRegisters = looksLikeRegisters;
+modelConfig.detectDialect = detectDialect;
+modelConfig.deviceDetails = deviceDetails;
 
 module.exports = modelConfig;
