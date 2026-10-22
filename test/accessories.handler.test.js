@@ -32,11 +32,12 @@ const capture = () => {
   return { info, warn, restore: () => logger.configure({ info: noop, warn: noop, error: noop }, {}) };
 };
 
-const makeHandler = (config) =>
+const makeHandler = (config, context = {}) =>
   new Handler(fakeApi, {
     displayName: config.name || 'Test Purifier',
     context: {
       config: { host: '192.168.1.142', port: 5683, debug: false, ...config },
+      ...context,
     },
   });
 
@@ -468,8 +469,8 @@ describe('rotationSpeed', () => {
 
 //records what each write sends (the arguments after 'set') and the last value
 //pushed to each purifier characteristic
-const recordingWrites = (config) => {
-  const handler = makeHandler(config);
+const recordingWrites = (config, context) => {
+  const handler = makeHandler(config, context);
   handler.api = {
     ...fakeApi,
     hap: {
@@ -603,9 +604,147 @@ describe('mode and speed in one scene', () => {
   });
 });
 
+describe('power-on to a device already on', () => {
+  //a Home app scene almost always carries Active=1. An AC0850 that is already
+  //on ignores the registers merged with that redundant power-on, so a scene
+  //asking for Sleep left it in Auto, and the resend repeated the same command
+  const ON = { D03102: 1, D0310A: 2, D0310C: 0 };
+
+  it('sends a scene without the power-on to an AC0850 that reports on', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON });
+
+    await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(25)]);
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=17']);
+    assert.deepEqual([...handler.pendingWrites.keys()], ['D0310A', 'D0310C']);
+  });
+
+  it('still merges the power-on into a scene for an AC0850 that reports off', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON, D03102: 0 });
+
+    await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(25)]);
+
+    assert.deepEqual(sent, ['-I D03102=1 D0310A=2 D0310C=17']);
+  });
+
+  it('still merges the power-on into a scene before any status', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
+    await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(25)]);
+
+    assert.deepEqual(sent, ['-I D03102=1 D0310A=2 D0310C=17']);
+  });
+
+  it('sends nothing for a lone power-on to a device that reports on', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    const logs = capture();
+    t.after(() => {
+      logs.restore();
+      handler.kill(true);
+    });
+    handler.handleResponse({ ...ON });
+
+    await handler.setPurifierActive(1);
+
+    assert.deepEqual(sent, []);
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.deepEqual(logs.warn, []);
+  });
+
+  it('still sends a power-off to a device that reports on', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON });
+
+    await handler.setPurifierActive(0);
+
+    assert.deepEqual(sent, ['-I D03102=0']);
+  });
+
+  it('keeps the device on when a scene also carries 0%', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON });
+
+    await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(0)]);
+
+    assert.deepEqual(sent, []);
+  });
+
+  it('reads the power of every dialect, including one that reports it as a word', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC1715' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-12': 'Auto General' });
+
+    await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(100)]);
+
+    assert.deepEqual(sent, ['D03-12=Turbo']);
+  });
+
+  //Copilot on #134: the device last reported on, but a power-off is pending.
+  //Leaving the newer power-on out would let the off notification confirm the
+  //older request, and the purifier would stay off against the latest one
+  it('sends a power-on that follows a power-off still in flight', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON });
+
+    /** @type {() => void} */
+    let finishOff = noop;
+    const recorded = handler.sendCMD;
+    handler.sendCMD = async (args) => {
+      await recorded(args);
+      if (args.includes('D03102=0')) {
+        await new Promise((resolve) => (finishOff = () => resolve(undefined)));
+      }
+    };
+
+    const off = handler.setPurifierActive(0);
+    //past the coalescing window, so the off is sent and waits to finish
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.deepEqual(sent, ['-I D03102=0']);
+
+    const on = handler.setPurifierActive(1);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    finishOff();
+    await Promise.all([off, on]);
+
+    assert.deepEqual(sent, ['-I D03102=0', '-I D03102=1']);
+    assert.equal(Number(handler.pendingWrites.get('pwr')?.expected), 1);
+  });
+
+  it('sends a power-on that follows a power-off the device has not confirmed', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON });
+
+    await handler.setPurifierActive(0);
+    await handler.setPurifierActive(1);
+
+    assert.deepEqual(sent, ['-I D03102=0', '-I D03102=1']);
+    assert.equal(Number(handler.pendingWrites.get('pwr')?.expected), 1);
+  });
+
+  it('drops the power-on on the default dialect too', async (t) => {
+    const { handler, sent } = recordingWrites({});
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ pwr: '1', mode: 'M', om: '1' });
+
+    await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(100)]);
+
+    assert.deepEqual(sent, ['om=t']);
+  });
+});
+
 describe('AC0850 slider around Auto', () => {
   //with #118, 0% means off, so Auto must never read 0%: a scene captured in
-  //Auto would replay as off. The slider reads the last manual step instead
+  //Auto would replay as off. Without the fan level (D0310D) to show, the
+  //slider reads the last manual step instead: 25% Sleep, 100% Turbo
   const AUTO = { D03102: 1, D0310A: 2, D0310C: 0 };
 
   it('reads Sleep in Auto before any manual step is known', (t) => {
@@ -613,7 +752,7 @@ describe('AC0850 slider around Auto', () => {
     t.after(() => handler.kill(true));
 
     handler.obj = { ...AUTO };
-    assert.equal(handler.rotationSpeed(), 50);
+    assert.equal(handler.rotationSpeed(), 25);
   });
 
   it('reads the last manual step the device reported', (t) => {
@@ -632,7 +771,7 @@ describe('AC0850 slider around Auto', () => {
     handler.obj = { ...AUTO };
 
     await Promise.all([handler.setPurifierTargetState(1), handler.setPurifierRotationSpeed(100)]);
-    assert.equal(handler.rotationSpeed(), 50, 'a speed that was never sent became the manual step');
+    assert.equal(handler.rotationSpeed(), 25, 'a speed that was never sent became the manual step');
 
     await handler.setPurifierRotationSpeed(100);
     assert.equal(handler.rotationSpeed(), 100);
@@ -657,7 +796,7 @@ describe('AC0850 slider around Auto', () => {
     await handler.setPurifierTargetState(0);
 
     assert.deepEqual(sent, ['-I D0310A=2 D0310C=17']);
-    assert.equal(shown.RotationSpeed, 50);
+    assert.equal(shown.RotationSpeed, 25);
   });
 
   it('restores the last manual step on switching to Manual', async (t) => {
@@ -681,7 +820,181 @@ describe('AC0850 slider around Auto', () => {
     await Promise.all([handler.setPurifierTargetState(0), handler.setPurifierRotationSpeed(100)]);
 
     //HAP stores 100 itself once the speed's onSet returns; the restore must not show Sleep
-    assert.notEqual(shown.RotationSpeed, 50);
+    assert.notEqual(shown.RotationSpeed, 25);
+  });
+});
+
+describe('AC0850 slider follows the fan level', () => {
+  //D0310D is the fan's actual level (issue #46): 0 off, 1 in Sleep, 18 in
+  //Turbo, and 1, 2, 3 or 18 in Auto. The slider shows it in every mode, and a
+  //write rounds to the nearest of its four steps: 25% Sleep, 50% and 75% Auto,
+  //100% Turbo. 0% is still off (#118)
+  const SLEEP = { D03102: 1, D0310A: 2, D0310C: 17, D0310D: 1 };
+  const AUTO = { D03102: 1, D0310A: 2, D0310C: 0 };
+  const TURBO = { D03102: 1, D0310A: 2, D0310C: 18, D0310D: 18 };
+
+  it('gives the slider four 25-point steps', () => {
+    assert.equal(makeHandler({ model: 'AC0850' }).speedsMinStep(), 25);
+  });
+
+  /** @type {[Record<string, number>, number][]} */
+  const reads = [
+    [SLEEP, 25],
+    [{ ...AUTO, D0310D: 1 }, 25],
+    [{ ...AUTO, D0310D: 2 }, 50],
+    [{ ...AUTO, D0310D: 3 }, 75],
+    [{ ...AUTO, D0310D: 18 }, 100],
+    [TURBO, 100],
+    [{ ...AUTO, D0310D: 0 }, 0],
+    [{ ...AUTO, D03102: 0, D0310D: 0 }, 0],
+    [{ ...TURBO, D03102: 0 }, 0],
+  ];
+
+  for (const [status, expected] of reads) {
+    it(`reads ${expected}% from ${JSON.stringify(status)}`, (t) => {
+      const { handler } = recordingWrites({ model: 'AC0850' });
+      t.after(() => handler.kill(true));
+
+      handler.handleResponse({ ...status });
+      assert.equal(handler.rotationSpeed(), expected);
+    });
+  }
+
+  it('falls back to the last manual step for a level not in the list', (t) => {
+    const { handler } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
+    handler.handleResponse({ ...TURBO });
+    handler.rotationSpeed();
+    handler.handleResponse({ ...AUTO, D0310D: 7 });
+    assert.equal(handler.rotationSpeed(), 100);
+  });
+
+  it('keeps the last manual step a fan-level read came from', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
+    handler.handleResponse({ ...TURBO });
+    handler.rotationSpeed();
+    handler.handleResponse({ ...AUTO, D0310D: 2 });
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=18']);
+  });
+
+  for (const [value, command, target] of [
+    [25, '-I D0310A=2 D0310C=17', 0],
+    [50, '-I D0310A=2 D0310C=0', 1],
+    [75, '-I D0310A=2 D0310C=0', 1],
+    [100, '-I D0310A=2 D0310C=18', 0],
+    //1.3.1 scenes, saved on its 33/67/100% slider, round to the nearest step
+    [100 / 3, '-I D0310A=2 D0310C=17', 0],
+    [200 / 3, '-I D0310A=2 D0310C=0', 1],
+    //a value no step produces still selects something, never off
+    [5, '-I D0310A=2 D0310C=17', 0],
+  ]) {
+    it(`writes ${value}% as ${command}, the switch at ${target ? 'AUTO' : 'MANUAL'}`, async (t) => {
+      const { handler, sent, shown } = recordingWrites({ model: 'AC0850' });
+      t.after(() => handler.kill(true));
+      handler.handleResponse({ ...SLEEP });
+
+      await handler.setPurifierRotationSpeed(value);
+
+      assert.deepEqual(sent, [command]);
+      assert.equal(shown.TargetAirPurifierState, target);
+    });
+  }
+
+  it('remembers a manual write as the step Manual restores', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierRotationSpeed(100);
+    await handler.setPurifierRotationSpeed(50);
+    await handler.setPurifierTargetState(0);
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=18', '-I D0310A=2 D0310C=0', '-I D0310A=2 D0310C=18']);
+  });
+
+  it('still switches off at 0%', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...SLEEP });
+
+    await handler.setPurifierRotationSpeed(0);
+
+    assert.deepEqual(sent, ['-I D03102=0']);
+  });
+
+  it('replays a scene of Auto at 25% as Auto', async (t) => {
+    const { handler, sent, shown } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...TURBO });
+
+    await Promise.all([handler.setPurifierTargetState(1), handler.setPurifierRotationSpeed(25)]);
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=0']);
+    assert.equal(shown.TargetAirPurifierState, 1);
+  });
+
+  it('replays a scene of Manual at 100% as Turbo', async (t) => {
+    const { handler, sent, shown } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...SLEEP });
+
+    await Promise.all([handler.setPurifierTargetState(0), handler.setPurifierRotationSpeed(100)]);
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=18']);
+    assert.equal(shown.TargetAirPurifierState, 0);
+  });
+
+  it('replays a scene of Manual at 50% as Auto, and puts the switch back to AUTO', async (t) => {
+    const { handler, sent, shown } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...SLEEP });
+
+    //HAP stores MANUAL itself once the switch's own onSet returns
+    const manual = handler.setPurifierTargetState(0).then(() => {
+      shown.TargetAirPurifierState = 0;
+    });
+    await Promise.all([manual, handler.setPurifierRotationSpeed(50)]);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=0']);
+    assert.equal(shown.TargetAirPurifierState, 1);
+  });
+
+  it('sends Auto once when a scene sets it on the switch and at 75%', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...SLEEP });
+
+    await Promise.all([
+      handler.setPurifierActive(1),
+      handler.setPurifierTargetState(1),
+      handler.setPurifierRotationSpeed(75),
+    ]);
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=0']);
+  });
+
+  it('merges the power-on into an Auto step for a device that is off', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...AUTO, D03102: 0, D0310D: 0 });
+
+    await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(200 / 3)]);
+
+    assert.deepEqual(sent, ['-I D03102=1 D0310A=2 D0310C=0']);
+  });
+
+  it('leaves the other models rounding up to their own steps', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC1715' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierRotationSpeed(40);
+
+    assert.deepEqual(sent, ['D03-12=Gentle/Speed 1']);
   });
 });
 
@@ -978,4 +1291,436 @@ describe('model mapping check', () => {
 
     assert.equal(handler.keyMaps.pwr, 'D03-02');
   });
+});
+
+describe('register dialect check', () => {
+  //what the context records: a dialect is only ever applied to the model it
+  //was judged against
+  const AC0850_DASHED = { model: 'AC0850', dialect: 'dashed' };
+
+  //a real AC0850/31, untranslated, captured 2026-08-19 on firmware 0.1.3
+  const dashlessStatus = () => ({
+    D01102: 5,
+    D01S03: 'Bedroom',
+    D01S05: 'AC0850/31',
+    WifiVersion: 'AWS_Philips_AIR_Combo@86',
+    D03102: 1,
+    D0310A: 2,
+    D0310C: 0,
+    D03120: 1,
+    D03221: 1,
+    D0540E: 224,
+    D05408: 4800,
+  });
+
+  //the dashed vocabulary ruaan-deysel/ha-philips-airpurifier reads from AC0850
+  //units on AWS_Philips_AIR firmware, which the AC1715 shares
+  const dashedStatus = () => ({
+    'D01-05': 'AC0850/11',
+    WifiVersion: 'AWS_Philips_AIR@62',
+    'D03-02': 'ON',
+    'D03-12': 'Sleep',
+    'D03-32': 2,
+    'D03-33': 4,
+    'D05-14': 3100,
+    'D05-08': 4800,
+  });
+
+  const captureAll = () => {
+    const info = [];
+    const warn = [];
+    const debug = [];
+
+    logger.configure(
+      {
+        info: (message) => (message.startsWith('[DEBUG]') ? debug : info).push(message),
+        warn: (message) => warn.push(message),
+        error: noop,
+      },
+      { debug: true }
+    );
+
+    return { info, warn, debug, restore: () => logger.configure({ info: noop, warn: noop, error: noop }, {}) };
+  };
+
+  it("uses each model's validated dialect before anything is detected", () => {
+    assert.equal(makeHandler({ model: 'AC0850' }).keyMaps.pwr, 'D03102');
+    assert.equal(makeHandler({ model: 'AC0850' }).dialect, 'dashless');
+    assert.equal(makeHandler({ model: 'AC1715' }).keyMaps.pwr, 'D03-02');
+    assert.equal(makeHandler({ model: 'AC1715' }).dialect, 'dashed');
+  });
+
+  it('records a dialect the model has another mapping for, once, for the next start', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' });
+    const { warn, restore } = captureAll();
+
+    handler.handleResponse(dashedStatus());
+    handler.handleResponse(dashedStatus());
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.ok(warn[0].includes('dashed'), warn[0]);
+    assert.ok(warn[0].includes('next restart'), warn[0]);
+    assert.ok(warn[0].includes('AWS_Philips_AIR@62'), warn[0]);
+    assert.ok(warn[0].includes('AC0850/11'), warn[0]);
+    assert.deepEqual(handler.accessory.context.detectedDialect, AC0850_DASHED);
+    //a dashed status fingerprints as the AC1715, but the configured model
+    //reads it once its other dialect is in force: that is not a wrong model
+    assert.equal(handler.accessory.context.detectedModel, undefined);
+    assert.ok(persisted.includes(handler.accessory));
+  });
+
+  it('records a dash-less AC1715 the same way', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC1715' });
+    const { warn, restore } = captureAll();
+
+    handler.handleResponse({ D03102: 1, D0310C: 2, D03120: 3, D03221: 6, D0540E: 3000, D05408: 4800 });
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.ok(warn[0].includes('dash-less'), warn[0]);
+    assert.deepEqual(handler.accessory.context.detectedDialect, { model: 'AC1715', dialect: 'dashless' });
+    assert.equal(handler.accessory.context.detectedModel, undefined);
+  });
+
+  it('says nothing about a device speaking the dialect in force, and logs what it reports', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' });
+    const { warn, debug, restore } = captureAll();
+
+    handler.handleResponse(dashlessStatus());
+    restore();
+
+    assert.deepEqual(warn, []);
+    assert.equal(handler.accessory.context.detectedDialect, undefined);
+    assert.ok(
+      debug.some(
+        (message) =>
+          message.includes('AC0850/31') &&
+          message.includes('region 31') &&
+          message.includes('AWS_Philips_AIR_Combo@86') &&
+          message.includes('dash-less')
+      ),
+      debug.join('\n')
+    );
+  });
+
+  it('applies a dialect detected on an earlier run', () => {
+    const { info, restore } = captureAll();
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' }, { detectedDialect: AC0850_DASHED });
+    restore();
+
+    assert.equal(handler.dialect, 'dashed');
+    assert.equal(handler.keyMaps.pwr, 'D03-02');
+    assert.equal(handler.supports('mode'), true);
+    assert.equal(handler.supports('cl'), false);
+    assert.ok(info.some((message) => message.includes('dashed')));
+  });
+
+  it('switches back when a firmware update changes the dialect again', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' }, { detectedDialect: AC0850_DASHED });
+    const { warn, restore } = captureAll();
+
+    handler.handleResponse(dashlessStatus());
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.deepEqual(handler.accessory.context.detectedDialect, { model: 'AC0850', dialect: 'dashless' });
+  });
+
+  it('leaves a plain model alone, whatever dialect was detected before', () => {
+    const plain = makeHandler({ model: 'AC3036' });
+    const handler = makeHandler({ model: 'AC3036' }, { detectedDialect: { model: 'AC3036', dialect: 'dashed' } });
+
+    assert.equal(handler.dialect, undefined);
+    assert.deepEqual(handler.speeds, plain.speeds);
+    assert.deepEqual(handler.keyMaps, plain.keyMaps);
+    assert.deepEqual(handler.modeMaps, plain.modeMaps);
+  });
+
+  it('records nothing about the dialect of a plain model', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC3036' });
+    const { restore } = captureAll();
+
+    handler.handleResponse(dashlessStatus());
+    restore();
+
+    assert.equal(handler.accessory.context.detectedDialect, undefined);
+  });
+
+  it('records the dialect alongside a model the device names, so one restart adopts both', async (t) => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'Air Purifier' });
+    const { warn, restore } = captureAll();
+
+    //dashed registers from a device that names itself in the dash-less field
+    const status = { ...dashedStatus(), D01S05: 'AC0850/11' };
+    delete status['D01-05'];
+    handler.handleResponse(status);
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.ok(warn[0].includes('reports itself as AC0850'), warn[0]);
+    assert.ok(warn[0].includes('dashed'), warn[0]);
+    assert.ok(warn[0].includes('next restart'), warn[0]);
+    assert.equal(handler.accessory.context.detectedModel, 'AC0850');
+    assert.deepEqual(handler.accessory.context.detectedDialect, AC0850_DASHED);
+    assert.ok(persisted.includes(handler.accessory));
+
+    //one simulated restart from what was persisted
+    const { detectedModel, detectedDialect } = handler.accessory.context;
+    const restarted = recordingWrites({ name: 'Bedroom', model: 'Air Purifier' }, { detectedModel, detectedDialect });
+    t.after(() => restarted.handler.kill(true));
+
+    assert.equal(restarted.handler.modelKey, 'AC0850');
+    assert.equal(restarted.handler.dialect, 'dashed');
+    await restarted.handler.setPurifierActive(1);
+    assert.deepEqual(restarted.sent, ['D03-02=ON']);
+  });
+
+  it('does not record a dialect for a named model that ships only one', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' });
+    const { warn, restore } = captureAll();
+
+    handler.handleResponse({ D01S05: 'AC3036/10', 'D03-02': 'ON', 'D03-12': 'Sleep', 'D03-33': 4 });
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.equal(handler.accessory.context.detectedModel, 'AC3036');
+    assert.equal(handler.accessory.context.detectedDialect, undefined);
+  });
+
+  it("drops a variant recorded for a named model once it reports that model's default", () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC1715' }, { detectedDialect: AC0850_DASHED });
+    const { warn, restore } = captureAll();
+
+    handler.handleResponse(dashlessStatus());
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.ok(!warn[0].includes('dash-less AC0850'), warn[0]);
+    assert.equal(handler.accessory.context.detectedModel, 'AC0850');
+    assert.equal(handler.accessory.context.detectedDialect, undefined);
+  });
+
+  it('never applies a dialect recorded for another model', () => {
+    //the config now names a different model that ships both dialects
+    const configured = makeHandler({ model: 'AC1715' }, { detectedDialect: { model: 'AC0850', dialect: 'dashless' } });
+    assert.equal(configured.dialect, 'dashed');
+    assert.equal(configured.keyMaps.pwr, 'D03-02');
+
+    //a detected model the config overrides takes its dialect with it
+    const overridden = makeHandler(
+      { model: 'AC1715' },
+      { detectedModel: 'AC0850', detectedDialect: { model: 'AC0850', dialect: 'dashless' } }
+    );
+    assert.equal(overridden.dialect, 'dashed');
+
+    //a later detection of another model leaves the old dialect behind
+    const redetected = makeHandler(
+      { model: 'Air Purifier' },
+      { detectedModel: 'AC1715', detectedDialect: { model: 'AC0850', dialect: 'dashless' } }
+    );
+    assert.equal(redetected.modelKey, 'AC1715');
+    assert.equal(redetected.dialect, 'dashed');
+
+    //and a model without the dialect stays on its plain mapping
+    const plain = makeHandler({ model: 'AC3036' }, { detectedDialect: AC0850_DASHED });
+    assert.equal(plain.dialect, undefined);
+    assert.deepEqual(plain.keyMaps, makeHandler({ model: 'AC3036' }).keyMaps);
+  });
+
+  it('ignores a dialect recorded without the model it was judged for', () => {
+    const handler = makeHandler({ model: 'AC0850' }, { detectedDialect: 'dashed' });
+
+    assert.equal(handler.dialect, 'dashless');
+  });
+
+  it('drives a dashed AC0850 with words on D03-12', async (t) => {
+    const { handler, sent, shown } = recordingWrites({ model: 'AC0850' }, { detectedDialect: AC0850_DASHED });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    assert.deepEqual(sent, ['D03-12=Auto General']);
+
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-12': 'Auto General', 'D03-33': 4 });
+    assert.equal(handler.obj.pwr, 1);
+    assert.equal(handler.obj.pm25, 4);
+    assert.equal(handler.inAutoMode(), true);
+
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-12': 'Turbo' });
+    assert.equal(handler.inAutoMode(), false);
+    assert.equal(handler.rotationSpeed(), 100);
+
+    sent.length = 0;
+    await handler.setPurifierRotationSpeed(50);
+    assert.deepEqual(sent, ['D03-12=Sleep']);
+    assert.equal(shown.RotationSpeed, 50);
+  });
+
+  it('drives a dash-less AC1715 with numbers on D0310C', async (t) => {
+    const { handler, sent } = recordingWrites(
+      { model: 'AC1715' },
+      { detectedDialect: { model: 'AC1715', dialect: 'dashless' } }
+    );
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    assert.deepEqual(sent, ['-I D0310C=0']);
+
+    handler.handleResponse({ D03102: 1, D0310C: 2, D03221: 6, D0540E: 3000, D05408: 4800 });
+    assert.equal(handler.obj.pwr, 1);
+    assert.equal(handler.obj.fltsts1, 3000);
+    assert.equal(handler.inAutoMode(), false);
+    assert.equal(handler.rotationSpeed(), 75);
+
+    sent.length = 0;
+    await handler.setPurifierRotationSpeed(50);
+    assert.deepEqual(sent, ['-I D0310C=1']);
+
+    sent.length = 0;
+    await handler.setPurifierActive(0);
+    assert.deepEqual(sent, ['-I D03102=0']);
+  });
+});
+
+describe('dash-less child lock and light', () => {
+  it('sends the child lock as 1/0 with -I and reads it back as locked', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC2221' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierLockPhysicalControls(1);
+    await handler.setPurifierLockPhysicalControls(0);
+    assert.deepEqual(sent, ['-I D03103=1', '-I D03103=0']);
+
+    handler.handleResponse({ D03102: 1, D03103: 1 });
+    assert.equal(handler.obj.cl, true);
+    handler.handleResponse({ D03102: 1, D03103: 0 });
+    assert.equal(handler.obj.cl, false);
+  });
+
+  //both light writes land on the one lamp register, so they must agree
+  it('switches the lamp with both light writes agreeing, and reads it back', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC4220' });
+    t.after(() => handler.kill(true));
+
+    await handler.setLightBrightness(50);
+    await handler.setLightOn(false);
+    assert.deepEqual(sent, ['-I D03135=1', '-I D03135=1', '-I D03135=0', '-I D03135=0']);
+
+    handler.handleResponse({ D03102: 1, D03135: 2 });
+    assert.equal(handler.obj.aqil, 100);
+    handler.handleResponse({ D03102: 1, D03135: 0 });
+    assert.equal(handler.obj.aqil, 0);
+  });
+});
+
+//Every model's table, read back through the handler: each speed and each
+//automatic mode is written with handleCommand, reported in the device's own
+//dialect, and read back through handleResponse. A model whose Auto or a step
+//does not survive the trip would show the wrong step or the wrong mode
+//Copilot on PR #133: ha-philips-airpurifier gives these models automatic
+//presets the selector never writes (pollution P and gas F with om a on the
+//AC4550/AC4558, bacteria B on the AC2889, AC3259, AC5659, AC5660). A device
+//left in one by the Philips app or the panel is still in an automatic mode,
+//so it must read as Auto, not as Manual at 0% that a scene would replay as off
+describe('automatic presets the selector does not write', () => {
+  const presets = {
+    AC4550: [
+      { mode: 'P', om: 'a' },
+      { mode: 'F', om: 'a' },
+    ],
+    AC4558: [
+      { mode: 'P', om: 'a' },
+      { mode: 'F', om: 'a' },
+    ],
+    AC2889: [{ mode: 'B', om: '2' }],
+    AC3259: [{ mode: 'B', om: '1' }],
+    AC5659: [{ mode: 'B', om: 's' }],
+    AC5660: [{ mode: 'B', om: 't' }],
+  };
+
+  for (const [model, statuses] of Object.entries(presets)) {
+    it(`reads the ${model} automatic presets as Auto, without writing or offering them`, () => {
+      const handler = makeHandler({ model });
+      const autoWrite = { ...handler.autoWrite };
+
+      for (const preset of statuses) {
+        //as the device reports it: strings, with power and a reading alongside
+        handler.handleResponse({ pwr: '1', iaql: '2', ...preset });
+        assert.equal(handler.inAutoMode(), true, `${model}: ${JSON.stringify(preset)} reads as Manual`);
+        assert.equal(handler.rotationSpeed(), handler.speedsMinStep(), `${model}: the slider left the manual step`);
+      }
+
+      assert.deepEqual(handler.autoWrite, autoWrite, `${model}: Auto writes something else now`);
+      for (const preset of statuses) {
+        assert.ok(
+          !Object.values(handler.modeMaps).some((state) => JSON.stringify(state) === JSON.stringify(preset)),
+          `${model}: ${JSON.stringify(preset)} became a selectable mode`
+        );
+      }
+
+      //and a manual step after it still reads as Manual
+      handler.handleResponse({ pwr: '1', ...handler.speeds[1] });
+      assert.equal(handler.inAutoMode(), false, `${model}: a manual step reads as Auto`);
+    });
+  }
+});
+
+describe('every mapped model round-trips its speeds and Auto', () => {
+  const modelConfig = require('../src/accessories/accessories.models');
+  const { mappedModels } = modelConfig;
+
+  //what the device reports after a write: the wire pair handleCommand built,
+  //with a number where the dialect is numeric
+  const reported = (handler, values) => {
+    const status = {};
+    for (const [key, value] of Object.entries({ pwr: 1, ...values })) {
+      const [wireKey, wireValue] = handler.handleCommand(key, value).split('=');
+      status[wireKey] = handler.extraSetFlags.includes('-I') ? Number(wireValue) : wireValue;
+    }
+    return status;
+  };
+
+  //every register dialect a model ships, each in force as a detected dialect
+  //is on a later start; a model with one dialect runs once, as configured
+  const cases = mappedModels.flatMap((model) => {
+    const { dialects } = modelConfig({ model });
+    return dialects.length ? dialects.map((dialect) => ({ model, dialect })) : [{ model, dialect: undefined }];
+  });
+
+  //the default map is left out: its speeds write om alone, and Manual is its
+  //own mode=M, so a speed status there does not say Manual by itself
+  for (const { model: name, dialect } of cases) {
+    const model = dialect ? `${name} ${dialect}` : name;
+
+    it(`reads back what it writes (${model})`, () => {
+      const handler = makeHandler({ model: name }, dialect ? { detectedDialect: { model: name, dialect } } : {});
+      assert.equal(handler.dialect, dialect, `${model}: the dialect is not in force`);
+
+      handler.speeds.forEach((speed, index) => {
+        const cmds = Object.entries(speed).map(([key, value]) => handler.handleCommand(key, value));
+        assert.ok(
+          !handler.extraSetFlags.includes('-I') || handler.intEncodable(cmds),
+          `${model}: speed ${index + 1} is not integer encodable`
+        );
+
+        handler.handleResponse(reported(handler, speed));
+        assert.equal(handler.inAutoMode(), false, `${model}: speed ${index + 1} reads as Auto`);
+        //a fan level model shows a speed at the step that writes it, not at its own index
+        const step = handler.fanLevel ? handler.fanLevel.steps.findIndex(({ write }) => write === speed) : index;
+        assert.ok(step >= 0, `${model}: speed ${index + 1} has no fan level step`);
+        assert.equal(handler.rotationSpeed(), (step + 1) * handler.speedsMinStep(), `${model}: speed ${index + 1}`);
+      });
+
+      for (const [name, state] of Object.entries(handler.modeMaps)) {
+        if (name === 'manual') {
+          continue;
+        }
+
+        handler.handleResponse(reported(handler, state));
+        assert.equal(handler.inAutoMode(), true, `${model}: ${name} does not read as Auto`);
+        //in Auto the slider keeps the last manual step: here the top one
+        assert.equal(handler.rotationSpeed(), 100, `${model}: ${name} moved the slider`);
+      }
+    });
+  }
 });

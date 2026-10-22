@@ -34,7 +34,7 @@ ping -c 3 <device-ip>
 
 EXPECTED: usage text; ping replies. If `aioairctrl` is missing → README installation
 section. If ping fails → network problem, branch to `debugging-and-operations`. Also
-record: exact model ID from the device label (e.g. AC2889), firmware if visible in the
+record: exact model ID from the device label (e.g. AC0820), firmware if visible in the
 Philips app.
 
 ## Gate 1 — capture the known-good baseline
@@ -62,6 +62,14 @@ Look at the keys in `baseline-status.json`:
 - Dash-less registers like `D03102` → AC0850-style (numeric values, needs `keyMaps` +
   `extraSetFlags: ['-I']`; the exact model ID in config will be required).
 - Anything else → new dialect; capture generously and expect Gate 4 experimentation.
+
+Record `WifiVersion` and the model field (`D01S05`, or `D01-05` when dashed) with the dump. The
+model ID does not fix the dialect: the AC0850 and the AC1715 each ship both, chosen by Wi-Fi
+firmware. If the model is already mapped in the other dialect, the work is a **variant** under
+its `dialects` field (see the protocol skill), not a new entry and not a change to the plain
+fields, which other users' devices still speak. The plugin then picks the variant from the
+observed key shape on its own. Trust that shape over a suffix table or a firmware string: one
+upstream table files the AC0850/31 as dashed, and the validated AC0850/31 is dash-less.
 
 ## Gate 3 — map controls by differential observation
 
@@ -104,7 +112,7 @@ Each option carries an evidence obligation from Gates 3–4:
 
 1. **Empty entry** — dump shows default keys and the observed speed values are
    exactly `om: '1'/'2'/'t'` (plus `'s'`). Evidence: Gate 3 table. Action: add an empty
-   entry (`AC2889: {}`) to `accessories.models.js`, then the model to the README
+   entry (`AC0820: {}`) to `accessories.models.js`, then the model to the README
    Supported tier and the `config.schema.json` typeahead. The entry is what makes the
    model Supported (`test/docs.test.js` requires one for every Supported model); being
    empty, it keeps the default speeds and the `sleepSpeed` option.
@@ -164,9 +172,14 @@ device's actual reported state — back to Gate 3 for that position.
 Land via the normal PR flow (`change-control-and-docs`). In the PR: the Gate 1
 baseline, the Gate 3 table, Gate 4 outputs, and the Gate 6 checklist results. A model
 goes in the README "Supported" tier with a mapping from a source with hardware evidence
-(its owner's Gate 3 dumps, a contributor, or ruaan-deysel/ha-philips-airpurifier). It
-earns the ★ and moves to "Supported, validated" only with Gate 6 evidence on hardware
-this project has run against; the AC1715, AC3036 and AC3829 are Supported without it. Commit type: `feat` (it changes what devices users can run —
+(its owner's Gate 3 dumps, a contributor, ruaan-deysel/ha-philips-airpurifier and its
+port ruaan-deysel/homebridge-philips-airctrl, or a cloud plugin's data read from a real
+unit, as for the AC0651). It earns the ★ and moves to "Supported,
+validated" only with Gate 6 evidence on hardware this project has run against; every
+other mapped model is Supported without it. Most of those were imported in bulk from
+those two projects (`THIRD_PARTY_NOTICES.md`), so fixing one is this runbook from Gate 1
+with the imported entry as the hypothesis under test, and a family that shares data
+(the AC32xx, say) may share the fix. Commit type: `feat` (it changes what devices users can run —
 minor version bump).
 
 ## Provenance and maintenance

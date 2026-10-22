@@ -63,9 +63,10 @@ describe('coverage script', () => {
 
   it('measures exactly what the package ships', () => {
     //A new shipped directory should fail here until it is added to the include list,
-    //rather than silently sitting outside the measurement.
+    //rather than silently sitting outside the measurement. Data and notices are
+    //shipped but are not code.
     const expected = pkg.files
-      .filter((entry) => !entry.endsWith('.json'))
+      .filter((entry) => !entry.endsWith('.json') && !entry.endsWith('.md'))
       .map((entry) => (entry.endsWith('.js') ? entry : `${entry}/**`))
       .sort();
     const includes = [...script.matchAll(/--test-coverage-include='([^']+)'/g)].map((m) => m[1]).sort();

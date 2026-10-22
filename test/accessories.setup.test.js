@@ -108,7 +108,7 @@ describe('accessories.setup', () => {
       deviceMap,
       [
         { active: true, name: 'Bedroom', model: 'ac0850/11', host: '192.168.1.142' },
-        { active: true, name: 'Study', model: 'AC2889', host: '192.168.1.143' },
+        { active: true, name: 'Study', model: 'AC0820', host: '192.168.1.143' },
       ],
       uuid.generate
     );
@@ -116,7 +116,7 @@ describe('accessories.setup', () => {
 
     assert.equal([...deviceMap.values()].map((device) => device.modelKey).join(','), 'AC0850,');
     assert.ok(info.some((message) => message.includes('Bedroom: Using the AC0850 command set')));
-    assert.ok(info.some((message) => message.includes('Study: No dedicated mapping for model "AC2889"')));
+    assert.ok(info.some((message) => message.includes('Study: No dedicated mapping for model "AC0820"')));
     assert.deepEqual(warn, []);
   });
 
@@ -171,13 +171,13 @@ describe('accessories.setup', () => {
       [
         { active: true, name: 'Bedroom', model: 'AC0850', host: '10.0.1.16', sleepSpeed: true },
         { active: true, name: 'Study', model: 'AC3829', host: '10.0.1.17', sleepSpeed: true },
-        { active: true, name: 'Office', model: 'AC2889', host: '10.0.1.18', sleepSpeed: true },
+        { active: true, name: 'Office', model: 'AC0820', host: '10.0.1.18', sleepSpeed: true },
       ],
       uuid.generate
     );
     restore();
 
-    //the AC2889 runs the default speeds, where the option adds a sleep step
+    //the AC0820 runs the default speeds, where the option adds a sleep step
     assert.equal(warn.length, 2);
     assert.ok(warn[0].includes('Bedroom: The sleep speed option does nothing for the AC0850'));
     assert.ok(warn[1].includes('Study: The sleep speed option does nothing for the AC3829'));
@@ -199,6 +199,28 @@ describe('accessories.setup', () => {
 
     assert.equal(warn.length, 1);
     assert.ok(warn[0].includes('Bedroom: The allergic mode option does nothing for the AC0850'));
+  });
+
+  //the AC3420, AC3421 and AC3737 have a target humidity register but no
+  //humidifier on/off this plugin can write, so no humidifier is offered
+  it('says when the humidifier option cannot do anything for the model', async () => {
+    const { warn, restore } = capture();
+
+    await Setup(
+      deviceMap,
+      [
+        { active: true, name: 'Bedroom', model: 'AC3420', host: '10.0.1.16', humidifier: true },
+        { active: true, name: 'Study', model: 'AC3737', host: '10.0.1.17', humidifier: true },
+        { active: true, name: 'Lounge', model: 'AC3829', host: '10.0.1.18', humidifier: true },
+        { active: true, name: 'Hall', model: 'AC3421', host: '10.0.1.19' },
+      ],
+      uuid.generate
+    );
+    restore();
+
+    assert.equal(warn.length, 2);
+    assert.ok(warn[0].includes('Bedroom: The humidifier option does nothing for the AC3420'));
+    assert.ok(warn[1].includes('Study: The humidifier option does nothing for the AC3737'));
   });
 
   it('leaves a trace when a device is skipped for being inactive', async () => {
