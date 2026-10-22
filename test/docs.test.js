@@ -51,29 +51,41 @@ const section = (heading) => headed(readme, 'README', 2, heading);
 const configSection = section('Configuration');
 const deviceSupportSection = section('Device support');
 
-//The device tier table: a header row naming each tier. Below it, one list item
-//per tier names its models: '- **Supported:** AC1715, AC3036'. A tier whose
-//name starts with 'Supported' promises a dedicated mapping; the last one is the
-//default.
-const tierRow = (label) =>
-  deviceSupportSection
-    .split('\n')
-    .find((line) => line.startsWith('|') && line.split('|')[1].trim() === label)
-    ?.split('|')
-    .slice(2, -1)
-    .map((cell) => cell.trim());
+//The device tier table: '| Tier | What it means | Models |', then one row per
+//tier, '| **Supported** | ... | AC1715, AC3036 |'. A long model list sits in a
+//collapsed '<details><summary>39 models</summary>...</details>' inside its cell.
+//A tier whose name starts with 'Supported' promises a dedicated mapping; the last
+//one is the default.
+const tierTable = deviceSupportSection
+  .split('\n')
+  .filter((line) => line.startsWith('|'))
+  .map((line) =>
+    line
+      .split('|')
+      .slice(1, -1)
+      .map((cell) => cell.trim())
+  );
+const tierHeader = tierTable.find((cells) => cells[0] === 'Tier') || [];
+const modelsColumn = tierHeader.indexOf('Models');
+//every row below the header and its separator, keyed by the tier name in bold
+const tierRows = tierTable
+  .filter((cells) => cells !== tierHeader && !/^-+$/.test(cells[0]))
+  .map((cells) => ({ name: cells[0].replace(/\*/g, '').trim(), cell: cells[modelsColumn] ?? '' }));
+const tierNames = modelsColumn === -1 ? [] : tierRows.map((row) => row.name);
 
-const tierNames = tierRow('Tier') || [];
+//the summary of a collapsed model list, '39 models', or undefined when the cell has none
+const tierSummary = (cell) => /<summary>(.*?)<\/summary>/.exec(cell)?.[1];
 
-//the models one tier's list item names, or undefined when it has none
+//the models one tier's row names, or undefined when it has none
 const tierList = (name) => {
-  const prefix = `- **${name}:** `;
-  const line = deviceSupportSection.split('\n').find((candidate) => candidate.startsWith(prefix));
-  return line
-    ?.slice(prefix.length)
+  const cell = tierRows.find((row) => row.name === name)?.cell;
+  const models = cell
+    ?.replace(/<summary>.*?<\/summary>/, '')
+    .replace(/<\/?details>/g, '')
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+  return models?.length ? models : undefined;
 };
 
 const listed = tierNames.map(tierList);
@@ -228,11 +240,21 @@ describe('docs', () => {
   });
 
   it('has a device tier table with a model list for every tier', () => {
-    assert.ok(tierNames.length > 0, "README 'Device support' has no tier table");
+    assert.ok(tierNames.length > 0, "README 'Device support' has no tier table with a 'Models' column");
     tierNames.forEach((name, index) => {
-      assert.ok(listed[index]?.length, `README 'Device support' has no '- **${name}:** ...' model list`);
+      assert.ok(listed[index]?.length, `README 'Device support' tier row '${name}' has no models`);
     });
     assert.ok(supportedModels.length > 0, "README 'Device support' lists no model in a 'Supported' tier");
+  });
+
+  //a collapsed list shows only its summary, so the count there has to be right
+  it('counts each collapsed tier list correctly in its summary', () => {
+    tierRows.forEach(({ name, cell }, index) => {
+      const summary = tierSummary(cell);
+      if (summary !== undefined) {
+        assert.equal(summary, `${listed[index]?.length} models`, `README tier '${name}' summary is out of date`);
+      }
+    });
   });
 
   //the Supported tiers promise a dedicated mapping, so a model listed there

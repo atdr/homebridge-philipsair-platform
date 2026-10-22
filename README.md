@@ -156,29 +156,23 @@ For a complete `config.json`, see [`example-config.json`](https://github.com/atd
 
 ## Device support
 
-The `model` field selects how the plugin encodes power, mode and fan speed, because Philips models do not agree on any of the three. Support falls into three tiers.
+The `model` field selects how the plugin encodes power, mode and fan speed, because Philips models do not agree on any of the three. It also sets the fan speed slider's steps and which controls the Home app offers, as [Controls by model](https://github.com/atdr/homebridge-philipsair-platform/blob/main/docs/controls.md) lists for each model.
 
-| Tier            | Supported, validated ★                                        | Supported                                                      | Other models                                   |
-| --------------- | ------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------- |
-| **Description** | As Supported, and also confirmed on hardware by this project. | Dedicated mapping, taken from a source with hardware evidence. | Default mapping. Often fits, never guaranteed. |
+| Tier                       | What it means                                                  | Models                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Supported, validated ★** | As Supported, and also confirmed on hardware by this project.  | AC0850 ★                                                                                                                                                                                                                                                                                                                                                              |
+| **Supported**              | Dedicated mapping, taken from a source with hardware evidence. | <details><summary>39 models</summary>AC0650, AC0651, AC0950, AC0951, AC1214, AC1715, AC2210, AC2220, AC2221, AC2729, AC2889, AC2936, AC2939, AC2958, AC2959, AC3033, AC3036, AC3039, AC3055, AC3059, AC3210, AC3220, AC3221, AC3259, AC3420, AC3421, AC3737, AC3829, AC3836, AC3854, AC3858, AC4220, AC4221, AC4236, AC4550, AC4558, AC5659, AC5660, AMF765</details> |
+| **Other models**           | Default mapping. Often fits, never guaranteed.                 | Any other model                                                                                                                                                                                                                                                                                                                                                       |
 
-- **Supported, validated ★:** AC0850 ★
-- **Supported:** AC0650, AC0651, AC0950, AC0951, AC1214, AC1715, AC2210, AC2220, AC2221, AC2729, AC2889, AC2936, AC2939, AC2958, AC2959, AC3033, AC3036, AC3039, AC3055, AC3059, AC3210, AC3220, AC3221, AC3259, AC3420, AC3421, AC3737, AC3829, AC3836, AC3854, AC3858, AC4220, AC4221, AC4236, AC4550, AC4558, AC5659, AC5660, AMF765
-- **Other models:** Any other model
+Supported mappings come from people who own the hardware: users and contributors of the [original plugin](https://github.com/seydx/homebridge-philipsair-platform), the Home Assistant integration [ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier) with corrections from its Homebridge port [homebridge-philips-airctrl](https://github.com/ruaan-deysel/homebridge-philips-airctrl), and, for the AC0651 and the dash-less AC1715, the Philips cloud plugin [homebridge-philips-airplus](https://github.com/Micheledipaola/homebridge-philips-airplus). Most have not been tried on hardware by this project. [THIRD_PARTY_NOTICES.md](https://github.com/atdr/homebridge-philipsair-platform/blob/main/THIRD_PARTY_NOTICES.md) records what came from where. The model dropdown in the Homebridge UI offers every Supported model.
 
-A Supported mapping comes from the people who own the hardware: users and contributors of the [original plugin](https://github.com/seydx/homebridge-philipsair-platform), the [ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier) Home Assistant integration, with corrections from its Homebridge port [homebridge-philips-airctrl](https://github.com/ruaan-deysel/homebridge-philips-airctrl), or, for the AC0651, the cloud plugin [homebridge-philips-airplus](https://github.com/Micheledipaola/homebridge-philips-airplus), whose data was read over the Philips cloud rather than the local connection this plugin uses. Most Supported models come from the integration and have not been tried on hardware by this project, so a report of how yours behaves is welcome either way. The model dropdown in the Homebridge UI offers every Supported model. Anything else falls back to the default.
+A mapping that does not fit shows up as an accessory whose controls do nothing, and the log tells you: the plugin compares the first status a device sends with the mapping in force and reports a mismatch (see [Troubleshooting](#the-device-appears-in-the-home-app-but-none-of-its-controls-work)).
 
-The symptom of a mapping that does not fit is an accessory that appears in the Home app with controls that do nothing. The plugin compares the first status a device sends against the mapping in force and reports a mismatch in the log, so it usually tells you when it has guessed wrong.
-
-**To get your model added**, open a [model support request](https://github.com/atdr/homebridge-philipsair-platform/issues/new?template=model_support.yml) with a status dump from your device:
+**Report your model** on the [model support form](https://github.com/atdr/homebridge-philipsair-platform/issues/new?template=model_support.yml), whether it works (a confirmed Supported model earns the ★), its controls misbehave, or it is not supported yet. Attach a status dump from the device, which is what a mapping is derived from, so a report with one can usually be acted on straight away:
 
 ```bash
 aioairctrl -H 10.0.1.16 -P 5683 status -J
 ```
-
-That dump is what the mapping is derived from, so a request with one attached can usually be acted on straight away.
-
-**Own a Supported model and it works?** Please say so on the same [model support form](https://github.com/atdr/homebridge-philipsair-platform/issues/new?template=model_support.yml). A confirmed model gets the ★.
 
 ## Troubleshooting
 
