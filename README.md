@@ -181,13 +181,15 @@ Auto is never a step on the fan speed slider. It is on the Home app's auto/manua
 
 | Model           | Slider steps                                                                                             | Auto on the switch sends        |
 | --------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| AC0850          | 50% Sleep, 100% Turbo                                                                                    | `D0310C` 0                      |
-| AC1715          | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                          | `Auto General`                  |
+| AC0850          | 50% Sleep, 100% Turbo                                                                                    | `D0310C` 0, or `Auto General` ¹ |
+| AC1715          | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                          | `Auto General`, or `D0310C` 0 ¹ |
 | AC3036          | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                          | `AG`                            |
 | AC3829          | 20% Sleep, 40% Speed 1, 60% Speed 2, 80% Speed 3, 100% Turbo                                             | `P`, or `A` with `allergicFunc` |
 | Any other model | 33% Speed 1, 67% Speed 2, 100% Turbo. With `sleepSpeed`: 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo | `P`, or `A` with `allergicFunc` |
 
 On a model with no mapping of its own, switching to Manual sends the manual mode and leaves the speed to the purifier rather than restoring the last one, because the plugin has no confirmed way to set both at once on hardware it does not know.
+
+¹ The AC0850 and the AC1715 each ship in two register dialects under the same model ID, depending on the Wi-Fi firmware. **Dashed** firmware reports registers like `D03-02` and takes words (`Auto General`, `Sleep`, `Turbo`); **dash-less** firmware reports registers like `D03102` and takes numbers. The plugin starts each model on the dialect it was tested in (dash-less for the AC0850, dashed for the AC1715), reads which one the device actually speaks from its first status, and switches to the other from the next restart if they differ. The slider keeps the same steps in both. The dashed AC0850 and dash-less AC1715 mappings come from other projects' data (ruaan-deysel/ha-philips-airpurifier and Micheledipaola/homebridge-philips-airplus) and have not yet been tested with this plugin.
 
 ## Troubleshooting
 
@@ -238,6 +240,12 @@ Bedroom: Using the AC0850 command set instead of the default, detected from this
 Expect the Home app to change at the restart that adopts a model. A mapping knows which controls a model has no register for, so tiles the previous run offered can disappear. That is the plugin matching what the device can actually do, not a fault.
 
 That is a fallback, not a fix. Setting `model` correctly is what makes the plugin get the device right on its first run, including which services it offers in the Home app.
+
+The same check covers a model that ships in two register dialects (see [Fan speed and Auto](#fan-speed-and-auto)). A device that answers in the model's other dialect, for instance after a Wi-Fi firmware update, is reported once, and its controls work from the next restart:
+
+```text
+Bedroom: This device reports model AC0850/11, region 11, Wi-Fi firmware AWS_Philips_AIR@62, dashed registers, not the dash-less registers the AC0850 mapping in force uses, so its controls will not work until the next restart. From the next restart the dashed AC0850 command set will be used.
+```
 
 If the model is right and the controls still do nothing, set `debug` to true, copy a logged status line, and open an issue with it.
 

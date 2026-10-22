@@ -63,6 +63,14 @@ Look at the keys in `baseline-status.json`:
   `extraSetFlags: ['-I']`; the exact model ID in config will be required).
 - Anything else → new dialect; capture generously and expect Gate 4 experimentation.
 
+Record `WifiVersion` and the model field (`D01S05`, or `D01-05` when dashed) with the dump. The
+model ID does not fix the dialect: the AC0850 and the AC1715 each ship both, chosen by Wi-Fi
+firmware. If the model is already mapped in the other dialect, the work is a **variant** under
+its `dialects` field (see the protocol skill), not a new entry and not a change to the plain
+fields, which other users' devices still speak. The plugin then picks the variant from the
+observed key shape on its own. Trust that shape over a suffix table or a firmware string: one
+upstream table files the AC0850/31 as dashed, and the validated AC0850/31 is dash-less.
+
 ## Gate 3 — map controls by differential observation
 
 Leave this running in one terminal on the Homebridge host:
