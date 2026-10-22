@@ -477,6 +477,15 @@ dialects:
   not mapped, because `D03224` reports tenths of a degree and a value map cannot scale it,
   and the humidifier models map `rhset` → `D03128` only, since `func` has no counterpart.
 
+**AC0651.** One more dash-less entry comes from a different source, the cloud plugin
+Micheledipaola/homebridge-philips-airplus (MIT, `THIRD_PARTY_NOTICES.md`), whose data was
+read over the Philips cloud (MQTT) rather than local CoAP. It is the AC0850 shape with a
+Medium step (`D0310C` 17, 1, 18; Auto 0, no `D0310A`) and the pre-filter pair, and like the
+AC0850 it marks `mode` and `cl` unsupported and has no light. Power is `D03102`, not the
+`D0310D` the cloud plugin names, because on the AC0850 `D03102` is power and `D0310D` only
+follows it. It sits right after the AC0850 in `models` so that `identifyModel`, which gives
+a tie to the first entry, picks it over the imported dash-less models on an AC0651 status.
+
 A fourth field, **`unsupported`**, is a per-model list of generic keys the device has no
 register for at all. `Handler.supports(key)` reads it, and it gates three things: the `set*`
 method, the optimistic push, and the characteristic in `accessories.service.js`. Adding a key

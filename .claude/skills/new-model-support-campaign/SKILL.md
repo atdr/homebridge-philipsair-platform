@@ -164,8 +164,9 @@ device's actual reported state — back to Gate 3 for that position.
 Land via the normal PR flow (`change-control-and-docs`). In the PR: the Gate 1
 baseline, the Gate 3 table, Gate 4 outputs, and the Gate 6 checklist results. A model
 goes in the README "Supported" tier with a mapping from a source with hardware evidence
-(its owner's Gate 3 dumps, a contributor, or ruaan-deysel/ha-philips-airpurifier and its
-port ruaan-deysel/homebridge-philips-airctrl). It earns the ★ and moves to "Supported,
+(its owner's Gate 3 dumps, a contributor, ruaan-deysel/ha-philips-airpurifier and its
+port ruaan-deysel/homebridge-philips-airctrl, or a cloud plugin's data read from a real
+unit, as for the AC0651). It earns the ★ and moves to "Supported,
 validated" only with Gate 6 evidence on hardware this project has run against; every
 other mapped model is Supported without it. Most of those were imported in bulk from
 those two projects (`THIRD_PARTY_NOTICES.md`), so fixing one is this runbook from Gate 1

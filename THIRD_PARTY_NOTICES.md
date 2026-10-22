@@ -47,6 +47,37 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Micheledipaola/homebridge-philips-airplus
+
+The AC0651 entry in `src/accessories/accessories.models.js` is derived from the `"AC0651/10"` entry of `custom_components/philips_airplus/models.yaml` in [Micheledipaola/homebridge-philips-airplus](https://github.com/Micheledipaola/homebridge-philips-airplus), as published to npm as `homebridge-philips-airplus-cloud` version 0.3.9 (commit `36f6618b271ef89aa92422424c0ca74f04cc4e99`). That data was read from the device over the Philips cloud, not over the local connection this plugin uses. Its power register is the exception: it comes from ha-philips-airpurifier's `const.py` (above).
+
+The data has been **modified**: it was translated from YAML into this plugin's model format, the power register `D0310D` it names was replaced with `D03102`, and the properties with no HomeKit surface here (the fan level, standby monitor, diagnostic and device information registers, and the filter reset values) were left out. The comment on the entry in `accessories.models.js` describes each change. That project is licensed under the MIT License:
+
+```text
+MIT License
+
+Copyright (c) 2025-2026 ShorMeneses (https://github.com/ShorMeneses/philips-airplus-homeassistant)
+Portions copyright (c) 2026 Markus Stephany
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## Apache License, Version 2.0
 
 ```text

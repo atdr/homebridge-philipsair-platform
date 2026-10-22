@@ -163,10 +163,10 @@ The `model` field selects how the plugin encodes power, mode and fan speed, beca
 | **Description** | As Supported, and also confirmed on hardware by this project. | Dedicated mapping, taken from a source with hardware evidence. | Default mapping. Often fits, never guaranteed. |
 
 - **Supported, validated ★:** AC0850 ★
-- **Supported:** AC0650, AC0950, AC0951, AC1214, AC1715, AC2210, AC2220, AC2221, AC2729, AC2889, AC2936, AC2939, AC2958, AC2959, AC3033, AC3036, AC3039, AC3055, AC3059, AC3210, AC3220, AC3221, AC3259, AC3420, AC3421, AC3737, AC3829, AC3836, AC3854, AC3858, AC4220, AC4221, AC4236, AC4550, AC4558, AC5659, AC5660, AMF765
+- **Supported:** AC0650, AC0651, AC0950, AC0951, AC1214, AC1715, AC2210, AC2220, AC2221, AC2729, AC2889, AC2936, AC2939, AC2958, AC2959, AC3033, AC3036, AC3039, AC3055, AC3059, AC3210, AC3220, AC3221, AC3259, AC3420, AC3421, AC3737, AC3829, AC3836, AC3854, AC3858, AC4220, AC4221, AC4236, AC4550, AC4558, AC5659, AC5660, AMF765
 - **Other models:** Any other model
 
-A Supported mapping comes from the people who own the hardware: users and contributors of the [original plugin](https://github.com/seydx/homebridge-philipsair-platform), or the [ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier) Home Assistant integration, with corrections from its Homebridge port [homebridge-philips-airctrl](https://github.com/ruaan-deysel/homebridge-philips-airctrl). Most Supported models come from the integration and have not been tried on hardware by this project, so a report of how yours behaves is welcome either way. The model dropdown in the Homebridge UI offers every Supported model. Anything else falls back to the default.
+A Supported mapping comes from the people who own the hardware: users and contributors of the [original plugin](https://github.com/seydx/homebridge-philipsair-platform), the [ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier) Home Assistant integration, with corrections from its Homebridge port [homebridge-philips-airctrl](https://github.com/ruaan-deysel/homebridge-philips-airctrl), or, for the AC0651, the cloud plugin [homebridge-philips-airplus](https://github.com/Micheledipaola/homebridge-philips-airplus), whose data was read over the Philips cloud rather than the local connection this plugin uses. Most Supported models come from the integration and have not been tried on hardware by this project, so a report of how yours behaves is welcome either way. The model dropdown in the Homebridge UI offers every Supported model. Anything else falls back to the default.
 
 The symptom of a mapping that does not fit is an accessory that appears in the Home app with controls that do nothing. The plugin compares the first status a device sends against the mapping in force and reports a mismatch in the log, so it usually tells you when it has guessed wrong.
 
@@ -186,7 +186,7 @@ Auto is never a step on the fan speed slider. It is on the Home app's auto/manua
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
 | AC0650                                                         | 50% Sleep, 100% Turbo                                                                                                                                   | `Auto General`                                          |
 | AC0850                                                         | 50% Sleep, 100% Turbo                                                                                                                                   | `D0310C` 0                                              |
-| AC0950, AC0951, AC3420, AC3421                                 | 33% Sleep, 67% Medium, 100% Turbo                                                                                                                       | `D0310C` 0                                              |
+| AC0651, AC0950, AC0951, AC3420, AC3421                         | 33% Sleep, 67% Medium, 100% Turbo                                                                                                                       | `D0310C` 0                                              |
 | AC1214                                                         | 20% Night, 40% Speed 1, 60% Speed 2, 80% Speed 3, 100% Turbo                                                                                            | `P`, or `A` with `allergicFunc`                         |
 | AC1715                                                         | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                                                                         | `Auto General`                                          |
 | AC2210, AC2220, AC2221, AC3210, AC3220, AC3221                 | 14% Sleep, 29% Speed 1, 43% Speed 2, 57% Speed 3, 71% Speed 4, 86% Speed 5, 100% Turbo                                                                  | `D0310C` 0                                              |
@@ -206,7 +206,7 @@ On a model with no mapping of its own, switching to Manual sends the manual mode
 
 Some controls depend on what a model's registers can do:
 
-- **Child lock** is offered on every model except the AC0850. ha-philips-airpurifier offers no child lock on the AC0650, AC2889, AC3033, AC3036, AC3039, AC3055, AC3059, AC3259, AC3836, AC5659, AC5660, and the /50 variants of the AC3854 and AC3858, so there it may do nothing.
+- **Child lock** is offered on every model except the AC0651 and AC0850. ha-philips-airpurifier offers no child lock on the AC0650, AC2889, AC3033, AC3036, AC3039, AC3055, AC3059, AC3259, AC3836, AC5659, AC5660, and the /50 variants of the AC3854 and AC3858, so there it may do nothing.
 - On the models that report dash-less registers such as `D03102` (the AC0950, AC0951, AC2210, AC2220, AC2221, AC3210, AC3220, AC3221, AC3420, AC3421, AC3737, AC4220, AC4221 and AMF765):
   - The **light** is on or off, and any brightness switches it on. On most of them it is the lamp (`D03135`), because the display backlight register only reports there. The AC0950, AC0951 and AC3737 have no light the plugin can switch.
   - The **temperature** sensor reads 0: these models report tenths of a degree, which the plugin does not convert.
@@ -438,6 +438,7 @@ This plugin stands on other people's work:
 - [we5/homebridge-philipsair-platform](https://github.com/we5/homebridge-philipsair-platform/tree/refactor/use-config-mappings), for the mappable config parameters.
 - [ruaan-deysel/ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier), the Home Assistant integration most of the Supported model mappings are derived from, under the Apache License 2.0 (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
 - [ruaan-deysel/homebridge-philips-airctrl](https://github.com/ruaan-deysel/homebridge-philips-airctrl), for the hardware corrections applied to that data, also under the Apache License 2.0.
+- [Micheledipaola/homebridge-philips-airplus](https://github.com/Micheledipaola/homebridge-philips-airplus), for the AC0651 mapping, under the MIT License (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
 - [kandelvijaya/homebridge-philipsair-platform](https://github.com/kandelvijaya/homebridge-philipsair-platform), for AC1715 speed and power mode fixes.
 - [`aioairctrl`](https://github.com/kongo09/aioairctrl), maintained by kongo09 and written by [betaboon](https://github.com/betaboon/aioairctrl), which does all of the talking to the device.
 

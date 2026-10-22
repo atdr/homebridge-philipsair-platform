@@ -90,8 +90,9 @@ The docs-sync invariants and how to add new mechanical guards are covered in
   model is Supported, never confirmed here. The AC1715, AC3036 and AC3829 come from the
   original plugin's users and contributors or from ruaan-deysel/ha-philips-airpurifier;
   the other 35 were imported in bulk from that integration, with hardware corrections
-  from ruaan-deysel/homebridge-philips-airctrl (`THIRD_PARTY_NOTICES.md` pins the source
-  commits). A report that one of them misbehaves is a report against that data.
+  from ruaan-deysel/homebridge-philips-airctrl, and the AC0651 comes from the cloud
+  plugin Micheledipaola/homebridge-philips-airplus (`THIRD_PARTY_NOTICES.md` pins the
+  sources). A report that one of them misbehaves is a report against that data.
 - Speed matching in `Handler.rotationSpeed` compares stringified values for exact
   equality against the model's `speeds` entries; a device reporting an unexpected value
   matches nothing and reports speed index 0 (RotationSpeed 0) with no warning.

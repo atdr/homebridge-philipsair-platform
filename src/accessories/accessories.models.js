@@ -126,6 +126,38 @@ const models = {
     //Issue #46 carries the hardware experiment that can overturn this.
     unsupported: ['mode', 'cl'],
   },
+  //From Micheledipaola/homebridge-philips-airplus (custom_components/
+  //philips_airplus/models.yaml, MIT; see THIRD_PARTY_NOTICES.md). That data was
+  //read from an AC0651/10 over the Philips cloud (MQTT), not over the local
+  //CoAP link this plugin uses, and this project has not validated it.
+  //
+  //D0310C is mode and speed in one register, as on the AC0850: 0 = Auto,
+  //1 = Medium, 17 = Sleep, 18 = Turbo, so the slider steps Sleep, Medium,
+  //Turbo. Power is D03102, the dash-less power register (ruaan-deysel's
+  //NEW2_POWER), not the D0310D the cloud plugin names: on the AC0850, D03102
+  //is power and D0310D only follows it. No source names a mode register or a
+  //child lock, and the cloud plugin pins no light register for this model.
+  //
+  //Listed ahead of the imported dash-less models on purpose: identifyModel
+  //gives a tie to the first entry, and an AC0651 status scores the same on
+  //their wider register set as on this one
+  AC0651: {
+    speeds: [{ D0310C: 17 }, { D0310C: 1 }, { D0310C: 18 }],
+    modeMaps: {
+      auto: { D0310C: 0 },
+    },
+    keyMaps: {
+      pwr: 'D03102',
+      iaql: 'D03120',
+      pm25: 'D03221',
+      fltsts0: 'D0520D',
+      flttotal0: 'D05207',
+      fltsts1: 'D0540E',
+      flttotal1: 'D05408',
+    },
+    extraSetFlags: ['-I'],
+    unsupported: ['mode', 'cl'],
+  },
 };
 
 //The entries below are imported from ruaan-deysel/ha-philips-airpurifier

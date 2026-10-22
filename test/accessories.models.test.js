@@ -245,6 +245,39 @@ describe('accessories.models', () => {
       assert.equal(modelConfig.identifyModel({}).key, undefined);
     });
 
+    //the AC0651 shares every register the AC0850 dump above reports, so the
+    //two tie on it; the tie goes to the model listed first, the AC0850
+    it('keeps an AC0850 dump on the AC0850 now that the AC0651 shares its registers', () => {
+      assert.deepEqual(modelConfig.identifyModel(ac0850Status), { key: 'AC0850', certainty: 'fingerprint' });
+    });
+
+    //a status built from the registers homebridge-philips-airplus-cloud reads
+    //on an AC0651/10 (values illustrative), with the D03102 power register
+    //the AC0850 has: the pre-filter pair D0520D/D05207 is what sets it apart
+    const ac0651Status = {
+      D03102: 1,
+      D0310C: 0,
+      D0310D: 1,
+      D03120: 1,
+      D03221: 3,
+      D0312C: 4,
+      D05408: 4800,
+      D0540E: 4100,
+      D05207: 720,
+      D0520D: 650,
+    };
+
+    it('fingerprints an AC0651 by its pre-filter registers, ahead of the AC0850', () => {
+      assert.deepEqual(modelConfig.identifyModel(ac0651Status), { key: 'AC0651', certainty: 'fingerprint' });
+    });
+
+    it('takes an AC0651 at its word when it names itself', () => {
+      assert.deepEqual(modelConfig.identifyModel({ ...selfIdentifying, D01S05: 'AC0651/10' }), {
+        key: 'AC0651',
+        certainty: 'reported',
+      });
+    });
+
     it('knows whether a mapping can read a status at all', () => {
       assert.equal(modelConfig.readsStatus(ac0850Status, {}), false);
       assert.equal(modelConfig.readsStatus(ac0850Status, modelConfig({ model: 'AC0850' }).keyMaps), true);
@@ -254,6 +287,35 @@ describe('accessories.models', () => {
       assert.equal(modelConfig.looksLikeRegisters({ 'D03-02': 'ON' }), true);
       assert.equal(modelConfig.looksLikeRegisters({ pwr: '1', om: '2' }), false);
     });
+  });
+});
+
+//from Micheledipaola/homebridge-philips-airplus (see THIRD_PARTY_NOTICES.md)
+describe('AC0651', () => {
+  const config = modelConfig({ model: 'AC0651/10' });
+
+  it('steps Sleep, Medium, Turbo on D0310C, with Auto on the selector', () => {
+    assert.deepEqual(config.speeds, [{ D0310C: 17 }, { D0310C: 1 }, { D0310C: 18 }]);
+    assert.deepEqual(config.modeMaps, { auto: { D0310C: 0 } });
+  });
+
+  it('powers on D03102 and reads both filters, sent with -I', () => {
+    assert.deepEqual(config.keyMaps, {
+      pwr: 'D03102',
+      iaql: 'D03120',
+      pm25: 'D03221',
+      fltsts0: 'D0520D',
+      flttotal0: 'D05207',
+      fltsts1: 'D0540E',
+      flttotal1: 'D05408',
+    });
+    assert.deepEqual(config.extraSetFlags, ['-I']);
+  });
+
+  it('offers no mode register, child lock, or light', () => {
+    assert.deepEqual(config.unsupported, ['mode', 'cl']);
+    assert.equal(config.keyMaps.aqil, undefined);
+    assert.equal(config.keyMaps.uil, undefined);
   });
 });
 
