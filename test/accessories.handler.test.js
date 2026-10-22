@@ -685,6 +685,50 @@ describe('power-on to a device already on', () => {
     assert.deepEqual(sent, ['D03-12=Turbo']);
   });
 
+  //Copilot on #134: the device last reported on, but a power-off is pending.
+  //Leaving the newer power-on out would let the off notification confirm the
+  //older request, and the purifier would stay off against the latest one
+  it('sends a power-on that follows a power-off still in flight', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON });
+
+    /** @type {() => void} */
+    let finishOff = noop;
+    const recorded = handler.sendCMD;
+    handler.sendCMD = async (args) => {
+      await recorded(args);
+      if (args.includes('D03102=0')) {
+        await new Promise((resolve) => (finishOff = () => resolve(undefined)));
+      }
+    };
+
+    const off = handler.setPurifierActive(0);
+    //past the coalescing window, so the off is sent and waits to finish
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.deepEqual(sent, ['-I D03102=0']);
+
+    const on = handler.setPurifierActive(1);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    finishOff();
+    await Promise.all([off, on]);
+
+    assert.deepEqual(sent, ['-I D03102=0', '-I D03102=1']);
+    assert.equal(Number(handler.pendingWrites.get('pwr')?.expected), 1);
+  });
+
+  it('sends a power-on that follows a power-off the device has not confirmed', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON });
+
+    await handler.setPurifierActive(0);
+    await handler.setPurifierActive(1);
+
+    assert.deepEqual(sent, ['-I D03102=0', '-I D03102=1']);
+    assert.equal(Number(handler.pendingWrites.get('pwr')?.expected), 1);
+  });
+
   it('drops the power-on on the default dialect too', async (t) => {
     const { handler, sent } = recordingWrites({});
     t.after(() => handler.kill(true));

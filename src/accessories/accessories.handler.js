@@ -634,11 +634,22 @@ class Handler {
    * not reported yet still gets the power-on merged as before. The expectation
    * goes too, so verification neither waits for `pwr` nor resends it.
    *
+   * Not while a power write is pending either (`powerWritePending`). After a
+   * power-off the device still reports on until its notification arrives, and
+   * leaving out a power-on queued in that gap would let the off notification
+   * confirm the older request: the purifier would stay off against the latest
+   * one. Sent, the power-on replaces the off's expectation in `sendTracked`.
+   *
    * @param {{ cmds: string[], expectations: Record<string, unknown>, resolve: (sent: boolean) => void }} entry
    * @returns {boolean} false when nothing is left to send; the entry is then resolved as sent
    */
   dropRedundantPowerOn(entry) {
-    if (!this.deviceKnownOn() || !('pwr' in entry.expectations) || Number(entry.expectations.pwr) !== 1) {
+    if (
+      !this.deviceKnownOn() ||
+      this.powerWritePending() ||
+      !('pwr' in entry.expectations) ||
+      Number(entry.expectations.pwr) !== 1
+    ) {
       return true;
     }
 
@@ -658,6 +669,28 @@ class Handler {
   }
 
   /**
+   * Whether a power write is still waiting for the device to confirm it,
+   * including one whose command has not finished sending: `recordWrite` records
+   * it before the send. Until it is resolved, the device reporting on says
+   * nothing about where a newer power-on leaves it.
+   */
+  powerWritePending() {
+    return this.pendingWrites.has('pwr');
+  }
+
+  /**
+   * `powerWritePending`, but not counting the power-on carried by `args`
+   * itself, which is the very write a resend of it is checking.
+   *
+   * @param {string[]} args
+   */
+  powerWritePendingOtherThan(args) {
+    const pending = this.pendingWrites.get('pwr');
+
+    return !!pending && pending.args.join(' ') !== args.join(' ');
+  }
+
+  /**
    * The resend-side counterpart of `dropRedundantPowerOn`. A scene sent to a
    * device that was off carries the power-on merged with the rest, and when the
    * device comes on but ignores the rest, repeating that same command is what
@@ -672,7 +705,7 @@ class Handler {
   withoutRedundantPowerOn(args) {
     const command = this.powerOnCommand();
 
-    if (!this.deviceKnownOn() || !args.includes(command)) {
+    if (!this.deviceKnownOn() || this.powerWritePendingOtherThan(args) || !args.includes(command)) {
       return args;
     }
 
