@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.4.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.3.1...v1.4.0) (2026-10-22)
+
+
+### Features
+
+* add Auto/Manual support for models without the legacy mode register ([#119](https://github.com/atdr/homebridge-philipsair-platform/issues/119)) ([35940de](https://github.com/atdr/homebridge-philipsair-platform/commit/35940dec73c8e10f6b1e62a50c6a35c612ebeb5d))
+* **models:** add AC3829 support and Supported/validated device tiers ([#128](https://github.com/atdr/homebridge-philipsair-platform/issues/128)) ([57cea97](https://github.com/atdr/homebridge-philipsair-platform/commit/57cea97bbb416a1d08a430838344ece8e5ecf84b))
+
+
+### Bug Fixes
+
+* **deps:** bump js-yaml from 4.3.1 to 4.3.2 ([#109](https://github.com/atdr/homebridge-philipsair-platform/issues/109)) ([6338ec0](https://github.com/atdr/homebridge-philipsair-platform/commit/6338ec053c38811e0d734ed8c1734d1a2c73a307))
+* **models:** move Auto to the selector and fix AC1715/AC3036 controls ([#129](https://github.com/atdr/homebridge-philipsair-platform/issues/129)) ([93dbeaf](https://github.com/atdr/homebridge-philipsair-platform/commit/93dbeaf7a85b248ca2f1c1bf50d3c031894d4c4e))
+* treat a rotation speed of 0 as power off ([#118](https://github.com/atdr/homebridge-philipsair-platform/issues/118)) ([7a74796](https://github.com/atdr/homebridge-philipsair-platform/commit/7a7479600a6ebd62eef49d277cf2f57419c3be25))
+
 ## [1.3.1](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.3.0...v1.3.1) (2026-09-08)
 
 
