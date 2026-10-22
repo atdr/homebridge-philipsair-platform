@@ -51,27 +51,19 @@ const section = (heading) => headed(readme, 'README', 2, heading);
 const configSection = section('Configuration');
 const deviceSupportSection = section('Device support');
 
-//The device tier table has one column per tier: '| Tier | Supported, validated ★ |
-//Supported | Other models |', then a '| **What it means** | ... |' row and a
-//'| **Models** | AC0850 ★ | AC1715, AC3036 | Any other model |' row. A model list
-//may be collapsed as '<details><summary>39 models</summary>...</details>' inside
-//its cell. A tier whose name starts with 'Supported' promises a dedicated
-//mapping; the last one is the default.
-const tierTable = deviceSupportSection
-  .split('\n')
-  .filter((line) => line.startsWith('|'))
-  .map((line) =>
-    line
-      .split('|')
-      .slice(1, -1)
-      .map((cell) => cell.trim())
-  );
-const tierHeader = tierTable.find((cells) => cells[0] === 'Tier') || [];
-const modelsRow = tierTable.find((cells) => cells[0].replace(/\*/g, '').trim() === 'Models');
-//one entry per tier column, keyed by the tier name in the header
-const tierRows = modelsRow
-  ? tierHeader.slice(1).map((name, index) => ({ name: name.trim(), cell: modelsRow[index + 1] ?? '' }))
-  : [];
+//The device tiers are '### <tier>' subsections of Device support, each with a
+//'**Description:** ...' paragraph and a '**Models:** AC1715, AC3036' paragraph. A
+//model list may be collapsed as '<details><summary>39 models</summary>...</details>'.
+//A tier whose name starts with 'Supported' promises a dedicated mapping; the last
+//one is the default.
+const tierRows = deviceSupportSection
+  .split(/^### /m)
+  .slice(1)
+  .map((chunk) => {
+    const [name, ...body] = chunk.split('\n');
+    const models = body.find((line) => line.startsWith('**Models:**'));
+    return { name: name.trim(), cell: models ? models.replace('**Models:**', '').trim() : '' };
+  });
 const tierNames = tierRows.map((row) => row.name);
 
 //the summary of a collapsed model list, '39 models', or undefined when the cell has none
@@ -240,10 +232,10 @@ describe('docs', () => {
     }
   });
 
-  it('has a device tier table with a model list for every tier', () => {
-    assert.ok(tierNames.length > 0, "README 'Device support' has no tier table with a 'Models' column");
+  it('lists the models of every device tier', () => {
+    assert.ok(tierNames.length > 0, "README 'Device support' has no '### <tier>' subsections");
     tierNames.forEach((name, index) => {
-      assert.ok(listed[index]?.length, `README 'Device support' tier row '${name}' has no models`);
+      assert.ok(listed[index]?.length, `README 'Device support' tier '${name}' has no **Models:** paragraph`);
     });
     assert.ok(supportedModels.length > 0, "README 'Device support' lists no model in a 'Supported' tier");
   });
