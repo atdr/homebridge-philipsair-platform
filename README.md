@@ -23,7 +23,7 @@ Not every model exposes every control. The AC0850, for example, reports no child
 ## Requirements
 
 - **Homebridge** `^1.8` or `^2.0`
-- **Node** `^22.10`, `^24`, or `^26`
+- **Node** `^22.10`, `^24`, or `^26`. Node 26 needs Homebridge 2.3 or later, since no 1.x release supports it
 - **Python 3.12+** and the [`aioairctrl`](https://pypi.org/project/aioairctrl/) CLI, installed for the user that runs Homebridge. Device communication is not pure JavaScript: the plugin runs this command to speak the purifiers' protocol, and it is not installed automatically.
 - A Philips purifier on the same network, at an address that does not change
 
