@@ -27,7 +27,8 @@
     "index.js",
     "src",
     "config.schema.json",
-    "example-config.json"
+    "example-config.json",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "devDependencies": {
     "@commitlint/cli": "^21.2.0",
