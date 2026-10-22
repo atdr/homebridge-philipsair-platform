@@ -201,6 +201,16 @@ describe('unsupported controls', () => {
     assert.equal(modeless.supportsMode(), false);
   });
 
+  it('reads AUTO, whatever the status says, on a model with no auto/manual concept', () => {
+    //no mapped model is modeless today, but a device with no Auto at all (a fan
+    //heater, say) would be: its selector is pinned to AUTO, so it has to read so
+    const modeless = makeHandler({ model: 'AC0850' });
+    modeless.modeMaps = undefined;
+    modeless.obj = { D0310A: 2, D0310C: 17 };
+
+    assert.equal(modeless.inAutoMode(), true);
+  });
+
   it('reads AUTO before the device has reported its mode, as a mode register does', () => {
     const ac0850 = makeHandler({ model: 'AC0850' });
     const legacy = makeHandler({});
