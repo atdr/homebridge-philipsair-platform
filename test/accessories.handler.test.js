@@ -603,6 +603,99 @@ describe('mode and speed in one scene', () => {
   });
 });
 
+describe('power-on to a device already on', () => {
+  //a Home app scene almost always carries Active=1. An AC0850 that is already
+  //on ignores the registers merged with that redundant power-on, so a scene
+  //asking for Sleep left it in Auto, and the resend repeated the same command
+  const ON = { D03102: 1, D0310A: 2, D0310C: 0 };
+
+  it('sends a scene without the power-on to an AC0850 that reports on', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON });
+
+    await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(50)]);
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=17']);
+    assert.deepEqual([...handler.pendingWrites.keys()], ['D0310A', 'D0310C']);
+  });
+
+  it('still merges the power-on into a scene for an AC0850 that reports off', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON, D03102: 0 });
+
+    await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(50)]);
+
+    assert.deepEqual(sent, ['-I D03102=1 D0310A=2 D0310C=17']);
+  });
+
+  it('still merges the power-on into a scene before any status', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+
+    await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(50)]);
+
+    assert.deepEqual(sent, ['-I D03102=1 D0310A=2 D0310C=17']);
+  });
+
+  it('sends nothing for a lone power-on to a device that reports on', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    const logs = capture();
+    t.after(() => {
+      logs.restore();
+      handler.kill(true);
+    });
+    handler.handleResponse({ ...ON });
+
+    await handler.setPurifierActive(1);
+
+    assert.deepEqual(sent, []);
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.deepEqual(logs.warn, []);
+  });
+
+  it('still sends a power-off to a device that reports on', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON });
+
+    await handler.setPurifierActive(0);
+
+    assert.deepEqual(sent, ['-I D03102=0']);
+  });
+
+  it('keeps the device on when a scene also carries 0%', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON });
+
+    await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(0)]);
+
+    assert.deepEqual(sent, []);
+  });
+
+  it('reads the power of every dialect, including one that reports it as a word', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC1715' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-12': 'Auto General' });
+
+    await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(100)]);
+
+    assert.deepEqual(sent, ['D03-12=Turbo']);
+  });
+
+  it('drops the power-on on the default dialect too', async (t) => {
+    const { handler, sent } = recordingWrites({});
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ pwr: '1', mode: 'M', om: '1' });
+
+    await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(100)]);
+
+    assert.deepEqual(sent, ['om=t']);
+  });
+});
+
 describe('AC0850 slider around Auto', () => {
   //with #118, 0% means off, so Auto must never read 0%: a scene captured in
   //Auto would replay as off. The slider reads the last manual step instead

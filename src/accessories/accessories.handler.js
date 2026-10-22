@@ -543,11 +543,19 @@ class Handler {
       kept.forEach((entry) => Object.keys(entry.expectations).forEach((key) => claimed.add(key)));
     }
 
-    const batch = this.writeBatch.filter((entry) => !dropped.has(entry));
+    //after the yielding pass, so a 0% still gives way to the power-on it came
+    //with even when that power-on is then left out as redundant
+    const batch = this.writeBatch
+      .filter((entry) => !dropped.has(entry))
+      .filter((entry) => this.dropRedundantPowerOn(entry));
     dropped.forEach((entry) => entry.resolve(false));
 
     this.writeBatch = [];
     this.writeBatchTimeout = null;
+
+    if (!batch.length) {
+      return;
+    }
 
     const mergedCmds = batch.flatMap((entry) => entry.cmds);
     const canMerge = batch.length > 1 && this.intEncodable(mergedCmds);
@@ -576,6 +584,89 @@ class Handler {
         entry.reject(err);
       }
     }
+  }
+
+  /**
+   * The `key=value` element a power-on is written as, in this model's own
+   * register and value: what `handleCommand('pwr', 1)` returns, without its log line.
+   */
+  powerOnCommand() {
+    const value = this.valueMaps.pwr ? this.valueMaps.pwr[1] : 1;
+
+    return `${this.keyMaps.pwr || 'pwr'}=${value}`;
+  }
+
+  /**
+   * Leaves a power-on out of a queued write when the device already reports
+   * itself on. A Home app scene almost always carries Active=1, so the power-on
+   * is merged into the same `set` as the scene's speed or mode, and an AC0850
+   * that is already on ignores every register merged with it: a scene asking
+   * for Sleep left it in Auto, and the resend repeated the same command. The
+   * rest of the write goes out alone, as a plain slider change does.
+   *
+   * Only a power-on, and only to a device whose last status says it is on. A
+   * power-off is never redundant in this sense, and a device that is off or has
+   * not reported yet still gets the power-on merged as before. The expectation
+   * goes too, so verification neither waits for `pwr` nor resends it.
+   *
+   * @param {{ cmds: string[], expectations: Record<string, unknown>, resolve: (sent: boolean) => void }} entry
+   * @returns {boolean} false when nothing is left to send; the entry is then resolved as sent
+   */
+  dropRedundantPowerOn(entry) {
+    if (!this.deviceKnownOn() || !('pwr' in entry.expectations) || Number(entry.expectations.pwr) !== 1) {
+      return true;
+    }
+
+    const command = this.powerOnCommand();
+    logger.debug(`The device already reports it is on, leaving ${command} out`, this.accessory.displayName);
+
+    entry.cmds = entry.cmds.filter((cmd) => cmd !== command);
+    entry.expectations = Object.fromEntries(Object.entries(entry.expectations).filter(([key]) => key !== 'pwr'));
+
+    if (!entry.cmds.length) {
+      //what was asked for is already true, so the setter succeeded
+      entry.resolve(true);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * The resend-side counterpart of `dropRedundantPowerOn`. A scene sent to a
+   * device that was off carries the power-on merged with the rest, and when the
+   * device comes on but ignores the rest, repeating that same command is what
+   * made it ignore the rest in the first place. So once the device reports on,
+   * the power-on is taken out of the command, and the writes it carries are
+   * re-pointed at the command that actually goes out, which is what
+   * `writesFor` matches on.
+   *
+   * @param {string[]} args
+   * @returns {string[] | null} the command to resend, or null when nothing but the power-on was in it
+   */
+  withoutRedundantPowerOn(args) {
+    const command = this.powerOnCommand();
+
+    if (!this.deviceKnownOn() || !args.includes(command)) {
+      return args;
+    }
+
+    const stripped = args.filter((arg) => arg !== command);
+    const carried = this.writesFor(args);
+    const remaining = stripped.slice(stripped.indexOf('set') + 1).some((arg) => !arg.startsWith('-'));
+
+    logger.debug(`The device already reports it is on, resending without ${command}`, this.accessory.displayName);
+
+    for (const [key, pending] of carried) {
+      if (key === 'pwr' || !remaining) {
+        //the device reporting on is the very reading the power-on was waiting for
+        this.pendingWrites.delete(key);
+      } else {
+        pending.args = stripped;
+      }
+    }
+
+    return remaining ? stripped : null;
   }
 
   /**
@@ -1482,7 +1573,8 @@ class Handler {
    * @param {string[][]} commands
    */
   async resendInTurn(commands) {
-    const batch = this.orderPowerLast(commands);
+    const resendable = commands.map((args) => this.withoutRedundantPowerOn(args)).filter((args) => args !== null);
+    const batch = this.orderPowerLast(resendable);
 
     //the whole batch's horizon closes up front rather than as each command is
     //reached: a status arriving while a later one waits its turn predates that
@@ -2043,6 +2135,15 @@ class Handler {
    */
   deviceKnownOff() {
     return this.obj.pwr !== undefined && !parseInt(this.obj.pwr);
+  }
+
+  /**
+   * Whether the device has told us it is switched on, on the same basis as
+   * `deviceKnownOff`. Not simply its negation: a device that has never
+   * answered is known to be neither.
+   */
+  deviceKnownOn() {
+    return this.obj.pwr !== undefined && !!parseInt(this.obj.pwr);
   }
 
   /**
