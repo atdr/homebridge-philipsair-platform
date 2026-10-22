@@ -1,14 +1,15 @@
 'use strict';
 
-//Drift guards that keep README.md in step with the source of truth
-//(config.schema.json, example-config.json and accessories.models.js). They cover
-//the three parts of the README that go stale silently: the config option tables,
-//the full config example, and the list of models with a dedicated mapping.
+//Drift guards that keep README.md and docs/controls.md in step with the source of
+//truth (config.schema.json, example-config.json and accessories.models.js). They
+//cover the parts of the docs that go stale silently: the config option tables, the
+//full config example, the list of models with a dedicated mapping, and the slider
+//steps each model gets.
 //
 //Same shape as config.schema.test.js: read the files, assert the invariant. If a
 //check here fails, the fix is almost always to update the doc, not to weaken the
-//test. Each check names the README section it reads, so a restructure that moves
-//or renames a heading has to update the slice here too.
+//test. Each check names the section it reads, so a restructure that moves or
+//renames a heading has to update the slice here too.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -23,6 +24,7 @@ const readFile = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 const schema = JSON.parse(readFile('config.schema.json')).schema;
 const exampleConfig = JSON.parse(readFile('example-config.json'));
 const readme = readFile('README.md');
+const controls = readFile('docs/controls.md');
 
 const platformProps = Object.keys(schema.properties);
 //'platform' is the Homebridge plugin alias, always present in a config block but
@@ -30,16 +32,19 @@ const platformProps = Object.keys(schema.properties);
 const structuralKeys = new Set(['platform']);
 const deviceProps = Object.keys(schema.properties.devices.items.properties);
 
-//The body of a '## Heading' section, up to the next top-level heading. Anchored
-//to the start of a line so a '### ' subheading inside the section does not end
-//the slice, which a plain indexOf('## ') would do.
-const section = (heading) => {
-  const start = readme.indexOf(`## ${heading}\n`);
-  assert.notEqual(start, -1, `README has no '## ${heading}' section`);
-  const rest = readme.slice(start + heading.length + 4);
-  const end = rest.search(/^## /m);
+//The body of a '## Heading' section, up to the next heading of the same level or
+//higher. Anchored to the start of a line so a '### ' subheading inside the section
+//does not end the slice, which a plain indexOf('## ') would do.
+const headed = (text, file, level, heading) => {
+  const marker = `${'#'.repeat(level)} ${heading}\n`;
+  //a leading newline lets one indexOf match the heading at the start of a line
+  const start = `\n${text}`.indexOf(`\n${marker}`);
+  assert.notEqual(start, -1, `${file} has no '${marker.trim()}' section`);
+  const rest = text.slice(start + marker.length);
+  const end = rest.search(new RegExp(`^#{1,${level}} `, 'm'));
   return end === -1 ? rest : rest.slice(0, end);
 };
+const section = (heading) => headed(readme, 'README', 2, heading);
 
 //Field tables live under '## Configuration' only. Scoping the parse there keeps
 //an unrelated table elsewhere in the README from being read as a config option.
@@ -82,14 +87,8 @@ const validatedModels = listed
   .filter((item) => item !== undefined && item.includes('★'))
   .map((item) => item.replace('★', '').trim());
 
-//The body of a '### Heading' subsection within an already sliced section.
-const subsection = (text, heading) => {
-  const start = text.indexOf(`### ${heading}\n`);
-  assert.notEqual(start, -1, `README has no '### ${heading}' subsection`);
-  const rest = text.slice(start + heading.length + 5);
-  const end = rest.search(/^#{2,3} /m);
-  return end === -1 ? rest : rest.slice(0, end);
-};
+//The body of a '### Heading' subsection within an already sliced README section.
+const subsection = (text, heading) => headed(text, 'README', 3, heading);
 
 //Each Markdown table in a slice, as an ordered list of the option names in its
 //first column, stripped of the formatting the README uses: '| `host` |' -> 'host'.
@@ -264,14 +263,14 @@ describe('docs', () => {
 
   //the slider layout is what a user sees of the speed table, and it changes
   //whenever a step is added or Auto moves off the slider
-  it('gives every mapped model a README slider row with one step per speed', () => {
-    const rows = subsection(deviceSupportSection, 'Fan speed and Auto')
+  it('gives every mapped model a docs/controls.md slider row with one step per speed', () => {
+    const rows = headed(controls, 'docs/controls.md', 2, 'Fan speed and Auto')
       .split('\n')
       .filter((line) => line.trimStart().startsWith('|'))
       .map((line) => line.split('|').map((cell) => cell.trim()));
     const modelConfig = require('../src/accessories/accessories.models');
 
-    //the README's name for each register dialect
+    //the docs' name for each register dialect
     const DIALECT_LABELS = { dashed: 'dashed', dashless: 'dash-less' };
 
     //a row can name several models that share one slider, comma separated. A
@@ -282,7 +281,7 @@ describe('docs', () => {
       for (const dialect of dialects.length ? dialects : [undefined]) {
         const name = dialect ? `${model} (${DIALECT_LABELS[dialect]})` : model;
         const row = rows.find((cells) => cells[1].split(',').some((cell) => cell.trim() === name));
-        assert.ok(row, `the README 'Fan speed and Auto' table has no row for ${name}`);
+        assert.ok(row, `the docs/controls.md 'Fan speed and Auto' table has no row for ${name}`);
 
         //a model whose slider follows the fan level has a step per level, not per speed
         const { fanLevel, speeds } = modelConfig({ model, dialect });
@@ -290,7 +289,7 @@ describe('docs', () => {
         assert.equal(
           steps,
           (fanLevel ? fanLevel.steps : speeds).length,
-          `the README slider row for ${name} is out of date`
+          `the docs/controls.md slider row for ${name} is out of date`
         );
       }
     }
