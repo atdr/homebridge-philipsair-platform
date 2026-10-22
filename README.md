@@ -163,7 +163,7 @@ The `model` field selects how the plugin encodes power, mode and fan speed, beca
 | **Description** | As Supported, and also confirmed on hardware by this project. | Dedicated mapping, taken from a source with hardware evidence. | Default mapping. Often fits, never guaranteed. |
 
 - **Supported, validated ★:** AC0850 ★
-- **Supported:** AC1214, AC1715, AC2729, AC2889, AC2936, AC2939, AC2958, AC2959, AC3033, AC3036, AC3039, AC3055, AC3059, AC3259, AC3829, AC3836, AC3854, AC3858, AC4236, AC4550, AC4558, AC5659, AC5660
+- **Supported:** AC0650, AC1214, AC1715, AC2729, AC2889, AC2936, AC2939, AC2958, AC2959, AC3033, AC3036, AC3039, AC3055, AC3059, AC3259, AC3829, AC3836, AC3854, AC3858, AC4236, AC4550, AC4558, AC5659, AC5660
 - **Other models:** Any other model
 
 A Supported mapping comes from the people who own the hardware: users and contributors of the [original plugin](https://github.com/seydx/homebridge-philipsair-platform), or the [ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier) Home Assistant integration. The model dropdown in the Homebridge UI offers every Supported model. Anything else falls back to the default.
@@ -184,6 +184,7 @@ Auto is never a step on the fan speed slider. It is on the Home app's auto/manua
 
 | Model                                                          | Slider steps                                                                                             | Auto on the switch sends                                |
 | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| AC0650                                                         | 50% Sleep, 100% Turbo                                                                                    | `Auto General`                                          |
 | AC0850                                                         | 50% Sleep, 100% Turbo                                                                                    | `D0310C` 0                                              |
 | AC1214                                                         | 20% Night, 40% Speed 1, 60% Speed 2, 80% Speed 3, 100% Turbo                                             | `P`, or `A` with `allergicFunc`                         |
 | AC1715                                                         | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                          | `Auto General`                                          |

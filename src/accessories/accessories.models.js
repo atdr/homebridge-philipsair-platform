@@ -164,6 +164,32 @@ const P_AND_A_MODES = { auto: { mode: 'P' }, allergen: { mode: 'A' } };
 const AG_MODES = { auto: { mode: 'AG' } };
 
 Object.assign(models, {
+  //dashed dialect, the AC0850 AWS_Philips_AIR configuration
+  //ruaan-deysel/ha-philips-airpurifier gives the AC0650: Sleep and Turbo only,
+  //no light or child lock, and no pre-filter
+  AC0650: {
+    speeds: [{ mode: 'Sleep' }, { mode: 'Turbo' }],
+    modeMaps: {
+      auto: { mode: 'Auto General' },
+    },
+    keyMaps: {
+      pwr: 'D03-02',
+      mode: 'D03-12',
+      iaql: 'D03-32',
+      pm25: 'D03-33',
+      fltsts1: 'D05-14',
+      flttotal1: 'D05-08',
+    },
+    valueMaps: {
+      pwr: {
+        OFF: 0,
+        ON: 1,
+        0: 'OFF',
+        1: 'ON',
+      },
+    },
+  },
+
   //legacy dialect: the generic keys are the wire keys, so only the speeds and
   //modes are the model's own
 

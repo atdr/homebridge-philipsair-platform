@@ -284,6 +284,7 @@ describe('imported models', () => {
       'AC5659',
       'AC5660',
     ],
+    dashed: ['AC0650'],
   };
 
   it('maps every imported model', () => {
@@ -307,6 +308,16 @@ describe('imported models', () => {
     }
   });
 
+  it('gives the AC0650 the dashed power words and mode words', () => {
+    const config = modelConfig({ model: 'AC0650' });
+
+    assert.equal(config.keyMaps.pwr, 'D03-02');
+    assert.equal(config.keyMaps.mode, 'D03-12');
+    assert.equal(config.valueMaps.pwr[1], 'ON');
+    assert.deepEqual(config.speeds, [{ mode: 'Sleep' }, { mode: 'Turbo' }]);
+    assert.deepEqual(config.modeMaps, { auto: { mode: 'Auto General' } });
+  });
+
   it('reads the AC4558 automatic modes from mode and om together', () => {
     const config = modelConfig({ model: 'AC4558' });
 
@@ -318,7 +329,7 @@ describe('imported models', () => {
     for (const model of ['AC1214', 'AC2729', 'AC2889', 'AC3259', 'AC4550', 'AC4558', 'AC5659', 'AC5660']) {
       assert.equal(modelConfig.hasAllergenMode(model), true, model);
     }
-    for (const model of ['AC2936', 'AC3033', 'AC3854', 'AC4236']) {
+    for (const model of ['AC2936', 'AC3033', 'AC3854', 'AC4236', 'AC0650']) {
       assert.equal(modelConfig.hasAllergenMode(model), false, model);
     }
   });

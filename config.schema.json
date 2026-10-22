@@ -206,6 +206,7 @@
               "key": "devices[].model",
               "typeahead": {
                 "source": [
+                  "AC0650",
                   "AC0850",
                   "AC1214",
                   "AC1715",
