@@ -51,11 +51,12 @@ const section = (heading) => headed(readme, 'README', 2, heading);
 const configSection = section('Configuration');
 const deviceSupportSection = section('Device support');
 
-//The device tier table: '| Tier | What it means | Models |', then one row per
-//tier, '| **Supported** | ... | AC1715, AC3036 |'. A long model list sits in a
-//collapsed '<details><summary>39 models</summary>...</details>' inside its cell.
-//A tier whose name starts with 'Supported' promises a dedicated mapping; the last
-//one is the default.
+//The device tier table has one column per tier: '| Tier | Supported, validated ★ |
+//Supported | Other models |', then a '| **What it means** | ... |' row and a
+//'| **Models** | AC0850 ★ | AC1715, AC3036 | Any other model |' row. A model list
+//may be collapsed as '<details><summary>39 models</summary>...</details>' inside
+//its cell. A tier whose name starts with 'Supported' promises a dedicated
+//mapping; the last one is the default.
 const tierTable = deviceSupportSection
   .split('\n')
   .filter((line) => line.startsWith('|'))
@@ -66,12 +67,12 @@ const tierTable = deviceSupportSection
       .map((cell) => cell.trim())
   );
 const tierHeader = tierTable.find((cells) => cells[0] === 'Tier') || [];
-const modelsColumn = tierHeader.indexOf('Models');
-//every row below the header and its separator, keyed by the tier name in bold
-const tierRows = tierTable
-  .filter((cells) => cells !== tierHeader && !/^-+$/.test(cells[0]))
-  .map((cells) => ({ name: cells[0].replace(/\*/g, '').trim(), cell: cells[modelsColumn] ?? '' }));
-const tierNames = modelsColumn === -1 ? [] : tierRows.map((row) => row.name);
+const modelsRow = tierTable.find((cells) => cells[0].replace(/\*/g, '').trim() === 'Models');
+//one entry per tier column, keyed by the tier name in the header
+const tierRows = modelsRow
+  ? tierHeader.slice(1).map((name, index) => ({ name: name.trim(), cell: modelsRow[index + 1] ?? '' }))
+  : [];
+const tierNames = tierRows.map((row) => row.name);
 
 //the summary of a collapsed model list, '39 models', or undefined when the cell has none
 const tierSummary = (cell) => /<summary>(.*?)<\/summary>/.exec(cell)?.[1];
