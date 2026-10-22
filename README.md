@@ -210,7 +210,7 @@ Some controls depend on what a model's registers can do:
 - On the models that report dash-less registers such as `D03102` (the AC0950, AC0951, AC2210, AC2220, AC2221, AC3210, AC3220, AC3221, AC3420, AC3421, AC3737, AC4220, AC4221 and AMF765):
   - The **light** is on or off, and any brightness switches it on. On most of them it is the lamp (`D03135`), because the display backlight register only reports there. The AC0950, AC0951 and AC3737 have no light the plugin can switch.
   - The **temperature** sensor reads 0: these models report tenths of a degree, which the plugin does not convert.
-  - The **humidifier** on the AC3420, AC3421 and AC3737 sets the target humidity, but cannot switch humidifying on or off.
+  - The **humidifier** option does nothing on the AC3420, AC3421 and AC3737, and says so in the log at startup. These models report no humidifier on/off the plugin can read or switch, so it offers no humidifier control rather than one that cannot work.
 
 ## Troubleshooting
 

@@ -406,6 +406,19 @@ describe('imported models', () => {
     assert.equal(valueMaps.cl[0], false);
   });
 
+  it('maps no humidifier on the dash-less humidifiers, which have no on/off register', () => {
+    for (const model of ['AC3420', 'AC3421', 'AC3737']) {
+      const config = modelConfig({ model });
+
+      assert.equal(config.keyMaps.rhset, undefined, model);
+      assert.ok(config.unsupported.includes('func'), model);
+      assert.equal(modelConfig.hasHumidifier(model), false, model);
+    }
+    for (const model of ['AC0850', 'AC3829', undefined]) {
+      assert.equal(modelConfig.hasHumidifier(model), true, String(model));
+    }
+  });
+
   it('gives the AC0650 the dashed power words and mode words', () => {
     const config = modelConfig({ model: 'AC0650' });
 

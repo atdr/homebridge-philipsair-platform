@@ -904,6 +904,11 @@ class Handler {
 
   //Humidifier
   async setHumidifierActive(state) {
+    if (!this.supports('func')) {
+      logger.debug(`This model has no humidifier on/off, ignoring ${state}`, this.accessory.displayName);
+      return;
+    }
+
     try {
       const values = {
         func: state ? 'PH' : 'P',
@@ -952,6 +957,11 @@ class Handler {
   }*/
 
   async setHumidifierTargetState(state) {
+    if (!this.supports('func')) {
+      logger.debug(`This model has no humidifier on/off, ignoring ${state}`, this.accessory.displayName);
+      return;
+    }
+
     try {
       const speed = state;
 

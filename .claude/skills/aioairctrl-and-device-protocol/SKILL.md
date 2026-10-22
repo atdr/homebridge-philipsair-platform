@@ -475,7 +475,9 @@ dialects:
   `uil` onto one register so the two writes agree: the lamp mode `D03135` (on/off; the
   `D03105` backlight is read-only on an AC4220/12), or `D0312D` on the AMF765. `temp` is
   not mapped, because `D03224` reports tenths of a degree and a value map cannot scale it,
-  and the humidifier models map `rhset` → `D03128` only, since `func` has no counterpart.
+  and the humidifier models (AC3420/AC3421, AC3737) mark `func` unsupported, since it has
+  no dash-less counterpart: the service needs `func`, so the `humidifier` option is ignored
+  there with a startup warning, and their `D03128` target register is left unmapped.
 
 **AC0651.** One more dash-less entry comes from a different source, the cloud plugin
 Micheledipaola/homebridge-philips-airplus (MIT, `THIRD_PARTY_NOTICES.md`), whose data was
@@ -491,6 +493,9 @@ register for at all. `Handler.supports(key)` reads it, and it gates three things
 method, the optimistic push, and the characteristic in `accessories.service.js`. Adding a key
 here removes a control from users' Home apps, so it belongs on observed absence from a status
 dump, never on a mapping that merely has not been worked out yet.
+`func` on the AC3420/AC3421/AC3737 is listed on the imported sources' evidence instead (none
+names a dash-less counterpart), and there it gates the whole humidifier service, both
+humidifier setters, and a startup warning that the `humidifier` option does nothing.
 
 A fifth field, **`modeMaps`**, is every model's auto/manual concept, and the only mechanism
 behind `TargetAirPurifierState`: there is no separate legacy `mode === 'M'` path. Its entries,

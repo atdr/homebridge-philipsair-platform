@@ -201,6 +201,28 @@ describe('accessories.setup', () => {
     assert.ok(warn[0].includes('Bedroom: The allergic mode option does nothing for the AC0850'));
   });
 
+  //the AC3420, AC3421 and AC3737 have a target humidity register but no
+  //humidifier on/off this plugin can write, so no humidifier is offered
+  it('says when the humidifier option cannot do anything for the model', async () => {
+    const { warn, restore } = capture();
+
+    await Setup(
+      deviceMap,
+      [
+        { active: true, name: 'Bedroom', model: 'AC3420', host: '10.0.1.16', humidifier: true },
+        { active: true, name: 'Study', model: 'AC3737', host: '10.0.1.17', humidifier: true },
+        { active: true, name: 'Lounge', model: 'AC3829', host: '10.0.1.18', humidifier: true },
+        { active: true, name: 'Hall', model: 'AC3421', host: '10.0.1.19' },
+      ],
+      uuid.generate
+    );
+    restore();
+
+    assert.equal(warn.length, 2);
+    assert.ok(warn[0].includes('Bedroom: The humidifier option does nothing for the AC3420'));
+    assert.ok(warn[1].includes('Study: The humidifier option does nothing for the AC3737'));
+  });
+
   it('leaves a trace when a device is skipped for being inactive', async () => {
     const { info, restore } = capture();
 

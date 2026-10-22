@@ -237,10 +237,14 @@ const LAMP_LIGHT = {
   },
 };
 
-//the humidity target, 40 to 70 in steps of 10 like the legacy rhset. The
-//humidifier's on/off has no register this plugin can write: the legacy func
-//P/PH has no dash-less counterpart
-const DASHLESS_HUMIDIFIER = { rhset: 'D03128' };
+//The dash-less humidifiers have a humidity target register (D03128, 40 to 70
+//in steps of 10 like the legacy rhset) but no on/off this plugin can write or
+//read: the legacy func P/PH has no dash-less counterpart. The humidifier
+//service reads and writes func, so on these it could only publish Active 0 and
+//a threshold of 0, and send a func=PH the device does not have. It is not
+//offered (the humidifier option warns that it does nothing) until a
+//target-only humidifier can be built and checked on hardware
+const DASHLESS_HUMIDIFIER = { unsupported: ['func'] };
 
 //ruaan-deysel/ha-philips-airpurifier's AC32xx ladder: speeds 1 to 5, with its
 //Sleep and Turbo presets as the outer steps. Its medium preset (19) is left
@@ -430,18 +434,18 @@ Object.assign(models, {
     modeMaps: DASHLESS_AUTO,
     ...LAMP_LIGHT,
   }),
-  //humidifiers: target humidity only (see DASHLESS_HUMIDIFIER)
+  //humidifiers, but with no humidifier control here (see DASHLESS_HUMIDIFIER)
   AC3420: dashless({
     speeds: AC0950_SPEEDS,
     modeMaps: DASHLESS_AUTO,
-    keyMaps: { ...LAMP_LIGHT.keyMaps, ...DASHLESS_HUMIDIFIER },
-    valueMaps: LAMP_LIGHT.valueMaps,
+    ...LAMP_LIGHT,
+    ...DASHLESS_HUMIDIFIER,
   }),
   AC3421: dashless({
     speeds: AC0950_SPEEDS,
     modeMaps: DASHLESS_AUTO,
-    keyMaps: { ...LAMP_LIGHT.keyMaps, ...DASHLESS_HUMIDIFIER },
-    valueMaps: LAMP_LIGHT.valueMaps,
+    ...LAMP_LIGHT,
+    ...DASHLESS_HUMIDIFIER,
   }),
   //a humidifier whose steps are D0310A/D0310C pairs, turbo on D0310A 3. Its
   //only light register is D03105, read-only on this dialect (see LAMP_LIGHT),
@@ -456,7 +460,7 @@ Object.assign(models, {
     modeMaps: {
       auto: { D0310A: 2, D0310C: 0 },
     },
-    keyMaps: DASHLESS_HUMIDIFIER,
+    ...DASHLESS_HUMIDIFIER,
   }),
   //homebridge-philips-airctrl, on an AC4220/12: D0310C 5 already runs at
   //Turbo, and Turbo (18) and medium (19) only repeat speeds 5 and 3. So the
@@ -677,6 +681,10 @@ modelConfig.hasOwnSpeeds = (key) => Boolean(key && models[key] && models[key].sp
 //whether a model has a plain allergen mode, i.e. whether the allergicFunc
 //option can do anything for it
 modelConfig.hasAllergenMode = (key) => Boolean((modeMapsFor(key) || {}).allergen);
+
+//whether a model has a humidifier on/off the plugin can drive, i.e. whether
+//the humidifier option can do anything for it
+modelConfig.hasHumidifier = (key) => !(key && models[key] && (models[key].unsupported || []).includes('func'));
 
 //every field a model entry uses, for the drift guard in test/docs.test.js
 modelConfig.modelFields = [...new Set(Object.values(models).flatMap((model) => Object.keys(model)))];

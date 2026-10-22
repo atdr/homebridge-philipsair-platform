@@ -2,7 +2,7 @@
 
 const logger = require('../utils/logger');
 const Config = require('./accessories.config');
-const { resolveModel, hasOwnSpeeds, hasAllergenMode } = require('./accessories.models');
+const { resolveModel, hasOwnSpeeds, hasAllergenMode, hasHumidifier } = require('./accessories.models');
 
 /**
  * Resolves which command set a device runs on, and says so in the log.
@@ -13,7 +13,7 @@ const { resolveModel, hasOwnSpeeds, hasAllergenMode } = require('./accessories.m
  * and where the model can be recovered from the device name it is better to
  * drive the device correctly and say why than to be right about the config.
  *
- * @param {{ name: string, model: string, sleepSpeed?: boolean, allergicFunc?: boolean }} device
+ * @param {{ name: string, model: string, sleepSpeed?: boolean, allergicFunc?: boolean, humidifier?: boolean }} device
  * @returns {string | undefined} the mapped model, or undefined for the default mapping
  */
 const announceModel = (device) => {
@@ -38,6 +38,13 @@ const announceModel = (device) => {
 
   if (device.allergicFunc && !hasAllergenMode(key)) {
     logger.warn(`The allergic mode option does nothing for the ${key}, which has no plain allergen mode.`, device.name);
+  }
+
+  if (device.humidifier && !hasHumidifier(key)) {
+    logger.warn(
+      `The humidifier option does nothing for the ${key}, which has no humidifier on/off this plugin can drive.`,
+      device.name
+    );
   }
 
   if (key) {
