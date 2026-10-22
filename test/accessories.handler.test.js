@@ -32,11 +32,12 @@ const capture = () => {
   return { info, warn, restore: () => logger.configure({ info: noop, warn: noop, error: noop }, {}) };
 };
 
-const makeHandler = (config) =>
+const makeHandler = (config, context = {}) =>
   new Handler(fakeApi, {
     displayName: config.name || 'Test Purifier',
     context: {
       config: { host: '192.168.1.142', port: 5683, debug: false, ...config },
+      ...context,
     },
   });
 
@@ -468,8 +469,8 @@ describe('rotationSpeed', () => {
 
 //records what each write sends (the arguments after 'set') and the last value
 //pushed to each purifier characteristic
-const recordingWrites = (config) => {
-  const handler = makeHandler(config);
+const recordingWrites = (config, context) => {
+  const handler = makeHandler(config, context);
   handler.api = {
     ...fakeApi,
     hap: {
@@ -977,5 +978,200 @@ describe('model mapping check', () => {
     });
 
     assert.equal(handler.keyMaps.pwr, 'D03-02');
+  });
+});
+
+describe('register dialect check', () => {
+  //a real AC0850/31, untranslated, captured 2026-08-19 on firmware 0.1.3
+  const dashlessStatus = () => ({
+    D01102: 5,
+    D01S03: 'Bedroom',
+    D01S05: 'AC0850/31',
+    WifiVersion: 'AWS_Philips_AIR_Combo@86',
+    D03102: 1,
+    D0310A: 2,
+    D0310C: 0,
+    D03120: 1,
+    D03221: 1,
+    D0540E: 224,
+    D05408: 4800,
+  });
+
+  //the dashed vocabulary ruaan-deysel/ha-philips-airpurifier reads from AC0850
+  //units on AWS_Philips_AIR firmware, which the AC1715 shares
+  const dashedStatus = () => ({
+    'D01-05': 'AC0850/11',
+    WifiVersion: 'AWS_Philips_AIR@62',
+    'D03-02': 'ON',
+    'D03-12': 'Sleep',
+    'D03-32': 2,
+    'D03-33': 4,
+    'D05-14': 3100,
+    'D05-08': 4800,
+  });
+
+  const captureAll = () => {
+    const info = [];
+    const warn = [];
+    const debug = [];
+
+    logger.configure(
+      {
+        info: (message) => (message.startsWith('[DEBUG]') ? debug : info).push(message),
+        warn: (message) => warn.push(message),
+        error: noop,
+      },
+      { debug: true }
+    );
+
+    return { info, warn, debug, restore: () => logger.configure({ info: noop, warn: noop, error: noop }, {}) };
+  };
+
+  it("uses each model's validated dialect before anything is detected", () => {
+    assert.equal(makeHandler({ model: 'AC0850' }).keyMaps.pwr, 'D03102');
+    assert.equal(makeHandler({ model: 'AC0850' }).dialect, 'dashless');
+    assert.equal(makeHandler({ model: 'AC1715' }).keyMaps.pwr, 'D03-02');
+    assert.equal(makeHandler({ model: 'AC1715' }).dialect, 'dashed');
+  });
+
+  it('records a dialect the model has another mapping for, once, for the next start', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' });
+    const { warn, restore } = captureAll();
+
+    handler.handleResponse(dashedStatus());
+    handler.handleResponse(dashedStatus());
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.ok(warn[0].includes('dashed'), warn[0]);
+    assert.ok(warn[0].includes('next restart'), warn[0]);
+    assert.ok(warn[0].includes('AWS_Philips_AIR@62'), warn[0]);
+    assert.ok(warn[0].includes('AC0850/11'), warn[0]);
+    assert.equal(handler.accessory.context.detectedDialect, 'dashed');
+    //a dashed status fingerprints as the AC1715, but the configured model
+    //reads it once its other dialect is in force: that is not a wrong model
+    assert.equal(handler.accessory.context.detectedModel, undefined);
+    assert.ok(persisted.includes(handler.accessory));
+  });
+
+  it('records a dash-less AC1715 the same way', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC1715' });
+    const { warn, restore } = captureAll();
+
+    handler.handleResponse({ D03102: 1, D0310C: 2, D03120: 3, D03221: 6, D0540E: 3000, D05408: 4800 });
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.ok(warn[0].includes('dash-less'), warn[0]);
+    assert.equal(handler.accessory.context.detectedDialect, 'dashless');
+    assert.equal(handler.accessory.context.detectedModel, undefined);
+  });
+
+  it('says nothing about a device speaking the dialect in force, and logs what it reports', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' });
+    const { warn, debug, restore } = captureAll();
+
+    handler.handleResponse(dashlessStatus());
+    restore();
+
+    assert.deepEqual(warn, []);
+    assert.equal(handler.accessory.context.detectedDialect, undefined);
+    assert.ok(
+      debug.some(
+        (message) =>
+          message.includes('AC0850/31') &&
+          message.includes('region 31') &&
+          message.includes('AWS_Philips_AIR_Combo@86') &&
+          message.includes('dash-less')
+      ),
+      debug.join('\n')
+    );
+  });
+
+  it('applies a dialect detected on an earlier run', () => {
+    const { info, restore } = captureAll();
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' }, { detectedDialect: 'dashed' });
+    restore();
+
+    assert.equal(handler.dialect, 'dashed');
+    assert.equal(handler.keyMaps.pwr, 'D03-02');
+    assert.equal(handler.supports('mode'), true);
+    assert.equal(handler.supports('cl'), false);
+    assert.ok(info.some((message) => message.includes('dashed')));
+  });
+
+  it('switches back when a firmware update changes the dialect again', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC0850' }, { detectedDialect: 'dashed' });
+    const { warn, restore } = captureAll();
+
+    handler.handleResponse(dashlessStatus());
+    restore();
+
+    assert.equal(warn.length, 1);
+    assert.equal(handler.accessory.context.detectedDialect, 'dashless');
+  });
+
+  it('leaves a plain model alone, whatever dialect was detected before', () => {
+    const plain = makeHandler({ model: 'AC3036' });
+    const handler = makeHandler({ model: 'AC3036' }, { detectedDialect: 'dashed' });
+
+    assert.equal(handler.dialect, undefined);
+    assert.deepEqual(handler.speeds, plain.speeds);
+    assert.deepEqual(handler.keyMaps, plain.keyMaps);
+    assert.deepEqual(handler.modeMaps, plain.modeMaps);
+  });
+
+  it('records nothing about the dialect of a plain model', () => {
+    const handler = makeHandler({ name: 'Bedroom', model: 'AC3036' });
+    const { restore } = captureAll();
+
+    handler.handleResponse(dashlessStatus());
+    restore();
+
+    assert.equal(handler.accessory.context.detectedDialect, undefined);
+  });
+
+  it('drives a dashed AC0850 with words on D03-12', async (t) => {
+    const { handler, sent, shown } = recordingWrites({ model: 'AC0850' }, { detectedDialect: 'dashed' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    assert.deepEqual(sent, ['D03-12=Auto General']);
+
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-12': 'Auto General', 'D03-33': 4 });
+    assert.equal(handler.obj.pwr, 1);
+    assert.equal(handler.obj.pm25, 4);
+    assert.equal(handler.inAutoMode(), true);
+
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-12': 'Turbo' });
+    assert.equal(handler.inAutoMode(), false);
+    assert.equal(handler.rotationSpeed(), 100);
+
+    sent.length = 0;
+    await handler.setPurifierRotationSpeed(50);
+    assert.deepEqual(sent, ['D03-12=Sleep']);
+    assert.equal(shown.RotationSpeed, 50);
+  });
+
+  it('drives a dash-less AC1715 with numbers on D0310C', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC1715' }, { detectedDialect: 'dashless' });
+    t.after(() => handler.kill(true));
+
+    await handler.setPurifierTargetState(1);
+    assert.deepEqual(sent, ['-I D0310C=0']);
+
+    handler.handleResponse({ D03102: 1, D0310C: 2, D03221: 6, D0540E: 3000, D05408: 4800 });
+    assert.equal(handler.obj.pwr, 1);
+    assert.equal(handler.obj.fltsts1, 3000);
+    assert.equal(handler.inAutoMode(), false);
+    assert.equal(handler.rotationSpeed(), 75);
+
+    sent.length = 0;
+    await handler.setPurifierRotationSpeed(50);
+    assert.deepEqual(sent, ['-I D0310C=1']);
+
+    sent.length = 0;
+    await handler.setPurifierActive(0);
+    assert.deepEqual(sent, ['-I D03102=0']);
   });
 });
