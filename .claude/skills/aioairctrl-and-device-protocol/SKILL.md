@@ -451,10 +451,12 @@ Defined in `src/accessories/accessories.models.js` (pure data; see
    > issue #46 carries the status-diff experiment that settles it.
    > A **baseline register inventory** is now attached to that issue: 89 status payloads from
    > one unit on firmware `0.1.3`, off versus on, showing the complete set of 27 registers it
-   > reports. That closes the candidate list for `mode`/`cl` to the 16 unmapped constants, and
-   > shows `D0310D` tracking power alongside `D03102`. It **identifies neither key**, because
-   > the unit never changed mode or lock state during the capture, so anything encoding them
-   > would read as constant. The experiment still needs someone at the physical unit.
+   > reports. That closes the candidate list for `mode`/`cl` to the 16 unmapped constants. It
+   > **identifies neither key**, because the unit never changed mode or lock state during the
+   > capture, so anything encoding them would read as constant. The experiment still needs
+   > someone at the physical unit. That capture also showed `D0310D` apparently tracking
+   > power, but only because the air was clean: a later eight-day capture showed it is the
+   > fan level (see `fanLevel` below), which removes it from the `mode`/`cl` candidates.
 
 A fourth field, **`unsupported`**, is a per-model list of generic keys the device has no
 register for at all. `Handler.supports(key)` reads it, and it gates three things: the `set*`
