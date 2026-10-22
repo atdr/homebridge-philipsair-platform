@@ -178,6 +178,8 @@ aioairctrl -H 10.0.1.16 -P 5683 status -J
 
 That dump is what the mapping is derived from, so a request with one attached can usually be acted on straight away.
 
+**Own a Supported model and it works?** Please say so on the same [model support form](https://github.com/atdr/homebridge-philipsair-platform/issues/new?template=model_support.yml). A confirmed model gets the ★.
+
 ### Fan speed and Auto
 
 Auto is on the Home app's auto/manual switch, and on most models the slider has only the manual speeds, so that a scene saved in Auto cannot replay as 0%, which means off. While the purifier is in Auto the slider shows the last manual speed, whatever speed Auto itself has chosen, and switching to Manual goes back to that speed. Before the first status arrives the switch reads Auto and the slider the first step.
