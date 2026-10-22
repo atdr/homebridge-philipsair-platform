@@ -152,7 +152,7 @@ For a complete `config.json`, see [`example-config.json`](https://github.com/atd
 
 [^sleep-speed]: Ignored for models that have their own speed mapping. Those use the right speeds automatically, and the plugin warns when the option cannot do anything.
 
-[^allergic]: Ignored for models with no plain allergen mode, which are the AC0850, AC1715 and AC3036, and the plugin warns when the option cannot do anything. Manual never starts the allergen mode.
+[^allergic]: Ignored for models with no plain allergen mode, which are those whose row in [Fan speed and Auto](#fan-speed-and-auto) does not mention `allergicFunc`, and the plugin warns when the option cannot do anything. Manual never starts the allergen mode.
 
 ## Device support
 
@@ -161,7 +161,10 @@ The `model` field selects how the plugin encodes power, mode and fan speed, beca
 | Tier            | Supported, validated ★                                        | Supported                                                      | Other models                                   |
 | --------------- | ------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------- |
 | **Description** | As Supported, and also confirmed on hardware by this project. | Dedicated mapping, taken from a source with hardware evidence. | Default mapping. Often fits, never guaranteed. |
-| **Models**      | <ul><li>AC0850 ★</li></ul>                                    | <ul><li>AC1715</li><li>AC3036</li><li>AC3829</li></ul>         | <ul><li>Any other model</li></ul>              |
+
+- **Supported, validated ★:** AC0850 ★
+- **Supported:** AC1715, AC3036, AC3829
+- **Other models:** Any other model
 
 A Supported mapping comes from the people who own the hardware: users and contributors of the [original plugin](https://github.com/seydx/homebridge-philipsair-platform), or the [ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier) Home Assistant integration. The model dropdown in the Homebridge UI offers every Supported model. Anything else falls back to the default.
 

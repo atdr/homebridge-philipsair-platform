@@ -155,7 +155,7 @@
             "allergicFunc": {
               "title": "Allergic mode function",
               "type": "boolean",
-              "description": "Makes Auto in the Home app start the allergen mode instead of the general Auto mode. Ignored for models with no plain allergen mode (the AC0850, AC1715 and AC3036)."
+              "description": "Makes Auto in the Home app start the allergen mode instead of the general Auto mode. Ignored for models with no plain allergen mode: the README's Fan speed and Auto table shows which models have one."
             },
             "preFilter": {
               "title": "Pre Filter",
