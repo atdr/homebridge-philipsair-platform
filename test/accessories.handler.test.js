@@ -1015,6 +1015,54 @@ describe('dash-less child lock and light', () => {
 //automatic mode is written with handleCommand, reported in the device's own
 //dialect, and read back through handleResponse. A model whose Auto or a step
 //does not survive the trip would show the wrong step or the wrong mode
+//Copilot on PR #133: ha-philips-airpurifier gives these models automatic
+//presets the selector never writes (pollution P and gas F with om a on the
+//AC4550/AC4558, bacteria B on the AC2889, AC3259, AC5659, AC5660). A device
+//left in one by the Philips app or the panel is still in an automatic mode,
+//so it must read as Auto, not as Manual at 0% that a scene would replay as off
+describe('automatic presets the selector does not write', () => {
+  const presets = {
+    AC4550: [
+      { mode: 'P', om: 'a' },
+      { mode: 'F', om: 'a' },
+    ],
+    AC4558: [
+      { mode: 'P', om: 'a' },
+      { mode: 'F', om: 'a' },
+    ],
+    AC2889: [{ mode: 'B', om: '2' }],
+    AC3259: [{ mode: 'B', om: '1' }],
+    AC5659: [{ mode: 'B', om: 's' }],
+    AC5660: [{ mode: 'B', om: 't' }],
+  };
+
+  for (const [model, statuses] of Object.entries(presets)) {
+    it(`reads the ${model} automatic presets as Auto, without writing or offering them`, () => {
+      const handler = makeHandler({ model });
+      const autoWrite = { ...handler.autoWrite };
+
+      for (const preset of statuses) {
+        //as the device reports it: strings, with power and a reading alongside
+        handler.handleResponse({ pwr: '1', iaql: '2', ...preset });
+        assert.equal(handler.inAutoMode(), true, `${model}: ${JSON.stringify(preset)} reads as Manual`);
+        assert.equal(handler.rotationSpeed(), handler.speedsMinStep(), `${model}: the slider left the manual step`);
+      }
+
+      assert.deepEqual(handler.autoWrite, autoWrite, `${model}: Auto writes something else now`);
+      for (const preset of statuses) {
+        assert.ok(
+          !Object.values(handler.modeMaps).some((state) => JSON.stringify(state) === JSON.stringify(preset)),
+          `${model}: ${JSON.stringify(preset)} became a selectable mode`
+        );
+      }
+
+      //and a manual step after it still reads as Manual
+      handler.handleResponse({ pwr: '1', ...handler.speeds[1] });
+      assert.equal(handler.inAutoMode(), false, `${model}: a manual step reads as Auto`);
+    });
+  }
+});
+
 describe('every mapped model round-trips its speeds and Auto', () => {
   const { mappedModels } = require('../src/accessories/accessories.models');
 

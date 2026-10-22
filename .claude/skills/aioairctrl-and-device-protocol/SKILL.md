@@ -515,9 +515,16 @@ back), are:
   (`hasAllergenMode`, `accessories.setup.js`). The option only changes what Auto sends
   (`modelConfig(...).autoWrite`, `Handler.autoWrite`); `modeMaps` stays whole.
 
+A sixth field, **`alsoAuto`**, sits beside `modeMaps` rather than in it: a read-only list of
+further automatic states a device can be put in from its panel or the Philips app. They read
+as Auto (`Handler.autoStates()`), and are never written, offered, or sent by Auto. The
+imported presets with no place on the selector go here: pollution `P` and gas `F` with `om`
+`'a'` on the AC4550/AC4558, and bacteria `B` on the AC2889, AC3259, AC5659 and AC5660.
+Without it a device left in one read as Manual at 0%, which a captured scene replays as off.
+
 The default map's entries live in `DEFAULT_MODE_MAPS`, applied to any unmapped model.
-`Handler.inAutoMode()` is true when a status matches `auto` or `allergen` (whichever the
-option sends, since the panel or the Philips app can start either), and also before any of
+`Handler.inAutoMode()` is true when a status matches `auto`, `allergen` or an `alsoAuto`
+state (whichever the option sends, since the panel or the Philips app can start any), and also before any of
 their registers has been reported. A status that omits those registers confirms nothing:
 `rotationSpeed()` still reads the speed it reports, and hides it behind the last manual step
 only in a confirmed automatic mode (`Handler.confirmedAuto()`). `Handler.supportsMode()` is true for a model with `modeMaps`,

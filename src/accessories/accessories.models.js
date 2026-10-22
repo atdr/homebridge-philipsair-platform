@@ -14,7 +14,10 @@
 //restores the last of the 'speeds' the device was in, unless a 'manual' entry
 //names registers of its own. An 'allergen' entry is a plain allergen mode,
 //automatic too: it reads as Auto, and the allergicFunc option makes Auto
-//send it instead of 'auto'.
+//send it instead of 'auto'. 'alsoAuto' lists further automatic states the
+//device can be put in from its panel or the Philips app (a pollution or gas
+//preset, say): read-only, they read as Auto but are never written, so they
+//change neither what Auto sends nor what the selector offers.
 //Models not listed here use the default 'om' based speeds and modes.
 
 const DEFAULT_SPEEDS = [{ om: '1' }, { om: '2' }, { om: 't' }];
@@ -169,8 +172,10 @@ const models = {
 //What changed on the way in: the power write each preset carries there is
 //dropped, since power has its own HomeKit control here; Auto and the plain
 //allergen mode go on modeMaps; Sleep and Turbo join the speeds as manual
-//steps, slowest first; presets with no HomeKit surface (bacteria, gas,
-//pollution, allergy sleep, medium off the ladder) are left out; and so is
+//steps, slowest first; the other automatic presets (bacteria, gas,
+//pollution) read as Auto through alsoAuto but are never written; the presets
+//with no HomeKit surface (allergy sleep, medium off the ladder) are left out;
+//and so is
 //everything with no HomeKit surface here (beep, timers, preferred index,
 //oscillation, Auto+ AI). A regional variant (/10, /50) shares its base ID.
 
@@ -193,6 +198,16 @@ const AC303X_SPEEDS = [
 
 //Auto P with the allergen mode A, as on the default map
 const P_AND_A_MODES = { auto: { mode: 'P' }, allergen: { mode: 'A' } };
+
+//the bacteria preset B, automatic like P and A but with no place on the
+//selector, which offers one Auto
+const BACTERIA_AUTO = [{ mode: 'B' }];
+
+//the AC4550/AC4558 pollution P and gas F presets, automatic like AG and A
+const AC4558_ALSO_AUTO = [
+  { mode: 'P', om: 'a' },
+  { mode: 'F', om: 'a' },
+];
 const AG_MODES = { auto: { mode: 'AG' } };
 
 //The dash-less dialect's registers (const.py NEW2_*). Temperature is left out:
@@ -306,6 +321,8 @@ Object.assign(models, {
   AC2889: {
     speeds: manualOmSpeeds({ mode: 'M', om: 's' }),
     modeMaps: P_AND_A_MODES,
+
+    alsoAuto: BACTERIA_AUTO,
   },
   AC2936: {
     speeds: [{ mode: 'S' }, { mode: 'GT' }, { mode: 'T' }],
@@ -342,6 +359,8 @@ Object.assign(models, {
   AC3259: {
     speeds: manualOmSpeeds({ mode: 'M', om: 's' }),
     modeMaps: P_AND_A_MODES,
+
+    alsoAuto: BACTERIA_AUTO,
   },
   //Auto is written, and read, with om 1 beside mode AG
   AC3836: {
@@ -375,6 +394,8 @@ Object.assign(models, {
       auto: { mode: 'AG', om: 'a' },
       allergen: { mode: 'A', om: 'a' },
     },
+
+    alsoAuto: AC4558_ALSO_AUTO,
   },
   AC4558: {
     speeds: [{ om: 's' }, { om: '1' }, { om: '2' }, { om: 't' }],
@@ -382,16 +403,22 @@ Object.assign(models, {
       auto: { mode: 'AG', om: 'a' },
       allergen: { mode: 'A', om: 'a' },
     },
+
+    alsoAuto: AC4558_ALSO_AUTO,
   },
   //ruaan-deysel/ha-philips-airpurifier names P "pollution" here and lists no
   //Auto, but it is the same automatic P the AC2889 and AC3259 call Auto
   AC5659: {
     speeds: manualOmSpeeds({ mode: 'M', om: 's' }),
     modeMaps: P_AND_A_MODES,
+
+    alsoAuto: BACTERIA_AUTO,
   },
   AC5660: {
     speeds: manualOmSpeeds({ mode: 'M', om: 's' }),
     modeMaps: P_AND_A_MODES,
+
+    alsoAuto: BACTERIA_AUTO,
   },
 
   //dash-less dialect, numeric values sent with -I. ruaan-deysel's
@@ -569,6 +596,7 @@ const modelConfig = (deviceConfig) => {
     extraSetFlags: model.extraSetFlags || [],
     unsupported: model.unsupported || [],
     modeMaps,
+    alsoAuto: model.alsoAuto || [],
     //what Auto on the selector sends. The allergic option picks the allergen
     //mode, on a model that has one (elsewhere accessories.setup.js warns that
     //it is ignored); modeMaps stays whole, so either automatic mode still

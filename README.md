@@ -200,6 +200,8 @@ Auto is never a step on the fan speed slider. It is on the Home app's auto/manua
 | AMF765                                                         | 8% Sleep, 17% Speed 1, 25% Speed 2, 33% Speed 3, 42% Speed 4, 50% Speed 5, 58% Speed 6, 67% Speed 7, 75% Speed 8, 83% Speed 9, 92% Speed 10, 100% Turbo | `D0310C` 0                                              |
 | Any other model                                                | 33% Speed 1, 67% Speed 2, 100% Turbo. With `sleepSpeed`: 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                | `P`, or `A` with `allergicFunc`                         |
 
+A purifier put into one of its other automatic presets from its panel or the Philips app also shows as Auto: pollution and gas on the AC4550 and AC4558, and bacteria on the AC2889, AC3259, AC5659 and AC5660. The switch never selects those presets, and Auto still sends what the table says.
+
 On a model with no mapping of its own, switching to Manual sends the manual mode and leaves the speed to the purifier rather than restoring the last one, because the plugin has no confirmed way to set both at once on hardware it does not know.
 
 ### Other controls by model
