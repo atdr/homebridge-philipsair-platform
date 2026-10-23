@@ -190,6 +190,6 @@ Verified against the repo at commit 36067a6, 2026-07-12. Re-verify:
 ```bash
 grep -n "extraSetFlags\|keyMaps\|valueMaps\|speeds" src/accessories/accessories.models.js  # encoding surface unchanged
 grep -n "rotationSpeed()" -A 8 src/accessories/accessories.handler.js                      # all-keys stringified matching
-grep -n "Supported, validated\|Other models" README.md                                     # promotion targets exist
+grep -n "Validated ★\|\*\*Other\*\*" README.md                                          # promotion targets exist
 node --test test/config.schema.test.js test/docs.test.js                                    # sync guards active
 ```

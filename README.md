@@ -168,25 +168,13 @@ A mapping that does not fit shows up as an accessory whose controls do nothing, 
 aioairctrl -H 10.0.1.16 -P 5683 status -J
 ```
 
-Support falls into three tiers.
+Support falls into three tiers:
 
-### Supported, validated ★
-
-**Description:** As Supported, and also confirmed on hardware by this project.
-
-**Models:** AC0850 ★
-
-### Supported
-
-**Description:** Dedicated mapping, taken from a source with hardware evidence.
-
-**Models:** AC0650, AC0651, AC0950, AC0951, AC1214, AC1715, AC2210, AC2220, AC2221, AC2729, AC2889, AC2936, AC2939, AC2958, AC2959, AC3033, AC3036, AC3039, AC3055, AC3059, AC3210, AC3220, AC3221, AC3259, AC3420, AC3421, AC3737, AC3829, AC3836, AC3854, AC3858, AC4220, AC4221, AC4236, AC4550, AC4558, AC5659, AC5660, AMF765
-
-### Other models
-
-**Description:** Default mapping. Often fits, never guaranteed.
-
-**Models:** Any other model
+| Tier            | Description and models                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Validated ★** | As Supported, and also confirmed on hardware by this project.<br>**Models:** AC0850 ★                                                                                                                                                                                                                                                                                                                |
+| **Supported**   | Dedicated mapping, taken from a source with hardware evidence.<br>**Models:** AC0650, AC0651, AC0950, AC0951, AC1214, AC1715, AC2210, AC2220, AC2221, AC2729, AC2889, AC2936, AC2939, AC2958, AC2959, AC3033, AC3036, AC3039, AC3055, AC3059, AC3210, AC3220, AC3221, AC3259, AC3420, AC3421, AC3737, AC3829, AC3836, AC3854, AC3858, AC4220, AC4221, AC4236, AC4550, AC4558, AC5659, AC5660, AMF765 |
+| **Other**       | Default mapping. Often fits, never guaranteed.<br>**Models:** Any other model                                                                                                                                                                                                                                                                                                                        |
 
 ## Troubleshooting
 
@@ -220,7 +208,7 @@ Check all three of these:
    Bedroom: Using the AC0850 command set.
    ```
 
-   A device that instead reports `No dedicated mapping for model "..."`, or `No model is configured`, is running on the default mapping. That is expected for a model in the Other models tier, and a bug in your config if your model is Supported.
+   A device that instead reports `No dedicated mapping for model "..."`, or `No model is configured`, is running on the default mapping. That is expected for a model in the Other tier, and a bug in your config if your model is Supported.
 
 The plugin also checks the config against the device itself. The first status a device sends is compared with the mapping in force, and one that answers in registers the mapping cannot read is reported:
 

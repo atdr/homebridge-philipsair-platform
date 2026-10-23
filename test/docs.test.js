@@ -51,18 +51,20 @@ const section = (heading) => headed(readme, 'README', 2, heading);
 const configSection = section('Configuration');
 const deviceSupportSection = section('Device support');
 
-//The device tiers are '### <tier>' subsections of Device support, each with a
-//'**Description:** ...' paragraph and a '**Models:** AC1715, AC3036' paragraph. A
-//model list may be collapsed as '<details><summary>39 models</summary>...</details>'.
-//A tier whose name starts with 'Supported' promises a dedicated mapping; the last
-//one is the default.
+//The device tiers are a two-column table, one row per tier: '| **Supported** |
+//Description.<br>**Models:** AC1715, AC3036 |'. A model list may be collapsed as
+//'<details><summary>39 models</summary>...</details>'. Every tier but the last
+//promises a dedicated mapping; the last one is the default.
 const tierRows = deviceSupportSection
-  .split(/^### /m)
-  .slice(1)
-  .map((chunk) => {
-    const [name, ...body] = chunk.split('\n');
-    const models = body.find((line) => line.startsWith('**Models:**'));
-    return { name: name.trim(), cell: models ? models.replace('**Models:**', '').trim() : '' };
+  .split('\n')
+  .filter((line) => line.startsWith('| **'))
+  .map((line) => {
+    const [name = '', cell = ''] = line
+      .split('|')
+      .slice(1, -1)
+      .map((part) => part.trim());
+    const models = cell.split('<br>').find((part) => part.trim().startsWith('**Models:**'));
+    return { name: name.replace(/\*/g, '').trim(), cell: models ? models.replace('**Models:**', '').trim() : '' };
   });
 const tierNames = tierRows.map((row) => row.name);
 
@@ -83,7 +85,7 @@ const tierList = (name) => {
 
 const listed = tierNames.map(tierList);
 const supportedModels = listed
-  .filter((_, index) => (tierNames[index] || '').startsWith('Supported'))
+  .filter((_, index) => index < tierNames.length - 1)
   .flat()
   .filter((item) => item !== undefined)
   .map((item) => item.replace('★', '').trim());
@@ -233,9 +235,9 @@ describe('docs', () => {
   });
 
   it('lists the models of every device tier', () => {
-    assert.ok(tierNames.length > 0, "README 'Device support' has no '### <tier>' subsections");
+    assert.ok(tierNames.length > 0, "README 'Device support' has no tier table");
     tierNames.forEach((name, index) => {
-      assert.ok(listed[index]?.length, `README 'Device support' tier '${name}' has no **Models:** paragraph`);
+      assert.ok(listed[index]?.length, `README 'Device support' tier '${name}' has no **Models:** line`);
     });
     assert.ok(supportedModels.length > 0, "README 'Device support' lists no model in a 'Supported' tier");
   });
