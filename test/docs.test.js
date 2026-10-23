@@ -52,9 +52,10 @@ const configSection = section('Configuration');
 const deviceSupportSection = section('Device support');
 
 //The device tiers are a two-column table, one row per tier: '| **Supported** |
-//Description.<br>**Models:** AC1715, AC3036 |'. A model list may be collapsed as
-//'<details><summary>39 models</summary>...</details>'. Every tier but the last
-//promises a dedicated mapping; the last one is the default.
+//Description.<br>**Models:** AC1715, AC3036 |'. Every tier but the last promises
+//a dedicated mapping; the last one is the default. The lists are written out in
+//full: markup such as a collapsed '<details>' would be read as part of a model ID
+//and fail the mapping checks below.
 const tierRows = deviceSupportSection
   .split('\n')
   .filter((line) => line.startsWith('| **'))
@@ -68,16 +69,11 @@ const tierRows = deviceSupportSection
   });
 const tierNames = tierRows.map((row) => row.name);
 
-//the summary of a collapsed model list, '39 models', or undefined when the cell has none
-const tierSummary = (cell) => /<summary>(.*?)<\/summary>/.exec(cell)?.[1];
-
 //the models one tier's row names, or undefined when it has none
 const tierList = (name) => {
   const cell = tierRows.find((row) => row.name === name)?.cell;
   const models = cell
-    ?.replace(/<summary>.*?<\/summary>/, '')
-    .replace(/<\/?details>/g, '')
-    .split(',')
+    ?.split(',')
     .map((item) => item.trim())
     .filter(Boolean);
   return models?.length ? models : undefined;
@@ -240,16 +236,6 @@ describe('docs', () => {
       assert.ok(listed[index]?.length, `README 'Device support' tier '${name}' has no **Models:** line`);
     });
     assert.ok(supportedModels.length > 0, "README 'Device support' lists no model in a 'Supported' tier");
-  });
-
-  //a collapsed list shows only its summary, so the count there has to be right
-  it('counts each collapsed tier list correctly in its summary', () => {
-    tierRows.forEach(({ name, cell }, index) => {
-      const summary = tierSummary(cell);
-      if (summary !== undefined) {
-        assert.equal(summary, `${listed[index]?.length} models`, `README tier '${name}' summary is out of date`);
-      }
-    });
   });
 
   //the Supported tiers promise a dedicated mapping, so a model listed there
