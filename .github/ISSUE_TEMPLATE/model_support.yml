@@ -1,15 +1,34 @@
-name: Model support request
-description: Ask for a Philips model to be supported, or report wrong speeds and controls on one
+name: Model support
+description: Tell us how the plugin works with your Philips model, whether it works, misbehaves, or is not supported yet
 labels: ['enhancement']
 body:
   - type: markdown
     attributes:
       value: |
-        Models outside the Supported tiers run a default mapping. It suits many purifiers, but where it does not fit, the device appears in the Home app with controls that do nothing or fan speeds that land on the wrong setting.
+        This form covers three cases:
 
-        A mapping is derived from what the device itself reports, so the status dump below is the whole request. With one attached this can usually be acted on straight away.
+        - **It works.** A Supported model confirmed by its owner gets the ★ (validated) in the README. Supported mappings come from other projects, so a report from someone with the hardware is what turns them into tested ones.
+
+        - **Some controls do not work** on a Supported model.
+
+        - **Your model is not supported yet.** It runs a default mapping that suits many purifiers, but where it does not fit, controls do nothing or fan speeds land on the wrong setting.
+
+        In every case the status dump below is what matters most: mappings are derived from what the device itself reports.
 
         Please write in plain English: short sentences, everyday words, and exactly what you saw. There is no need to write it up formally.
+
+  - type: dropdown
+    id: report
+    attributes:
+      label: What are you reporting?
+      options:
+        - It works, please mark this model as validated
+
+        - Some controls do not work
+
+        - My model is not supported yet
+    validations:
+      required: true
 
   - type: input
     id: model
@@ -17,6 +36,15 @@ body:
       label: Device model
       description: The full ID exactly as printed on the device label, regional suffix included, e.g. `AC0850/31`. Some models ship in two register dialects under the same base ID, and the suffix tells them apart.
       placeholder: AC0820/10
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version
+      description: Shown in the Homebridge UI under Plugins. Please test on the latest release.
+      placeholder: 1.5.0
     validations:
       required: true
 
@@ -31,11 +59,21 @@ body:
       required: true
 
   - type: textarea
-    id: symptoms
+    id: checks
     attributes:
-      label: What does not work
+      label: What works and what does not
       description: |
-        Which controls misbehave, and how. For fan speeds, saying which Home app step lands on which speed on the device is the most useful thing you can give.
+        With the model set in the plugin config, check each control in the Home app and say what happened on the purifier:
+
+        - On and off, and 0% on the slider switching it off
+
+        - Auto and Manual on the switch, and whether the switch shows the mode the purifier is in (also after changing it on the panel)
+
+        - Each slider step, and which setting it lands on at the purifier
+
+        - Display light and brightness, child lock and humidifier, where your model has them
+
+        "All of it works" is a perfectly good answer.
     validations:
       required: true
 

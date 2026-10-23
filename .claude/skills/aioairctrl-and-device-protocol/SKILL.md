@@ -419,7 +419,7 @@ Defined in `src/accessories/accessories.models.js` (pure data; see
    pairs (`{ D0310A: 2, D0310C: 17|18 }`, Sleep and Turbo). `D0310C` is mode and speed in
    one register (0 Auto, 17 Sleep, 18 Turbo), so Auto is not a speed: `modeMaps` puts
    it on `TargetAirPurifierState` instead (below). The exact model ID in config is
-   **required** for this dialect (README note 1). It no longer has to be typed
+   **required** for this dialect (docs/controls.md note 1). It no longer has to be typed
    perfectly: `resolveModel` normalises case, spacing and the `/NN` regional
    suffix printed on the device, and falls back to a model ID left in the device
    name. Failing all that, `identifyModel` reads the model out of the status
@@ -599,9 +599,10 @@ The two variants, both **unvalidated**:
 
 A variant replaces `fanLevel` too, so the dashed AC0850 has none: its firmware has no `D0310D`,
 and its slider is its own two `speeds`, 50% Sleep and 100% Turbo (`speedsMinStep` 50), while the
-dash-less AC0850 keeps the four fan-level steps. The AC1715 has four steps in both dialects. The
-README gives each dialect of such a model its own slider row, named like `AC0850 (dash-less)`,
-and `test/docs.test.js` counts each row against that variant's `fanLevel.steps` or `speeds`.
+dash-less AC0850 keeps the four fan-level steps. The AC1715 has four steps in both dialects.
+docs/controls.md gives each dialect of such a model its own slider row, named like
+`AC0850 (dash-less)`, and `test/docs.test.js` counts each row against that variant's
+`fanLevel.steps` or `speeds`.
 `test/accessories.models.test.js` guards that every variant's registers have the shape of the
 dialect it is filed under, and the data-driven round trip covers each variant with it in force.
 
