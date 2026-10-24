@@ -5,7 +5,7 @@
 
 ### ⚠ BREAKING CHANGES
 
-* Node 20 is no longer supported. It reached end of life in April 2026; use Node 22, 24 or 26. 1.x remains installable on Node 20 but receives no further releases. Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> Claude-Session: https://claude.ai/code/session_01SSgzbUia34ff7R1iRNFg1t
+* Node 20 is no longer supported. It reached end of life in April 2026; use Node 22, 24 or 26. 1.x remains installable on Node 20 but receives no further releases.
 
 ### Features
 
