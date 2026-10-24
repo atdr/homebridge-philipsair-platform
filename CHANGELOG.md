@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.5.0...v1.5.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **handler:** send a power write on its own, after the rest of a scene ([#117](https://github.com/atdr/homebridge-philipsair-platform/issues/117)) ([dc13a25](https://github.com/atdr/homebridge-philipsair-platform/commit/dc13a25a3ecccb8a7b06f8e9229818bc7438e228))
+
 ## [1.5.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.4.1...v1.5.0) (2026-10-22)
 
 
