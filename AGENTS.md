@@ -37,7 +37,9 @@ and the third-party `aioairctrl` package (whose behaviour this repo does not con
 User-facing config surface: `config.schema.json` (Homebridge UI schema) and
 `example-config.json`.
 
-Supported runtimes: Node `^20.18 || ^22.10 || ^24`, Homebridge `^1.8 || ^2.0.0`.
+Supported runtimes: Node `^22.10 || ^24 || ^26` (the current LTS lines), Homebridge `^1.8 || ^2.0.0`.
+The CI matrix tests exactly the majors in `engines.node`; `test/ci-workflow.test.js` guards
+that, so change both together.
 
 ## Language and module format
 
@@ -78,7 +80,7 @@ by `test/publish-release-workflow.test.js`).
 ## Quality checks
 
 Run all six gates before opening a PR — CI (`.github/workflows/ci.yml`) runs them on
-Node 20/22/24 and every gate must pass:
+Node 22/24/26 and every gate must pass:
 
 ```bash
 npm run typecheck     # tsc with checkJs over the plain JS
@@ -129,9 +131,10 @@ Two flags in it are load-bearing and worth not "tidying away":
   required by any test, so dropping the preload does not lower the score. It deletes the
   least-covered files from the report, raising it.
 
-`npm run coverage` is deliberately absent from `prepublishOnly`: `--test-coverage-include`
-needs Node 22.5, and this package still supports the `^20.18` floor, where node exits on
-the unknown flag. `test/coverage.test.js` guards all of the above.
+`npm run coverage` is absent from `prepublishOnly`: it is reporting, not a gate. It was
+first kept out because `--test-coverage-include` needs Node 22.5 and the package then
+supported a `^20.18` floor; the `^22.10` floor removes that obstacle, but adding it to the
+publish gates is a separate decision. `test/coverage.test.js` guards all of the above.
 
 ### Workflow naming and timeouts
 
@@ -161,7 +164,7 @@ This is not hypothetical: it is how the v1.2.0 release failed. CI on the release
 `action_required`, was read as three green checks, and the PR was merged — four minutes
 after the approved run had actually gone red.
 
-Before merging, confirm the Node 20.x/22.x/24.x jobs are present in `gh pr checks` (not
+Before merging, confirm the Node 22.x/24.x/26.x jobs are present in `gh pr checks` (not
 merely that nothing is pending), and check for a blocked run:
 
 ```bash

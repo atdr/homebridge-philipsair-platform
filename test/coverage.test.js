@@ -94,8 +94,9 @@ describe('coverage script', () => {
   });
 
   it('stays out of the publish gates', () => {
-    //--test-coverage-include needs Node >= 22.5, below which node exits on the unknown
-    //flag. package.json still supports ^20.18, so a publish must never depend on it.
+    //Coverage reports on the suite; the suite itself is the gate. The engines floor
+    //(^22.10) now clears the Node 22.5 that --test-coverage-include needs, so this is a
+    //policy choice rather than a runtime limit: change it deliberately, not in passing.
     assert.doesNotMatch(pkg.scripts.prepublishOnly, /coverage/, 'coverage is not a gate and must not gate a publish');
   });
 });
