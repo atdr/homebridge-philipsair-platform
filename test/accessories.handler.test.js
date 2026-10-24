@@ -594,7 +594,7 @@ describe('mode and speed in one scene', () => {
       handler.setPurifierRotationSpeed(100),
     ]);
 
-    assert.deepEqual(sent, ['-I D03102=1 D0310A=2 D0310C=0']);
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=0', '-I D03102=1']);
   });
 
   it('applies the same rule to a model whose speeds carry the mode register', async (t) => {
@@ -628,23 +628,36 @@ describe('power-on to a device already on', () => {
     assert.deepEqual([...handler.pendingWrites.keys()], ['D0310A', 'D0310C']);
   });
 
-  it('still merges the power-on into a scene for an AC0850 that reports off', async (t) => {
+  //off is no different: the registers merged with a power-on were ignored there
+  //too, and the purifier came on in its old mode. Sent apart, an AC0850 applied
+  //them in either order, so the power-on goes last, as orderPowerLast has resends
+  it('sends the power-on to an AC0850 that reports off on its own, after the scene', async (t) => {
     const { handler, sent } = recordingWrites({ model: 'AC0850' });
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...ON, D03102: 0 });
 
     await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(25)]);
 
-    assert.deepEqual(sent, ['-I D03102=1 D0310A=2 D0310C=17']);
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=17', '-I D03102=1']);
   });
 
-  it('still merges the power-on into a scene before any status', async (t) => {
+  it('sends the power-on on its own before any status', async (t) => {
     const { handler, sent } = recordingWrites({ model: 'AC0850' });
     t.after(() => handler.kill(true));
 
     await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(25)]);
 
-    assert.deepEqual(sent, ['-I D03102=1 D0310A=2 D0310C=17']);
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=17', '-I D03102=1']);
+  });
+
+  it('sends a power-off on its own, after the rest', async (t) => {
+    const { handler, sent } = recordingWrites({ model: 'AC0850' });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON });
+
+    await Promise.all([handler.setPurifierActive(0), handler.setPurifierRotationSpeed(25)]);
+
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=17', '-I D03102=0']);
   });
 
   it('sends nothing for a lone power-on to a device that reports on', async (t) => {
@@ -985,14 +998,14 @@ describe('AC0850 slider follows the fan level', () => {
     assert.deepEqual(sent, ['-I D0310A=2 D0310C=0']);
   });
 
-  it('merges the power-on into an Auto step for a device that is off', async (t) => {
+  it('sends the power-on after an Auto step for a device that is off', async (t) => {
     const { handler, sent } = recordingWrites({ model: 'AC0850' });
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...AUTO, D03102: 0, D0310D: 0 });
 
     await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(200 / 3)]);
 
-    assert.deepEqual(sent, ['-I D03102=1 D0310A=2 D0310C=0']);
+    assert.deepEqual(sent, ['-I D0310A=2 D0310C=0', '-I D03102=1']);
   });
 
   it('leaves the other models rounding up to their own steps', async (t) => {
