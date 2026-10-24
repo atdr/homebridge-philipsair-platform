@@ -569,7 +569,8 @@ class Handler {
   /**
    * Sends everything `queueWrite` collected since the last flush, merged into
    * one command where every value in the merged group is integer-encodable,
-   * and as separate commands otherwise. Never merges by "arrived together"
+   * and as separate commands otherwise. A power write is the exception: it
+   * always goes alone, after the rest (see below). Never merges by "arrived together"
    * alone: `setHumidifierTargetState`'s `func` (a word) and `rhset` (needs
    * `-I`) would have `-I` silently stripped from the merged command if they
    * were ever coalesced this way, which is why the check runs on `mergedCmds`
@@ -642,10 +643,23 @@ class Handler {
     this.writeBatch = [];
     this.writeBatchTimeout = null;
 
-    if (!batch.length) {
-      return;
-    }
+    //a power write is never merged, and goes after the rest. An AC0850 ignores
+    //every register merged with a power-on, whether it was off or already on,
+    //and comes on in its old mode; sent apart, it applied them in either order.
+    //Last is the order orderPowerLast gives a resend, so the two agree (#117)
+    const power = batch.filter((entry) => 'pwr' in entry.expectations);
+    const rest = batch.filter((entry) => !power.includes(entry));
 
+    await this.sendBatch(rest);
+    await this.sendBatch(power);
+  }
+
+  /**
+   * Sends `flushWriteBatch`'s writes, as one command where they can merge.
+   *
+   * @param {{ cmds: string[], expectations: Record<string, unknown>, extraFlags: string[], resolve: (sent: boolean) => void, reject: (err: unknown) => void }[]} batch
+   */
+  async sendBatch(batch) {
     const mergedCmds = batch.flatMap((entry) => entry.cmds);
     const canMerge = batch.length > 1 && this.intEncodable(mergedCmds);
 
@@ -695,8 +709,9 @@ class Handler {
    *
    * Only a power-on, and only to a device whose last status says it is on. A
    * power-off is never redundant in this sense, and a device that is off or has
-   * not reported yet still gets the power-on merged as before. The expectation
-   * goes too, so verification neither waits for `pwr` nor resends it.
+   * not reported yet still gets the power-on, sent on its own after the rest
+   * (see flushWriteBatch). The expectation goes too, so verification neither
+   * waits for `pwr` nor resends it.
    *
    * Not while a power write is pending either (`powerWritePending`). After a
    * power-off the device still reports on until its notification arrives, and
@@ -755,13 +770,13 @@ class Handler {
   }
 
   /**
-   * The resend-side counterpart of `dropRedundantPowerOn`. A scene sent to a
-   * device that was off carries the power-on merged with the rest, and when the
-   * device comes on but ignores the rest, repeating that same command is what
-   * made it ignore the rest in the first place. So once the device reports on,
-   * the power-on is taken out of the command, and the writes it carries are
-   * re-pointed at the command that actually goes out, which is what
-   * `writesFor` matches on.
+   * The resend-side counterpart of `dropRedundantPowerOn`. Once the device
+   * reports on, a power-on still pending is not resent: the reading of on is
+   * what it was waiting for. A command that carries other registers beside it
+   * (flushWriteBatch no longer merges them in, but a write may be queued that
+   * way) has the power-on taken out, and the
+   * writes it carries are re-pointed at the command that actually goes out,
+   * which is what `writesFor` matches on.
    *
    * @param {string[]} args
    * @returns {string[] | null} the command to resend, or null when nothing but the power-on was in it
