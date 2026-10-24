@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.2](https://github.com/atdr/homebridge-philipsair-platform/compare/v2.0.1...v2.0.2) (2026-10-24)
+
+
+### Bug Fixes
+
+* **package:** declare HAP support for the Homebridge plugin checks ([#145](https://github.com/atdr/homebridge-philipsair-platform/issues/145)) ([57d7c40](https://github.com/atdr/homebridge-philipsair-platform/commit/57d7c406e5c89579425f9bfcb045244ead697239))
+* **schema:** list required fields on the object, as JSON Schema expects ([#147](https://github.com/atdr/homebridge-philipsair-platform/issues/147)) ([ee90e7d](https://github.com/atdr/homebridge-philipsair-platform/commit/ee90e7d03293292d8fa3a7b89622c4eb1124ee6f))
+
 ## [2.0.1](https://github.com/atdr/homebridge-philipsair-platform/compare/v2.0.0...v2.0.1) (2026-10-24)
 
 
