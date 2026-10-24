@@ -155,7 +155,7 @@
             "allergicFunc": {
               "title": "Allergic mode function",
               "type": "boolean",
-              "description": "Makes Auto in the Home app start the allergen mode instead of the general Auto mode. Ignored for models with no plain allergen mode: the README's Fan speed and Auto table shows which models have one."
+              "description": "Makes Auto in the Home app start the allergen mode instead of the general Auto mode. Ignored for models with no plain allergen mode: the Fan speed and Auto table in docs/controls.md shows which models have one."
             },
             "preFilter": {
               "title": "Pre Filter",

@@ -207,13 +207,20 @@ related to your change.
 Where a doc/code invariant can be checked mechanically, prefer a `node:test` check over a
 prose rule so CI catches drift instead of relying on a reviewer grepping.
 `test/config.schema.test.js` (model typeahead ⊇ mapped models) and `test/docs.test.js`
-(README config table, `example-config.json`, and README Supported device tiers track
-`config.schema.json` / `accessories.models.js`) are the pattern to copy when you add a new
-config option, model, or device. Specific sync rules:
+(README config table, `example-config.json`, the README Supported device tiers, and the
+`docs/controls.md` slider table track `config.schema.json` / `accessories.models.js`) are
+the pattern to copy when you add a new config option, model, or device. Specific sync
+rules:
 
 **`README.md`** — the Supported device tiers, example configs, and supported
 clients must track what the code and `config.schema.json` actually support. Installation
 and setup steps may only reference files that exist in the repo.
+
+**`docs/controls.md`** — user reference for how each model's controls map to HomeKit: the
+fan speed slider and Auto per model, and the controls that depend on a model's registers.
+It is not in the npm package (`files` in `package.json`), so the README links to it, and
+to any other repo file, by absolute GitHub URL, which keeps the links working on
+npmjs.com.
 
 **`config.schema.json` + `example-config.json`** — the source of truth for user
 configuration. When adding, changing, or removing a config option, update both, and keep

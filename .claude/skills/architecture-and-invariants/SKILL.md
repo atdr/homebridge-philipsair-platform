@@ -114,5 +114,5 @@ grep -n "execFile\|spawn(" src/accessories/accessories.handler.js               
 grep -n "MAX_STDOUT_BUFFER" src/accessories/accessories.handler.js                       # buffer cap still present
 grep -n "uuid.generate" src/platform.js; grep -n "generateUUID" src/accessories/accessories.setup.js  # UUID derivation path
 grep -rn "historical name-derived UUID" test/                                            # pinned-vector test still exists
-grep -n "Supported, validated" README.md                                                 # which models carry the ★
+grep -n "Validated ★" README.md                                                             # which models carry the ★
 ```

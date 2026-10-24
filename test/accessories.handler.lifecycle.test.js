@@ -1791,6 +1791,79 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.kill(true);
   });
 
+  //the two below reach the resend with the power-on still pending although
+  //the device reports on: the status that said so arrived inside the settling
+  //allowance, so it confirmed nothing, and the unprompted wake-up resend then
+  //fires on a write recorded while the device was off
+  it('drops a still pending power-on from a scene it resends to a device now on', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({ model: 'AC0850' });
+    handler.purifierService = makeService();
+    handler.writeSettle = 100000;
+    handler.verifyWindow = 60;
+    handler.offStallTimeout = 100000;
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+
+    await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 0 }));
+    await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(25)]);
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1 D0310A=2 D0310C=17']);
+    sent.length = 0;
+
+    //on, but too soon after the command to count as an answer to it
+    await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 0 }));
+    assert.deepEqual([...handler.pendingWrites.keys()].sort(), ['D0310A', 'D0310C', 'pwr']);
+
+    await delay(150);
+
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=17']);
+    //the reading of on is what the power-on was waiting for, and the speed is
+    //tracked against the command that actually went out
+    assert.deepEqual([...handler.pendingWrites.keys()].sort(), ['D0310A', 'D0310C']);
+    for (const pending of handler.pendingWrites.values()) {
+      assert.equal(pending.args.join(' '), '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=17');
+    }
+
+    handler.kill(true);
+  });
+
+  it('resends nothing for a lone power-on once the device reports on', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({ model: 'AC0850' });
+    handler.purifierService = makeService();
+    handler.writeSettle = 100000;
+    handler.verifyWindow = 60;
+    handler.offStallTimeout = 100000;
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+
+    await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 0 }));
+    await handler.setPurifierActive(true);
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1']);
+    sent.length = 0;
+
+    await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 0 }));
+    assert.deepEqual([...handler.pendingWrites.keys()], ['pwr']);
+
+    await delay(150);
+
+    assert.deepEqual(sent, [], 'a power-on to a device reporting on was resent');
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.deepEqual(logs.warn, []);
+
+    handler.kill(true);
+  });
+
   it('does not count a status the device sent as the command reached it', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();

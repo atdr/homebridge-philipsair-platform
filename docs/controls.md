@@ -1,0 +1,49 @@
+# Controls by model
+
+Each purifier appears in the Home app as an air purifier. Its auto/manual switch selects Auto, and its fan speed slider sets the manual speed, where 0% switches the purifier off, as everywhere in the Home app. The child lock is a setting on the same accessory. The light, the temperature and humidity sensors, the humidifier and the filter status are separate accessories or services, offered when their option is on in the [config](../README.md#device-options).
+
+How each control maps to the device depends on the model set in the `model` field (see [Device support](../README.md#device-support)). [Fan speed and Auto](#fan-speed-and-auto) gives each model's slider steps and what Auto sends, and [Other controls](#other-controls) the controls that depend on a model's registers.
+
+## Fan speed and Auto
+
+Auto is on the Home app's auto/manual switch, and on most models the slider has only the manual speeds, so that a scene saved in Auto cannot replay as 0%, which means off. While the purifier is in Auto the slider shows the last manual speed, whatever speed Auto itself has chosen, and switching to Manual goes back to that speed. Before the first status arrives the switch reads Auto and the slider the first step.
+
+The dash-less AC0850 is the exception: it reports the fan's actual speed, so its slider shows that speed in every mode, Auto included. Auto runs the fan at one of four speeds, and the slider has a step for each. 25% and 100% are the manual speeds, Sleep and Turbo. 50% and 75% are speeds only Auto uses, so setting either selects Auto. A value between steps goes to the nearest one. Switching to Manual goes back to Sleep or Turbo, whichever was last.
+
+| Model                                                          | Slider steps                                                                                                                                            | Auto on the switch sends                                |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| AC0650                                                         | 50% Sleep, 100% Turbo                                                                                                                                   | `Auto General`                                          |
+| AC0850 (dash-less)                                             | 25% Sleep, 50% and 75% Auto, 100% Turbo                                                                                                                 | `D0310C` 0 ¹                                            |
+| AC0850 (dashed)                                                | 50% Sleep, 100% Turbo                                                                                                                                   | `Auto General` ¹                                        |
+| AC0651, AC0950, AC0951, AC3420, AC3421                         | 33% Sleep, 67% Medium, 100% Turbo                                                                                                                       | `D0310C` 0                                              |
+| AC1214                                                         | 20% Night, 40% Speed 1, 60% Speed 2, 80% Speed 3, 100% Turbo                                                                                            | `P`, or `A` with `allergicFunc`                         |
+| AC1715 (dashed)                                                | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                                                                         | `Auto General` ¹                                        |
+| AC1715 (dash-less)                                             | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                                                                         | `D0310C` 0 ¹                                            |
+| AC2210, AC2220, AC2221, AC3210, AC3220, AC3221                 | 14% Sleep, 29% Speed 1, 43% Speed 2, 57% Speed 3, 71% Speed 4, 86% Speed 5, 100% Turbo                                                                  | `D0310C` 0                                              |
+| AC2729, AC2889, AC3259, AC3829, AC5659, AC5660                 | 20% Sleep, 40% Speed 1, 60% Speed 2, 80% Speed 3, 100% Turbo                                                                                            | `P`, or `A` with `allergicFunc`                         |
+| AC2936, AC2939, AC2958, AC2959                                 | 33% Sleep, 67% Gentle, 100% Turbo                                                                                                                       | `AG`                                                    |
+| AC3033, AC3036, AC3039, AC3055, AC3059, AC3854, AC3858, AC4236 | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                                                                         | `AG`                                                    |
+| AC3737                                                         | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                                                                         | `D0310A` 2 and `D0310C` 0                               |
+| AC3836                                                         | 50% Sleep, 100% Turbo                                                                                                                                   | `AG` with `om` 1                                        |
+| AC4220, AC4221                                                 | 17% Sleep, 33% Speed 1, 50% Speed 2, 67% Speed 3, 83% Speed 4, 100% Speed 5                                                                             | `D0310C` 0                                              |
+| AC4550, AC4558                                                 | 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                                                                         | `AG` with `om` a, or `A` with `om` a and `allergicFunc` |
+| AMF765                                                         | 8% Sleep, 17% Speed 1, 25% Speed 2, 33% Speed 3, 42% Speed 4, 50% Speed 5, 58% Speed 6, 67% Speed 7, 75% Speed 8, 83% Speed 9, 92% Speed 10, 100% Turbo | `D0310C` 0                                              |
+| Any other model                                                | 33% Speed 1, 67% Speed 2, 100% Turbo. With `sleepSpeed`: 25% Sleep, 50% Speed 1, 75% Speed 2, 100% Turbo                                                | `P`, or `A` with `allergicFunc`                         |
+
+¹ The AC0850 and the AC1715 each ship in two register dialects under the same model ID, depending on the Wi-Fi firmware. **Dashed** firmware reports registers like `D03-02` and takes words (`Auto General`, `Sleep`, `Turbo`); **dash-less** firmware reports registers like `D03102` and takes numbers. The plugin starts each model on the dialect it was tested in (dash-less for the AC0850, dashed for the AC1715), reads which one the device actually speaks from its first status, and switches to the other from the next restart if they differ. The AC1715 slider keeps the same steps in both. The AC0850 does not: only dash-less firmware reports the fan's actual speed (`D0310D`), so the dashed AC0850 has the two manual steps alone, and Auto stays on the switch. The dashed AC0850 and dash-less AC1715 mappings come from other projects' data (ruaan-deysel/ha-philips-airpurifier and Micheledipaola/homebridge-philips-airplus) and have not yet been tested with this plugin.
+
+A purifier put into one of its other automatic presets from its panel or the Philips app also shows as Auto: pollution and gas on the AC4550 and AC4558, and bacteria on the AC2889, AC3259, AC5659 and AC5660. The switch never selects those presets, and Auto still sends what the table says.
+
+Dash-less AC0850 scenes and automations saved on 1.3.1 keep working: its 33%, 67% and 100% land on Sleep, Auto and Turbo. A scene saved on 1.4.0 at 50% now selects Auto rather than Sleep, so re-save a Sleep scene at 25%.
+
+On a model with no mapping of its own, switching to Manual sends the manual mode and leaves the speed to the purifier rather than restoring the last one, because the plugin has no confirmed way to set both at once on hardware it does not know.
+
+## Other controls
+
+Some controls depend on what a model's registers can do:
+
+- **Child lock** is offered on every model except the AC0651, the AC0850 and the dash-less AC1715. ha-philips-airpurifier offers no child lock on the AC0650, AC2889, AC3033, AC3036, AC3039, AC3055, AC3059, AC3259, AC3836, AC5659, AC5660, and the /50 variants of the AC3854 and AC3858, so there it may do nothing.
+- On the models that report dash-less registers such as `D03102` (the AC0950, AC0951, AC2210, AC2220, AC2221, AC3210, AC3220, AC3221, AC3420, AC3421, AC3737, AC4220, AC4221 and AMF765):
+  - The **light** is on or off, and any brightness switches it on. On most of them it is the lamp (`D03135`), because the display backlight register only reports there. The AC0950, AC0951 and AC3737 have no light the plugin can switch.
+  - The **temperature** sensor reads 0: these models report tenths of a degree, which the plugin does not convert.
+  - The **humidifier** option does nothing on the AC3420, AC3421 and AC3737, and says so in the log at startup. These models report no humidifier on/off the plugin can read or switch, so it offers no humidifier control rather than one that cannot work.
