@@ -20,17 +20,18 @@ Sequence verified against the code (`src/platform.js` → `accessories.setup.js`
 
 1. Homebridge loads the plugin; cached accessories are restored silently
    (`configureAccessory`).
-2. On Homebridge's `didFinishLaunching`, **before any device is touched**: the aioairctrl
-   preflight (`src/utils/preflight.js`) runs `<binary> --help` once. Healthy installs log
-   `Using <binary>` (plus `(found on PATH)` when unconfigured); a broken one logs the
-   multi-line `Cannot run '<binary>'...` report via `logger.alert` and setup continues
-   anyway. **The absence of either line means the plugin is older than 1.2.0.**
-3. `Initializing device...` (device validated and keyed by UUID), followed by **one line
+2. On Homebridge's `didFinishLaunching`: `Initializing device...` (device validated and keyed by UUID), followed by **one line
    naming the command set** that device runs on: `Using the AC0850 command set.` or
    `No dedicated mapping for model "X", using the default command set.` A device on the
    default mapping when its model is in a README Supported tier is a config fault, and this line
    is how it is seen rather than inferred from controls that do nothing. Inactive devices
    log `Not active in the config...` here instead and are skipped.
+3. Then, **before any device is touched**, and only when at least one device is active: the aioairctrl
+   preflight (`src/utils/preflight.js`) runs `<binary> --help` once. Healthy installs log
+   `Using <binary>` (plus `(found on PATH)` when unconfigured); a broken one logs the
+   multi-line `Cannot run '<binary>'...` report via `logger.alert` and setup continues
+   anyway. **The absence of either line, with a device active, means the plugin is older than 1.2.0.**
+   From 2.0.1 a config with no active device skips it, so no aioairctrl line is expected then.
 4. `Configuring new accessory...` (first ever run) **or** `Configuring cached
 accessory...` (every later run).
 5. `Setup accessory...`

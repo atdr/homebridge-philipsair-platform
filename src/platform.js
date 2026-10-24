@@ -27,14 +27,23 @@ class PhilipsAirPlatform {
   }
 
   async didFinishLaunching() {
-    //prove the CLI works before any device tries to use it
-    await this.preflight();
+    try {
+      //initialize devices
+      AccessoriesSetup(this.devices, this.config.devices, this.api.hap.uuid.generate);
 
-    //initialize devices
-    AccessoriesSetup(this.devices, this.config.devices, this.api.hap.uuid.generate);
+      //prove the CLI works before any device tries to use it. With no active
+      //device nothing will use it, so the plugin stays quiet rather than
+      //alerting about an install the user may not have made yet
+      if (this.devices.size) {
+        await this.preflight();
+      }
 
-    //configure accessories
-    this.configure();
+      //configure accessories, which also removes cached ones no longer configured
+      this.configure();
+    } catch (err) {
+      //Homebridge does not await this, so a throw would be an unhandled rejection
+      logger.error(err);
+    }
   }
 
   /**

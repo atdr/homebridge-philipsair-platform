@@ -288,5 +288,42 @@ describe('PhilipsAirPlatform', () => {
       assert.equal(platform.accessories.length, 1);
       assert.equal(api.registered.length, 1);
     });
+
+    it('skips the preflight when no device is active, but still removes stale accessories', async () => {
+      const api = makeFakeApi();
+      const platform = new PhilipsAirPlatform(
+        silentLog,
+        { aioairctrlPath: MISSING_SHIM, devices: [{ active: false, name: 'Purifier', host: '192.168.1.142' }] },
+        api
+      );
+      const stale = new FakePlatformAccessory('Old', hap.uuid.generate('old'));
+      platform.configureAccessory(stale);
+
+      const alerts = [];
+      logger.configure({ info: noop, warn: noop, error: (m) => alerts.push(m) }, {});
+      await platform.didFinishLaunching();
+      logger.configure(silentLog, {});
+
+      assert.deepEqual(alerts, []);
+      assert.deepEqual(api.unregistered, [stale]);
+    });
+
+    it('logs a failure instead of leaving it as an unhandled rejection', async () => {
+      const platform = new PhilipsAirPlatform(
+        silentLog,
+        { aioairctrlPath: HAPPY_SHIM, devices: [{ active: true, name: 'Purifier', host: '192.168.1.142' }] },
+        makeFakeApi()
+      );
+      platform.preflight = async () => {
+        throw new Error('boom');
+      };
+
+      const errors = [];
+      logger.configure({ info: noop, warn: noop, error: (m) => errors.push(String(m)) }, {});
+      await assert.doesNotReject(platform.didFinishLaunching());
+      logger.configure(silentLog, {});
+
+      assert.ok(errors.some((m) => m.includes('boom')));
+    });
   });
 });
