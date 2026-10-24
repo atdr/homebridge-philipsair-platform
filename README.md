@@ -260,7 +260,7 @@ The default of 60 seconds suits every device tested so far; raise it if your dev
 <details>
 <summary>The startup check failed. The message names one of three causes.</summary>
 
-At startup the plugin runs `aioairctrl --help` once to check the CLI works before any device tries to use it. If that fails it reports the cause, what it ran, and how to fix it, then carries on loading, so the accessories still appear, but none of them will work until the install is fixed.
+At startup, when at least one device is active, the plugin runs `aioairctrl --help` once to check the CLI works before any device tries to use it. If that fails it reports the cause, what it ran, and how to fix it, then carries on loading, so the accessories still appear, but none of them will work until the install is fixed.
 
 **Not installed, or not on the PATH.** The commonest case. The report includes the PATH it searched, which is usually the answer: pipx installs to `~/.local/bin`, and service accounts frequently do not search it. Install the CLI for the user that runs Homebridge, then confirm it:
 
