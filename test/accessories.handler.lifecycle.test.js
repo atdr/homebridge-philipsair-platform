@@ -1664,21 +1664,54 @@ describe('write verification', { concurrency: 1 }, () => {
       sent.push(args.join(' '));
     };
 
-    //the scene shape #82 measured: HomeKit delivers these as independent
-    //onSet calls, so nothing awaits one before making the other. Both are
-    //integer-encodable, so they should be folded into one command rather
-    //than sent (and possibly raced or dropped) as two
-    await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(100)]);
+    //HomeKit delivers a scene's setters as independent onSet calls, so nothing
+    //awaits one before making the other (#82). Both are integer-encodable, so
+    //they should be folded into one command rather than sent as two
+    await Promise.all([
+      handler.queueWrite(['D0310A=2', 'D0310C=18'], { D0310A: 2, D0310C: 18 }),
+      handler.queueWrite(['D03130=1'], { D03130: 1 }),
+    ]);
 
     assert.equal(overlapped, 1, 'a merged write is still one process on the wire');
-    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1 D0310A=2 D0310C=18']);
-    assert.deepEqual([...handler.pendingWrites.keys()], ['pwr', 'D0310A', 'D0310C']);
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=18 D03130=1']);
 
     const pending = [...handler.pendingWrites.values()];
     assert.ok(
       pending.every((entry) => entry.args === pending[0].args),
       'the merged keys should share one args reference, the same as an unmerged multi-register command'
     );
+
+    handler.kill(true);
+  });
+
+  it('sends the power-on of a scene on its own, after the rest', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({ model: 'AC0850' });
+    handler.purifierService = makeService();
+    /** @type {string[]} */
+    const sent = [];
+    let inFlight = 0;
+    let overlapped = 0;
+    handler.runCMD = async (args) => {
+      inFlight += 1;
+      overlapped = Math.max(overlapped, inFlight);
+      await delay(20);
+      inFlight -= 1;
+      sent.push(args.join(' '));
+    };
+
+    //an AC0850 ignores every register merged with a power-on, off or on (#117),
+    //so the power-on goes alone, last, as orderPowerLast has resends
+    await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(100)]);
+
+    assert.equal(overlapped, 1, 'the power-on and the rest must still never overlap on the wire');
+    assert.deepEqual(sent, [
+      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=18',
+      '-H 192.168.1.142 -P 5683 set -I D03102=1',
+    ]);
+    assert.deepEqual([...handler.pendingWrites.keys()].sort(), ['D0310A', 'D0310C', 'pwr']);
 
     handler.kill(true);
   });
@@ -1756,7 +1789,7 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.kill(true);
   });
 
-  it('resends a scene without its power-on once the device reports on', async (t) => {
+  it('resends only the speed when the device comes on without it', async (t) => {
     t.after(silenceLogger);
     captureLogs();
 
@@ -1769,14 +1802,16 @@ describe('write verification', { concurrency: 1 }, () => {
       sent.push(args.join(' '));
     };
 
-    //off, so the power-on is needed and goes out merged with the speed
+    //off, so the power-on is needed, and goes out after the speed on its own
     await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 0 }));
     await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(25)]);
-    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1 D0310A=2 D0310C=17']);
+    assert.deepEqual(sent, [
+      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=17',
+      '-H 192.168.1.142 -P 5683 set -I D03102=1',
+    ]);
     sent.length = 0;
 
-    //the device came on but ignored the speed merged with the power-on, so the
-    //resend must not repeat the power-on that made it ignore the rest
+    //the device came on but without the speed, so only the speed goes again
     await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 0 }));
     await delay(50);
 
@@ -1812,7 +1847,10 @@ describe('write verification', { concurrency: 1 }, () => {
 
     await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 0 }));
     await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(25)]);
-    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1 D0310A=2 D0310C=17']);
+    assert.deepEqual(sent, [
+      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=17',
+      '-H 192.168.1.142 -P 5683 set -I D03102=1',
+    ]);
     sent.length = 0;
 
     //on, but too soon after the command to count as an answer to it
