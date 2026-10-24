@@ -71,7 +71,7 @@ explains the design). See `new-model-support-campaign` for the procedure.
 | `status-observe` stdout is line-buffered and capped at 1 MB (`MAX_STDOUT_BUFFER`)                                      | `handleStdoutChunk` in `accessories.handler.js`; tests in `test/accessories.handler.lifecycle.test.js`                                | Memory exhaustion from a misbehaving device/CLI (PR #5)                                          |
 | Values pushed to HomeKit are finite and clamped to the characteristic's range                                          | `hapNumber` in `src/utils/utils.js`; `test/utils.test.js`                                                                             | Homebridge 2's strict validation logs a warning on every poll (PR #3 fixed a `wicksts` NaN case) |
 | Hosts that look like CLI flags are rejected; ports validated to 1–65535                                                | `validHost` / `validPort` in `src/utils/utils.js`; `test/utils.test.js`                                                               | Config values interpreted as `aioairctrl` arguments (PR #5)                                      |
-| Every model with a dedicated mapping appears in the config UI typeahead and the README tested-devices list             | `test/config.schema.test.js`, `test/docs.test.js`                                                                                     | Docs/UI drift from code (PR #19, #20)                                                            |
+| Every model with a dedicated mapping appears in the config UI typeahead and the README Supported tiers, and vice versa | `test/config.schema.test.js`, `test/docs.test.js`                                                                                     | Docs/UI drift from code (PR #19, #20)                                                            |
 | CommonJS only, `'use strict'`, no runtime deps, singleton logger                                                       | AGENTS.md (doc of record); eslint `sourceType: 'commonjs'`                                                                            | See AGENTS.md                                                                                    |
 
 The docs-sync invariants and how to add new mechanical guards are covered in
@@ -86,8 +86,13 @@ The docs-sync invariants and how to add new mechanical guards are covered in
   commented-out methods (`setHumidifierCurrentState`, `setHumidifierThreshold`), and no
   current tester owns a humidifier-capable device. **Do not refactor these
   opportunistically**; touch them only with a live device to verify against.
-- **AC3829 is unverified with the current configuration approach** (README "Not yet
-  confirmed" list). Its README example config is plausible but untested.
+- **Only the AC0850 is validated (★) on hardware by this project.** Every other mapped
+  model is Supported, never confirmed here. The AC1715, AC3036 and AC3829 come from the
+  original plugin's users and contributors or from ruaan-deysel/ha-philips-airpurifier;
+  the other 35 were imported in bulk from that integration, with hardware corrections
+  from ruaan-deysel/homebridge-philips-airctrl, and the AC0651 comes from the cloud
+  plugin Micheledipaola/homebridge-philips-airplus (`THIRD_PARTY_NOTICES.md` pins the
+  sources). A report that one of them misbehaves is a report against that data.
 - Speed matching in `Handler.rotationSpeed` compares stringified values for exact
   equality against the model's `speeds` entries; a device reporting an unexpected value
   matches nothing and reports speed index 0 (RotationSpeed 0) with no warning.
@@ -109,5 +114,5 @@ grep -n "execFile\|spawn(" src/accessories/accessories.handler.js               
 grep -n "MAX_STDOUT_BUFFER" src/accessories/accessories.handler.js                       # buffer cap still present
 grep -n "uuid.generate" src/platform.js; grep -n "generateUUID" src/accessories/accessories.setup.js  # UUID derivation path
 grep -rn "historical name-derived UUID" test/                                            # pinned-vector test still exists
-grep -n "Not yet confirmed" README.md                                                    # AC3829 verification status
+grep -n "Validated ★" README.md                                                             # which models carry the ★
 ```

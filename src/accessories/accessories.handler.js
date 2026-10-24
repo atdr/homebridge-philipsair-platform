@@ -6,7 +6,7 @@ const logger = require('../utils/logger');
 const { hapNumber } = require('../utils/utils');
 const { DEFAULT_BINARY } = require('../utils/preflight');
 const modelConfig = require('./accessories.models');
-const { resolveModel, identifyModel, readsStatus, looksLikeRegisters } = modelConfig;
+const { resolveModel, identifyModel, readsStatus, looksLikeRegisters, detectDialect, deviceDetails } = modelConfig;
 
 //status lines are small JSON objects; anything beyond this is a misbehaving
 //device or CLI streaming data without newlines
@@ -132,6 +132,20 @@ const WRITE_SETTLE = 3 * 1000;
 //exists to catch them before they are ever split into two commands
 const WRITE_COALESCE_WINDOW = 75;
 
+//how readily a queued write gives way to another write in the same coalescing
+//window that sets one of its keys. A write is dropped when one on a lower
+//level claims a key it sets; writes on the same level are all kept. see
+//queueWrite
+const YIELD = Object.freeze({
+  //what the user asked for outright: Active, Auto, the child lock
+  never: 0,
+  //a speed, which an Auto in the same scene overrides, and RotationSpeed 0's
+  //implied power-off, which a real power write overrides
+  toDirect: 1,
+  //Manual's restore of the last speed, which any speed in the same scene replaces
+  always: 2,
+});
+
 /**
  * A write waiting for the device to confirm it. `since` is the transmission
  * horizon, `recordedAt` the moment the user asked for it: the first decides
@@ -140,6 +154,30 @@ const WRITE_COALESCE_WINDOW = 75;
  * @typedef {{ expected: unknown, args: string[], attempts: number, since: number,
  *   recordedAt: number, knownOff: boolean, window: number, blindResent: boolean, token: number }} PendingWrite
  */
+
+//the dialect names used in log messages
+const DIALECT_NAMES = { dashed: 'dashed', dashless: 'dash-less' };
+
+/** @param {string | undefined} dialect */
+const dialectName = (dialect) => (dialect && DIALECT_NAMES[dialect]) || String(dialect);
+
+/**
+ * What a status says about the device, as one phrase for the log: model as
+ * printed, regional suffix, Wi-Fi firmware and register dialect, whichever it
+ * reports. Empty when it reports none of them.
+ *
+ * @param {{ model?: string, region?: string, wifiVersion?: string }} details
+ * @param {string | undefined} dialect
+ */
+const describeDevice = ({ model, region, wifiVersion }, dialect) =>
+  [
+    model && `model ${model}`,
+    region && `region ${region}`,
+    wifiVersion && `Wi-Fi firmware ${wifiVersion}`,
+    dialect && `${dialectName(dialect)} registers`,
+  ]
+    .filter(Boolean)
+    .join(', ');
 
 class Handler {
   constructor(api, accessory) {
@@ -241,10 +279,55 @@ class Handler {
       );
     }
 
-    const { speeds, keyMaps, valueMaps, extraSetFlags, unsupported } = modelConfig(config);
+    //the register dialect this device spoke on an earlier run, for a model that
+    //ships more than one. Applied here for the same reason a detected model
+    //is: the speed steps and `unsupported` shape the services built next. It
+    //is not stamped on the config, which stays exactly what the user wrote.
+    //It is recorded with the model it was judged against and applied to that
+    //model only, after any detected model above has been adopted, so a config
+    //or detection naming another model since never inherits it
+    const recorded = this.accessory.context.detectedDialect;
+    const detectedDialect = recorded && recorded.model === this.modelKey ? recorded.dialect : undefined;
+    const {
+      speeds,
+      keyMaps,
+      valueMaps,
+      modeMaps,
+      alsoAuto,
+      fanLevel,
+      autoWrite,
+      extraSetFlags,
+      unsupported,
+      dialect,
+      dialects,
+    } = modelConfig({ ...config, modelKey: this.modelKey, dialect: detectedDialect });
+    this.dialect = dialect;
+    this.dialects = dialects;
+
+    if (detectedDialect && dialect === detectedDialect && dialects.length && dialect !== modelConfig(config).dialect) {
+      logger.info(
+        `Using the ${dialectName(dialect)} ${this.modelKey} command set, ` +
+          "detected from this device's own status on an earlier run.",
+        this.accessory.displayName
+      );
+    }
+
     this.speeds = speeds;
+    //the slider's steps when the model reports its fan's actual level, see
+    //accessories.models.js
+    this.fanLevel = fanLevel;
     this.keyMaps = keyMaps;
     this.valueMaps = valueMaps;
+    this.modeMaps = modeMaps;
+    //automatic states that read as Auto but are never written (see the
+    //accessories.models.js header)
+    this.alsoAuto = alsoAuto;
+    this.autoWrite = autoWrite;
+    //index into speeds of the last manual step the device was in or was set
+    //to. Auto is not a speed on any model, so the slider reads this step while
+    //in Auto (0% would mean off) and Manual restores it. The first step until
+    //one is known
+    this.lastManualSpeed = 0;
     this.extraSetFlags = extraSetFlags;
     this.unsupported = new Set(unsupported);
 
@@ -266,7 +349,7 @@ class Handler {
     this.writeCoalesceWindow = WRITE_COALESCE_WINDOW;
     //writes waiting for a companion, and the timer that will flush them. see
     //queueWrite
-    /** @type {{ cmds: string[], expectations: Record<string, unknown>, extraFlags: string[], resolve: () => void, reject: (err: unknown) => void }[]} */
+    /** @type {{ cmds: string[], expectations: Record<string, unknown>, extraFlags: string[], yielding: number, onYield?: (winner: number) => void, resolve: (sent: boolean) => void, reject: (err: unknown) => void }[]} */
     this.writeBatch = [];
     this.writeBatchTimeout = null;
 
@@ -455,20 +538,27 @@ class Handler {
    * run `setArgs`'s own `intEncodable` check on the real merged group, at
    * flush time, so it can never diverge from what `setArgs` would compute.
    *
+   * `yielding` (a YIELD level) is how readily a write gives way when another
+   * write in the same window sets one of its keys; the lower level wins and
+   * the other is dropped at flush time. RotationSpeed 0 means "off" only by
+   * implication, so a scene that switches the purifier on is never undone by
+   * a 0% it happened to capture. A speed gives way to Auto, which on the
+   * AC0850 is the same register (a scene captured in Auto replays as Auto),
+   * and Manual's restore of the last speed gives way to any speed sent with
+   * it, since that speed is the one the scene means.
+   *
+   * `onYield`, when given, is told the YIELD level of the write that took a
+   * dropped write's place, before the promise settles.
+   *
    * @param {string[]} cmds
    * @param {Record<string, unknown>} expectations
    * @param {string[]} [extraFlags]
-   * @returns {Promise<void>}
+   * @param {{ yielding?: number, onYield?: (winner: number) => void }} [options]
+   * @returns {Promise<boolean>} false when a yielding write was dropped unsent
    */
-  queueWrite(cmds, expectations, extraFlags = []) {
-    //Avoid merging power with other commands: the AC0850 ignores other commands
-    //merged with power
-    if ('pwr' in expectations) {
-      return this.sendTracked(this.setArgs(cmds, extraFlags), expectations);
-    }
-
+  queueWrite(cmds, expectations, extraFlags = [], { yielding = YIELD.never, onYield } = {}) {
     return new Promise((resolve, reject) => {
-      this.writeBatch.push({ cmds, expectations, extraFlags, resolve, reject });
+      this.writeBatch.push({ cmds, expectations, extraFlags, yielding, onYield, resolve, reject });
 
       if (!this.writeBatchTimeout) {
         this.writeBatchTimeout = setTimeout(() => this.flushWriteBatch(), this.writeCoalesceWindow);
@@ -485,16 +575,76 @@ class Handler {
    * were ever coalesced this way, which is why the check runs on `mergedCmds`
    * itself rather than reusing each write's own precomputed flags.
    *
-   * Merged expectations are combined last-key-wins. Safe today because the
-   * six tracked setters use disjoint generic keys (pwr / mode / cl /
-   * D0310A+D0310C / func / rhset); that is an invariant of the current setter
-   * set, not something this method enforces, so a future setter reusing a key
-   * would have one expectation silently dropped rather than erroring.
+   * Merged expectations are combined last-key-wins. The setters overlap on
+   * purpose in three places: a yielding `pwr` from RotationSpeed 0 beside a
+   * real `pwr` from Active; a speed beside the purifier mode where the
+   * model's speeds carry the mode register (D0310A+D0310C on the AC0850,
+   * 'mode' on the AC3036); and Manual's restored speed beside a speed. Each is
+   * resolved before merging by the writes' `yielding` levels (see queueWrite),
+   * so the merged command never carries a register twice. Two writes on the
+   * same level that share a key are not resolved: the setters do not produce
+   * that today except a setter racing itself, and the merged command would
+   * carry the register twice with one expectation silently dropped. The one
+   * exception is an identical write, which is sent once: Auto on the switch
+   * and a fan-level Auto step on the slider (`fanLevel`) in the same scene.
    */
   async flushWriteBatch() {
-    const batch = this.writeBatch;
+    const levels = [...new Set(this.writeBatch.map((entry) => entry.yielding))].sort((a, b) => a - b);
+    //each claimed key, and the level of the write that claimed it
+    /** @type {Map<string, number>} */
+    const claimed = new Map();
+    const dropped = new Set();
+
+    //lowest level first, and a level's keys are claimed only once the whole
+    //level is through, so writes on one level never drop each other
+    for (const level of levels) {
+      const kept = [];
+
+      for (const entry of this.writeBatch.filter((candidate) => candidate.yielding === level)) {
+        const winners = Object.keys(entry.expectations)
+          .filter((key) => claimed.has(key))
+          .map((key) => /** @type {number} */ (claimed.get(key)));
+
+        if (winners.length) {
+          dropped.add(entry);
+          entry.onYield?.(Math.min(...winners));
+        } else {
+          kept.push(entry);
+        }
+      }
+
+      kept.forEach((entry) => Object.keys(entry.expectations).forEach((key) => claimed.set(key, level)));
+    }
+
+    //after the yielding pass, so a 0% still gives way to the power-on it came
+    //with even when that power-on is then left out as redundant
+    /** @type {Set<string>} */
+    const seen = new Set();
+    const batch = this.writeBatch
+      .filter((entry) => !dropped.has(entry))
+      .filter((entry) => this.dropRedundantPowerOn(entry))
+      .filter((entry) => {
+        //the same write twice is sent once, and both setters have what they
+        //asked for: Auto on the switch beside a fan-level Auto step on the
+        //slider (fanLevel) is one scene asking for Auto in two ways
+        const command = [...entry.extraFlags, ...entry.cmds].join(' ');
+
+        if (!seen.has(command)) {
+          seen.add(command);
+          return true;
+        }
+
+        entry.resolve(true);
+        return false;
+      });
+    dropped.forEach((entry) => entry.resolve(false));
+
     this.writeBatch = [];
     this.writeBatchTimeout = null;
+
+    if (!batch.length) {
+      return;
+    }
 
     const mergedCmds = batch.flatMap((entry) => entry.cmds);
     const canMerge = batch.length > 1 && this.intEncodable(mergedCmds);
@@ -506,7 +656,7 @@ class Handler {
 
       try {
         await this.sendTracked(args, expectations);
-        batch.forEach((entry) => entry.resolve());
+        batch.forEach((entry) => entry.resolve(true));
       } catch (err) {
         batch.forEach((entry) => entry.reject(err));
       }
@@ -518,11 +668,127 @@ class Handler {
 
       try {
         await this.sendTracked(args, entry.expectations);
-        entry.resolve();
+        entry.resolve(true);
       } catch (err) {
         entry.reject(err);
       }
     }
+  }
+
+  /**
+   * The `key=value` element a power-on is written as, in this model's own
+   * register and value: what `handleCommand('pwr', 1)` returns, without its log line.
+   */
+  powerOnCommand() {
+    const value = this.valueMaps.pwr ? this.valueMaps.pwr[1] : 1;
+
+    return `${this.keyMaps.pwr || 'pwr'}=${value}`;
+  }
+
+  /**
+   * Leaves a power-on out of a queued write when the device already reports
+   * itself on. A Home app scene almost always carries Active=1, so the power-on
+   * is merged into the same `set` as the scene's speed or mode, and an AC0850
+   * that is already on ignores every register merged with it: a scene asking
+   * for Sleep left it in Auto, and the resend repeated the same command. The
+   * rest of the write goes out alone, as a plain slider change does.
+   *
+   * Only a power-on, and only to a device whose last status says it is on. A
+   * power-off is never redundant in this sense, and a device that is off or has
+   * not reported yet still gets the power-on merged as before. The expectation
+   * goes too, so verification neither waits for `pwr` nor resends it.
+   *
+   * Not while a power write is pending either (`powerWritePending`). After a
+   * power-off the device still reports on until its notification arrives, and
+   * leaving out a power-on queued in that gap would let the off notification
+   * confirm the older request: the purifier would stay off against the latest
+   * one. Sent, the power-on replaces the off's expectation in `sendTracked`.
+   *
+   * @param {{ cmds: string[], expectations: Record<string, unknown>, resolve: (sent: boolean) => void }} entry
+   * @returns {boolean} false when nothing is left to send; the entry is then resolved as sent
+   */
+  dropRedundantPowerOn(entry) {
+    if (
+      !this.deviceKnownOn() ||
+      this.powerWritePending() ||
+      !('pwr' in entry.expectations) ||
+      Number(entry.expectations.pwr) !== 1
+    ) {
+      return true;
+    }
+
+    const command = this.powerOnCommand();
+    logger.debug(`The device already reports it is on, leaving ${command} out`, this.accessory.displayName);
+
+    entry.cmds = entry.cmds.filter((cmd) => cmd !== command);
+    entry.expectations = Object.fromEntries(Object.entries(entry.expectations).filter(([key]) => key !== 'pwr'));
+
+    if (!entry.cmds.length) {
+      //what was asked for is already true, so the setter succeeded
+      entry.resolve(true);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Whether a power write is still waiting for the device to confirm it,
+   * including one whose command has not finished sending: `recordWrite` records
+   * it before the send. Until it is resolved, the device reporting on says
+   * nothing about where a newer power-on leaves it.
+   */
+  powerWritePending() {
+    return this.pendingWrites.has('pwr');
+  }
+
+  /**
+   * `powerWritePending`, but not counting the power-on carried by `args`
+   * itself, which is the very write a resend of it is checking.
+   *
+   * @param {string[]} args
+   */
+  powerWritePendingOtherThan(args) {
+    const pending = this.pendingWrites.get('pwr');
+
+    return !!pending && pending.args.join(' ') !== args.join(' ');
+  }
+
+  /**
+   * The resend-side counterpart of `dropRedundantPowerOn`. A scene sent to a
+   * device that was off carries the power-on merged with the rest, and when the
+   * device comes on but ignores the rest, repeating that same command is what
+   * made it ignore the rest in the first place. So once the device reports on,
+   * the power-on is taken out of the command, and the writes it carries are
+   * re-pointed at the command that actually goes out, which is what
+   * `writesFor` matches on.
+   *
+   * @param {string[]} args
+   * @returns {string[] | null} the command to resend, or null when nothing but the power-on was in it
+   */
+  withoutRedundantPowerOn(args) {
+    const command = this.powerOnCommand();
+
+    if (!this.deviceKnownOn() || this.powerWritePendingOtherThan(args) || !args.includes(command)) {
+      return args;
+    }
+
+    const stripped = args.filter((arg) => arg !== command);
+    const carried = this.writesFor(args);
+    const remaining = stripped.slice(stripped.indexOf('set') + 1).some((arg) => !arg.startsWith('-'));
+
+    logger.debug(`The device already reports it is on, resending without ${command}`, this.accessory.displayName);
+
+    for (const [key, pending] of carried) {
+      if (key === 'pwr' || !remaining) {
+        //the device reporting on is the very reading the power-on was waiting for
+        this.pendingWrites.delete(key);
+      } else {
+        pending.args = stripped;
+      }
+    }
+
+    return remaining ? stripped : null;
   }
 
   /**
@@ -554,6 +820,20 @@ class Handler {
 
     const { key, certainty } = identifyModel(status);
     const readable = readsStatus(status, this.keyMaps);
+    const spoken = detectDialect(status);
+    const details = deviceDetails(status);
+    const reported = describeDevice(details, spoken);
+
+    if (reported) {
+      logger.debug(`This device reports ${reported}.`, this.accessory.displayName);
+    }
+
+    //a device naming another model settles that first. Short of that, a
+    //status in this model's other dialect is not a wrong model, though it
+    //fingerprints as one: the dialects share registers across models
+    if (!(key && key !== this.modelKey && certainty === 'reported') && this.checkDialect(spoken, reported)) {
+      return;
+    }
 
     if (key && key !== this.modelKey) {
       //a partial register overlap is not evidence against a mapping that is
@@ -563,6 +843,9 @@ class Handler {
       }
 
       this.accessory.context.detectedModel = key;
+      //judged against the model the device reports, not the configured one,
+      //and recorded before the flush below so one restart adopts both
+      const variant = this.recordDialectFor(key, spoken);
       //accessory.context is otherwise only written out when Homebridge shuts
       //down cleanly, so a power cut or an OOM kill between here and then loses
       //the finding and the next start repeats this run rather than adopting it
@@ -575,7 +858,10 @@ class Handler {
               .slice(0, 4)
               .join(', ')}), and they match the ${key} mapping. `) +
           `Its controls will not work until the model is set to ${key} in the plugin config. ` +
-          `Until then the ${key} command set will be used from the next restart.`,
+          (variant
+            ? `Until then the ${dialectName(variant)} ${key} command set, matching the ${dialectName(variant)} ` +
+              'registers it reports, will be used from the next restart.'
+            : `Until then the ${key} command set will be used from the next restart.`),
         this.accessory.displayName
       );
 
@@ -591,6 +877,68 @@ class Handler {
         this.accessory.displayName
       );
     }
+  }
+
+  /**
+   * Records a register dialect the configured model has another mapping for,
+   * for the constructor to apply on the next start. Part of checkModelMapping,
+   * and as quiet as it: a device already speaking the dialect in force, or a
+   * model that ships only one, says nothing.
+   *
+   * @param {'dashed' | 'dashless' | undefined} spoken
+   * @param {string} reported what the device says about itself, for the log
+   * @returns {boolean} whether the status was in another dialect
+   */
+  checkDialect(spoken, reported) {
+    if (!spoken || spoken === this.dialect || !this.dialects.includes(spoken)) {
+      return false;
+    }
+
+    this.accessory.context.detectedDialect = { model: this.modelKey, dialect: spoken };
+    //flushed now for the reason checkModelMapping gives
+    this.api.updatePlatformAccessories([this.accessory]);
+
+    logger.warn(
+      `This device reports ${reported}, not the ${dialectName(this.dialect)} registers ` +
+        `the ${this.modelKey} mapping in force uses, so its controls will not work until the next restart. ` +
+        `From the next restart the ${dialectName(spoken)} ${this.modelKey} command set will be used.`,
+      this.accessory.displayName
+    );
+
+    return true;
+  }
+
+  /**
+   * Records the dialect a status is in for a model the device was just found to
+   * be, when that model has a mapping for it, so the constructor applies it
+   * together with the model on the next start. The caller flushes the context.
+   *
+   * @param {string} key the model the device was found to be
+   * @param {'dashed' | 'dashless' | undefined} spoken
+   * @returns {'dashed' | 'dashless' | undefined} the dialect recorded: one
+   *   that model has a variant for, not the one it uses by default
+   */
+  recordDialectFor(key, spoken) {
+    const { dialect, dialects } = modelConfig({ ...this.accessory.context.config, modelKey: key });
+    const context = this.accessory.context;
+
+    if (!spoken || !dialects.includes(spoken)) {
+      return undefined;
+    }
+
+    if (spoken === dialect) {
+      //the model's default needs no record, but replaces any variant an
+      //earlier run left for the same model
+      if (context.detectedDialect && context.detectedDialect.model === key) {
+        delete context.detectedDialect;
+      }
+
+      return undefined;
+    }
+
+    context.detectedDialect = { model: key, dialect: spoken };
+
+    return spoken;
   }
 
   handleResponse(json) {
@@ -618,6 +966,16 @@ class Handler {
     return !this.unsupported.has(key);
   }
 
+  /**
+   * Whether the model has an auto/manual concept HomeKit's
+   * TargetAirPurifierState can drive: `modeMaps` naming the registers that
+   * mean Auto, whether or not they include a 'mode' register (the AC0850 has
+   * none). Kept apart from `supports('mode')`, which means the register itself.
+   */
+  supportsMode() {
+    return !!this.modeMaps;
+  }
+
   handleCommand(key, value) {
     value = this.valueMaps[key] ? this.valueMaps[key][value] : value;
     key = this.keyMaps[key] || key;
@@ -635,19 +993,95 @@ class Handler {
     return { 40: 25, 50: 50, 60: 75, 70: 100 }[this.obj.rhset] || 0;
   }
 
+  /** The slider's step: one per fan level step where the model has them, else one per speed. */
   speedsMinStep() {
-    return 100 / this.speeds.length;
+    return 100 / (this.fanLevel ? this.fanLevel.steps : this.speeds).length;
+  }
+
+  /**
+   * Where one of the `speeds` sits on the slider. Without a fan level that is
+   * its own position; with one, the position of the fan level step that
+   * writes it (Sleep 25%, Turbo 100% on the AC0850).
+   *
+   * @param {number} index into `speeds`
+   */
+  speedPercent(index) {
+    if (this.fanLevel) {
+      const step = this.fanLevel.steps.findIndex(({ write }) => this.sameRegisters(write, this.speeds[index]));
+
+      if (step >= 0) {
+        return (step + 1) * this.speedsMinStep();
+      }
+    }
+
+    return (index + 1) * this.speedsMinStep();
+  }
+
+  /**
+   * @param {Record<string, unknown> | string} a
+   * @param {Record<string, unknown> | string} b
+   */
+  sameRegisters(a, b) {
+    if (typeof a !== 'object' || typeof b !== 'object') {
+      return a === b;
+    }
+
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every((key) => String(a[key]) === String(b[key]));
+  }
+
+  /**
+   * The slider position of the fan's actual level, on a model that reports
+   * one (`fanLevel`): 0 when the device is off or the fan stopped, else the
+   * step that level belongs to. Undefined when the level is not reported or
+   * is not one of the steps, so the caller falls back to the speeds.
+   *
+   * @returns {number | undefined}
+   */
+  fanLevelPercent() {
+    if (!this.fanLevel || this.obj[this.fanLevel.key] === undefined) {
+      return undefined;
+    }
+
+    const level = Number(this.obj[this.fanLevel.key]);
+
+    if (this.deviceKnownOff() || level === 0) {
+      return 0;
+    }
+
+    const step = this.fanLevel.steps.findIndex((candidate) => candidate.level === level);
+    return step >= 0 ? (step + 1) * this.speedsMinStep() : undefined;
   }
 
   rotationSpeed() {
-    let speedConfigIndex = this.speeds.findIndex((speedConfig) => {
-      return Object.entries(speedConfig).every(([cmd, value]) => {
-        return (this.obj[cmd] ?? '').toString() == value.toString();
+    //in a confirmed Auto the slider shows the last manual step, whatever the
+    //device chose for itself: a speed it reports there (the default map's
+    //'om') is Auto's choice, not the user's, so it neither shows nor becomes
+    //the manual step. A status that omits the mode confirms nothing, so the
+    //speed it reports still counts; with no speed either (before the first
+    //status, say), the slider keeps the last manual step
+    let speedConfigIndex = this.lastManualSpeed;
+
+    if (!this.confirmedAuto()) {
+      const matched = this.speeds.findIndex((speedConfig) => {
+        return Object.entries(speedConfig).every(([cmd, value]) => {
+          return (this.obj[cmd] ?? '').toString() == value.toString();
+        });
       });
-    });
-    let speedIndex = speedConfigIndex + 1;
-    logger.debug(`#rotationSpeed: ${speedIndex * this.speedsMinStep()}`, this.accessory.displayName);
-    return speedIndex * this.speedsMinStep();
+
+      if (matched >= 0) {
+        this.lastManualSpeed = matched;
+        speedConfigIndex = matched;
+      } else if (!this.modeMaps || this.modeReported()) {
+        speedConfigIndex = -1;
+      }
+    }
+
+    //the fan's actual level wins in every mode where the model reports it;
+    //the matching above still runs, to keep the last manual step current
+    const percent = this.fanLevelPercent() ?? (speedConfigIndex < 0 ? 0 : this.speedPercent(speedConfigIndex));
+    logger.debug(`#rotationSpeed: ${percent}`, this.accessory.displayName);
+    return percent;
   }
 
   //Air Purifier
@@ -665,26 +1099,90 @@ class Handler {
     }
   }
 
+  /**
+   * The automatic modes a status can be in: Auto, the allergen mode where the
+   * model has one, and any read-only `alsoAuto` states (a pollution or gas
+   * preset, say). All read as Auto whichever one the allergic option makes the
+   * selector send, since the panel or the Philips app can start any of them.
+   *
+   * @returns {Record<string, unknown>[]}
+   */
+  autoStates() {
+    return this.modeMaps ? [this.modeMaps.auto, this.modeMaps.allergen, ...this.alsoAuto].filter(Boolean) : [];
+  }
+
+  /** @returns {string[]} the registers that tell Auto from Manual */
+  modeKeys() {
+    return [...new Set(this.autoStates().flatMap((state) => Object.keys(state)))];
+  }
+
+  /** Whether the last status reported any of the registers that tell Auto from Manual. */
+  modeReported() {
+    return this.modeKeys().some((key) => this.obj[key] !== undefined);
+  }
+
+  /** Whether the last status confirms one of the automatic modes. */
+  confirmedAuto() {
+    return (
+      this.modeReported() &&
+      this.autoStates().some((state) =>
+        Object.entries(state).every(([cmd, value]) => String(this.obj[cmd]) === String(value))
+      )
+    );
+  }
+
+  /**
+   * Whether the device is in Auto, as TargetAirPurifierState reports it. A
+   * device that has not reported its mode yet reads as AUTO, and a model with
+   * no modeMaps, whose selector is pinned to AUTO, always does.
+   */
+  inAutoMode() {
+    return !this.modeMaps || !this.modeReported() || this.confirmedAuto();
+  }
+
   async setPurifierTargetState(state) {
-    if (!this.supports('mode')) {
-      logger.debug(`This model has no mode register, ignoring purifier mode ${state}`, this.accessory.displayName);
+    if (!this.modeMaps) {
+      logger.debug(`This model has no auto/manual mode, ignoring purifier mode ${state}`, this.accessory.displayName);
       return;
     }
 
     try {
-      const values = {
-        mode: state ? 'P' : this.accessory.context.config.allergicFunc ? 'A' : 'M',
-      };
+      //Auto has its own registers. Manual goes back to the last manual step,
+      //unless the model names registers of its own for it (the default map's
+      //mode=M), in which case the device picks the speed and reports it
+      const restoring = !this.modeMaps.manual;
+      const registers = state ? this.autoWrite : this.modeMaps.manual || this.speeds[this.lastManualSpeed];
+      const cmds = Object.entries(registers).map(([cmd, value]) => this.handleCommand(cmd, value));
+      const manualStep = this.speedPercent(this.lastManualSpeed);
 
       if (state != 0) {
         this.purifierService
-          .updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, 0)
+          .updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, manualStep)
           .updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, state);
       }
 
-      logger.info(`Purifier Mode: ${state}`, this.accessory.displayName);
+      logger.info(`Purifier Mode: ${state ? 'auto' : 'manual'}`, this.accessory.displayName);
 
-      await this.queueWrite([this.handleCommand('mode', values.mode)], { mode: values.mode });
+      //Manual gives way to a speed sent with it, and a speed to Auto (see queueWrite)
+      let yieldedToAuto = false;
+      const sent = await this.queueWrite(cmds, registers, [], {
+        yielding: state ? YIELD.never : YIELD.always,
+        onYield: (winner) => (yieldedToAuto = winner === YIELD.never),
+      });
+
+      //Manual gave way to Auto from the slider (a fan level Auto step). HAP
+      //stores MANUAL itself once this onSet returns, so AUTO is put back after
+      if (!sent && yieldedToAuto) {
+        logger.debug('Purifier Mode: manual dropped, an Auto in the same scene wins', this.accessory.displayName);
+        setImmediate(() =>
+          this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, 1)
+        );
+      }
+
+      //only once it is known to be going out: a speed that replaced it sets the slider
+      if (sent && state == 0 && restoring) {
+        this.purifierService.updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, manualStep);
+      }
     } catch (err) {
       logger.warn('An error occured during changing target purifier state!', this.accessory.displayName);
       logger.error(err, this.accessory.displayName);
@@ -711,27 +1209,94 @@ class Handler {
     }
   }
 
+  /**
+   * What a RotationSpeed above 0% writes on a model whose slider follows the
+   * fan level: the nearest step, rather than the next one up, so 1.3.1's
+   * 33/67/100% scenes land on Sleep, Auto and Turbo. Never off: only 0% is.
+   *
+   * @param {number} value
+   * @returns {{ registers: Record<string, unknown>, index: number } | 'auto'}
+   */
+  fanLevelWrite(value) {
+    const steps = /** @type {NonNullable<typeof this.fanLevel>} */ (this.fanLevel).steps;
+    const step = Math.min(steps.length, Math.max(1, Math.round(value / this.speedsMinStep())));
+    const { write } = steps[step - 1];
+
+    if (write === 'auto') {
+      return 'auto';
+    }
+
+    return { registers: write, index: this.speeds.findIndex((speed) => this.sameRegisters(speed, write)) };
+  }
+
   async setPurifierRotationSpeed(value) {
     try {
-      const speed = Math.ceil(value / this.speedsMinStep());
+      //the next step up, into speeds
+      let index = Math.ceil(value / this.speedsMinStep()) - 1;
+      let registers = this.speeds[index];
 
-      if (speed > 0) {
+      if (this.fanLevel && value > 0) {
+        const write = this.fanLevelWrite(value);
+
+        if (write === 'auto') {
+          //the same path as Auto on the switch, so it never yields either
+          logger.info(`Purifier Rotation Speed: ${value} is an Auto step, selecting Auto`, this.accessory.displayName);
+          await this.setPurifierTargetState(1);
+          return;
+        }
+
+        index = write.index;
+        registers = write.registers;
+      }
+
+      if (value > 0) {
         //MANUAL is not a value this characteristic accepts on a model with no
-        //mode register: accessories.service.js constrains it to AUTO there
-        if (this.supports('mode')) {
+        //mode: accessories.service.js constrains it to AUTO there
+        if (this.supportsMode()) {
           this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, 0);
         }
 
         logger.info(`Purifier Rotation Speed: value: ${value}`, this.accessory.displayName);
 
         let cmds = [];
-        Object.entries(this.speeds[speed - 1]).forEach(([cmd, value]) => {
+        Object.entries(registers).forEach(([cmd, value]) => {
           cmds.push(`${this.handleCommand(cmd, value)}`);
         });
 
         logger.info(`Purifier Rotation Speed: cmds: ${cmds.join(' ')}`, this.accessory.displayName);
 
-        await this.queueWrite(cmds, this.speeds[speed - 1]);
+        //an Auto in the same scene wins where the speed shares its registers
+        //(see queueWrite). The slider itself is put right by the next status:
+        //HAP stores the value this onSet was given once it returns
+        const sent = await this.queueWrite(cmds, registers, [], { yielding: YIELD.toDirect });
+
+        if (sent) {
+          this.lastManualSpeed = index >= 0 ? index : this.lastManualSpeed;
+        } else {
+          logger.debug('Purifier Rotation Speed: dropped, an Auto in the same scene wins', this.accessory.displayName);
+          this.purifierService.updateCharacteristic(this.api.hap.Characteristic.TargetAirPurifierState, 1);
+        }
+      } else {
+        //0% means off in HomeKit. Yielding, so a power-on in the same scene
+        //wins (see queueWrite), and the tile is updated only once the write
+        //is known to be going out: HAP sets Active itself only when the
+        //write arrives through Active's own onSet
+        logger.debug('Purifier Rotation Speed: 0%, switching off', this.accessory.displayName);
+
+        const sent = await this.queueWrite([this.handleCommand('pwr', 0)], { pwr: 0 }, [], {
+          yielding: YIELD.toDirect,
+        });
+
+        if (sent) {
+          this.purifierService
+            .updateCharacteristic(this.api.hap.Characteristic.Active, 0)
+            .updateCharacteristic(this.api.hap.Characteristic.CurrentAirPurifierState, 0);
+        } else {
+          logger.debug(
+            'Purifier Rotation Speed: 0% dropped, a power write in the same scene wins',
+            this.accessory.displayName
+          );
+        }
       }
     } catch (err) {
       logger.warn('An error occured during changing purifier rotation speed!', this.accessory.displayName);
@@ -741,6 +1306,11 @@ class Handler {
 
   //Humidifier
   async setHumidifierActive(state) {
+    if (!this.supports('func')) {
+      logger.debug(`This model has no humidifier on/off, ignoring ${state}`, this.accessory.displayName);
+      return;
+    }
+
     try {
       const values = {
         func: state ? 'PH' : 'P',
@@ -789,6 +1359,11 @@ class Handler {
   }*/
 
   async setHumidifierTargetState(state) {
+    if (!this.supports('func')) {
+      logger.debug(`This model has no humidifier on/off, ignoring ${state}`, this.accessory.displayName);
+      return;
+    }
+
     try {
       const speed = state;
 
@@ -846,6 +1421,16 @@ class Handler {
   }*/
 
   //Light
+
+  /**
+   * Set flags for the `uil` write. The legacy key takes the strings '1'/'0'; a
+   * model that maps it does so onto a numeric register (the AC1715's D03-05
+   * takes 100/0), which has to be sent as an integer like `aqil`.
+   */
+  uilFlags() {
+    return this.valueMaps.uil ? ['-I'] : [];
+  }
+
   async setLightOn(state) {
     if (this.settingBrightness) {
       return;
@@ -861,7 +1446,7 @@ class Handler {
 
       //Light
       const args1 = this.setArgs([this.handleCommand('aqil', values.aqil)], ['-I']);
-      const args2 = this.setArgs([this.handleCommand('uil', values.uil)]);
+      const args2 = this.setArgs([this.handleCommand('uil', values.uil)], this.uilFlags());
 
       logger.info(`Light state: ${state}`, this.accessory.displayName);
 
@@ -893,7 +1478,7 @@ class Handler {
 
       //Light
       const args1 = this.setArgs([this.handleCommand('aqil', values.aqil)], ['-I']);
-      const args2 = this.setArgs([this.handleCommand('uil', values.uil)]);
+      const args2 = this.setArgs([this.handleCommand('uil', values.uil)], this.uilFlags());
 
       logger.info(`Brightness: ${value}`, this.accessory.displayName);
 
@@ -1309,7 +1894,8 @@ class Handler {
    * @param {string[][]} commands
    */
   async resendInTurn(commands) {
-    const batch = this.orderPowerLast(commands);
+    const resendable = commands.map((args) => this.withoutRedundantPowerOn(args)).filter((args) => args !== null);
+    const batch = this.orderPowerLast(resendable);
 
     //the whole batch's horizon closes up front rather than as each command is
     //reached: a status arriving while a later one waits its turn predates that
@@ -1442,8 +2028,8 @@ class Handler {
           .updateCharacteristic(Characteristic.CurrentAirPurifierState, on ? 2 : 0);
       }
 
-      if (key === 'mode' && this.supports('mode')) {
-        this.purifierService.updateCharacteristic(Characteristic.TargetAirPurifierState, this.obj.mode === 'M' ? 0 : 1);
+      if (this.modeKeys().includes(key)) {
+        this.purifierService.updateCharacteristic(Characteristic.TargetAirPurifierState, this.inAutoMode() ? 1 : 0);
       }
 
       //the speed is spread across whichever keys the model maps it to, so ask
@@ -1873,6 +2459,15 @@ class Handler {
   }
 
   /**
+   * Whether the device has told us it is switched on, on the same basis as
+   * `deviceKnownOff`. Not simply its negation: a device that has never
+   * answered is known to be neither.
+   */
+  deviceKnownOn() {
+    return this.obj.pwr !== undefined && !!parseInt(this.obj.pwr);
+  }
+
+  /**
    * How long the stall detector waits, measured from the last *reading* rather
    * than from the process now running.
    *
@@ -2032,10 +2627,10 @@ class Handler {
 
       //pushing these from a key the model never reports would push a default,
       //not a reading: 'mode' absent reads as AUTO and 'cl' absent as unlocked
-      if (this.supports('mode')) {
+      if (this.supportsMode()) {
         this.purifierService.updateCharacteristic(
           this.api.hap.Characteristic.TargetAirPurifierState,
-          this.obj.mode === 'M' ? 0 : 1
+          this.inAutoMode() ? 1 : 0
         );
       }
 

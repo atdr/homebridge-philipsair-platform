@@ -11,6 +11,8 @@ Bug reports, device status dumps and pull requests are all welcome.
   [model support request](https://github.com/atdr/homebridge-philipsair-platform/issues/new?template=model_support.yml)
   with an `aioairctrl -H <ip> -P 5683 status -J` dump. That dump is what a new mapping
   in `src/accessories/accessories.models.js` is derived from.
+- **Your Supported model works?** Report it on the same form. A model confirmed on
+  hardware by its owner gets the ★ (validated) in the README.
 - **Sending code?** Read on.
 
 Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).

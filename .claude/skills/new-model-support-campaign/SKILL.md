@@ -1,6 +1,6 @@
 ---
 name: new-model-support-campaign
-description: Decision-gated runbook for adding or fixing support for a Philips purifier/humidifier model (a user reports an unsupported device, wrong speeds, or ineffective controls). Covers capturing a baseline status dump, identifying the wire dialect, deriving speed/key/value maps from observation, encoding them in accessories.models.js, and the live verification protocol before a model may be called tested. Load when a device model misbehaves or a new model is requested. Not for general runtime triage (debugging-and-operations) or protocol background (aioairctrl-and-device-protocol - read it alongside this).
+description: Decision-gated runbook for adding or fixing support for a Philips purifier/humidifier model (a user reports an unsupported device, wrong speeds, or ineffective controls). Covers capturing a baseline status dump, identifying the wire dialect, deriving speed/key/value maps from observation, encoding them in accessories.models.js, and the live verification protocol before a model may carry the README validated (★) mark. Load when a device model misbehaves or a new model is requested. Not for general runtime triage (debugging-and-operations) or protocol background (aioairctrl-and-device-protocol - read it alongside this).
 ---
 
 # New-model support campaign
@@ -10,7 +10,7 @@ user has a Philips model this plugin doesn't map correctly, and the fix requires
 evidence from hardware nobody in the repo can see. Work the gates in order; each gate
 states what you should observe and where to branch if you don't. Read
 `aioairctrl-and-device-protocol` first for the vocabulary (dialects, `speeds`,
-`keyMaps`, `valueMaps`, `extraSetFlags`).
+`keyMaps`, `valueMaps`, `extraSetFlags`, `unsupported`, `modeMaps`).
 
 Two hard rules, both paid for in git history:
 
@@ -34,7 +34,7 @@ ping -c 3 <device-ip>
 
 EXPECTED: usage text; ping replies. If `aioairctrl` is missing → README installation
 section. If ping fails → network problem, branch to `debugging-and-operations`. Also
-record: exact model ID from the device label (e.g. AC2889), firmware if visible in the
+record: exact model ID from the device label (e.g. AC0820), firmware if visible in the
 Philips app.
 
 ## Gate 1 — capture the known-good baseline
@@ -62,6 +62,14 @@ Look at the keys in `baseline-status.json`:
 - Dash-less registers like `D03102` → AC0850-style (numeric values, needs `keyMaps` +
   `extraSetFlags: ['-I']`; the exact model ID in config will be required).
 - Anything else → new dialect; capture generously and expect Gate 4 experimentation.
+
+Record `WifiVersion` and the model field (`D01S05`, or `D01-05` when dashed) with the dump. The
+model ID does not fix the dialect: the AC0850 and the AC1715 each ship both, chosen by Wi-Fi
+firmware. If the model is already mapped in the other dialect, the work is a **variant** under
+its `dialects` field (see the protocol skill), not a new entry and not a change to the plain
+fields, which other users' devices still speak. The plugin then picks the variant from the
+observed key shape on its own. Trust that shape over a suffix table or a firmware string: one
+upstream table files the AC0850/31 as dashed, and the validated AC0850/31 is dash-less.
 
 ## Gate 3 — map controls by differential observation
 
@@ -102,10 +110,15 @@ rather than guessing.
 
 Each option carries an evidence obligation from Gates 3–4:
 
-1. **No entry needed** — dump shows default keys and the observed speed values are
-   exactly `om: '1'/'2'/'t'` (plus `'s'`). Evidence: Gate 3 table. Action: docs only —
-   add the model to the README tested list and the `config.schema.json` typeahead.
-2. **`sleepSpeed: true` config flag only** — as above plus an `om: 's'` position.
+1. **Empty entry** — dump shows default keys and the observed speed values are
+   exactly `om: '1'/'2'/'t'` (plus `'s'`). Evidence: Gate 3 table. Action: add an empty
+   entry (`AC0820: {}`) to `accessories.models.js`, then the model to the README
+   Supported tier, its slider row to `docs/controls.md`, and the `config.schema.json`
+   typeahead. The entry is what makes the model Supported (`test/docs.test.js`
+   requires one for every Supported model); being empty, it keeps the default speeds
+   and the `sleepSpeed` option.
+2. **Empty entry plus `sleepSpeed: true` in the user's config** — as above plus an
+   `om: 's'` position.
 3. **`speeds`-only entry** (AC3036 shape) — default keys but different speed
    positions/registers. Evidence: full Gate 3 speed table.
 4. **`keyMaps`/`valueMaps` entry** (AC1715 shape) — dashed registers or word values.
@@ -120,7 +133,16 @@ Each option carries an evidence obligation from Gates 3–4:
    control. Evidence: the key absent from **every** Gate 3 dump, in every relevant device
    state, not merely a mapping you have not worked out. This removes a control from users'
    Home apps, so an unproven absence belongs in an issue, not in this field.
-7. **Handler code change** — last resort, only when the dialect cannot be expressed as
+7. **`modeMaps` entry** (every mapped model with an Auto): the register values that mean
+   Auto, whether in a `mode` register (AC1715 `'Auto General'`, AC3036 `'AG'`) or in a speed
+   register (AC0850 `D0310C` 0). Evidence: Gate 3 dumps with the device in Auto and in each
+   manual speed, showing the Auto values, and a Gate 4 round-trip setting Auto. Auto never
+   goes in `speeds`: it is on the auto/manual selector, the slider keeps the manual steps,
+   and Manual restores the last one. `test/accessories.models.test.js` fails a model whose
+   Auto is also a speed. Add `manual` only when Manual must be written as a mode of its own
+   (the default map's `mode=M`), and `allergen` only for a plain allergen mode the device
+   was seen to accept, since that is what makes `allergicFunc` do anything.
+8. **Handler code change** — last resort, only when the dialect cannot be expressed as
    data in `accessories.models.js`. Stop and discuss with the maintainer first; this
    crosses from data into the fragile paths listed in `architecture-and-invariants`.
 
@@ -130,7 +152,7 @@ see `change-control-and-docs`; write unit tests per `testing-and-validation` (co
 `test/accessories.models.test.js` and the `handleCommand`/`handleResponse` cases in
 `test/accessories.handler.test.js`).
 
-## Gate 6 — live verification protocol (before "tested" status)
+## Gate 6 — live verification protocol (before the validated ★ mark)
 
 The device owner runs the plugin build from your branch and confirms, from the Home
 app, with the observe stream or Homebridge debug log as the measurement:
@@ -150,9 +172,15 @@ device's actual reported state — back to Gate 3 for that position.
 
 Land via the normal PR flow (`change-control-and-docs`). In the PR: the Gate 1
 baseline, the Gate 3 table, Gate 4 outputs, and the Gate 6 checklist results. A model
-goes in the README "Tested devices" list only with Gate 6 evidence; with anything less
-it belongs in the "Not yet confirmed" list (the AC3829 precedent — listed but
-unconfirmed, README). Commit type: `feat` (it changes what devices users can run —
+goes in the README "Supported" tier with a mapping from a source with hardware evidence
+(its owner's Gate 3 dumps, a contributor, ruaan-deysel/ha-philips-airpurifier and its
+port ruaan-deysel/homebridge-philips-airctrl, or a cloud plugin's data read from a real
+unit, as for the AC0651). It earns the ★ and moves to "Supported,
+validated" only with Gate 6 evidence on hardware this project has run against; every
+other mapped model is Supported without it. Most of those were imported in bulk from
+those two projects (`THIRD_PARTY_NOTICES.md`), so fixing one is this runbook from Gate 1
+with the imported entry as the hypothesis under test, and a family that shares data
+(the AC32xx, say) may share the fix. Commit type: `feat` (it changes what devices users can run —
 minor version bump).
 
 ## Provenance and maintenance
@@ -162,6 +190,6 @@ Verified against the repo at commit 36067a6, 2026-07-12. Re-verify:
 ```bash
 grep -n "extraSetFlags\|keyMaps\|valueMaps\|speeds" src/accessories/accessories.models.js  # encoding surface unchanged
 grep -n "rotationSpeed()" -A 8 src/accessories/accessories.handler.js                      # all-keys stringified matching
-grep -n "Tested devices\|Not yet confirmed" README.md                                       # promotion targets exist
+grep -n "Validated ★\|\*\*Other\*\*" README.md                                          # promotion targets exist
 node --test test/config.schema.test.js test/docs.test.js                                    # sync guards active
 ```

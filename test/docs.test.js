@@ -1,14 +1,15 @@
 'use strict';
 
-//Drift guards that keep README.md in step with the source of truth
-//(config.schema.json, example-config.json and accessories.models.js). They cover
-//the three parts of the README that go stale silently: the config option tables,
-//the full config example, and the list of models with a dedicated mapping.
+//Drift guards that keep README.md and docs/controls.md in step with the source of
+//truth (config.schema.json, example-config.json and accessories.models.js). They
+//cover the parts of the docs that go stale silently: the config option tables, the
+//full config example, the list of models with a dedicated mapping, and the slider
+//steps each model gets.
 //
 //Same shape as config.schema.test.js: read the files, assert the invariant. If a
 //check here fails, the fix is almost always to update the doc, not to weaken the
-//test. Each check names the README section it reads, so a restructure that moves
-//or renames a heading has to update the slice here too.
+//test. Each check names the section it reads, so a restructure that moves or
+//renames a heading has to update the slice here too.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -23,6 +24,7 @@ const readFile = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 const schema = JSON.parse(readFile('config.schema.json')).schema;
 const exampleConfig = JSON.parse(readFile('example-config.json'));
 const readme = readFile('README.md');
+const controls = readFile('docs/controls.md');
 
 const platformProps = Object.keys(schema.properties);
 //'platform' is the Homebridge plugin alias, always present in a config block but
@@ -30,30 +32,66 @@ const platformProps = Object.keys(schema.properties);
 const structuralKeys = new Set(['platform']);
 const deviceProps = Object.keys(schema.properties.devices.items.properties);
 
-//The body of a '## Heading' section, up to the next top-level heading. Anchored
-//to the start of a line so a '### ' subheading inside the section does not end
-//the slice, which a plain indexOf('## ') would do.
-const section = (heading) => {
-  const start = readme.indexOf(`## ${heading}\n`);
-  assert.notEqual(start, -1, `README has no '## ${heading}' section`);
-  const rest = readme.slice(start + heading.length + 4);
-  const end = rest.search(/^## /m);
+//The body of a '## Heading' section, up to the next heading of the same level or
+//higher. Anchored to the start of a line so a '### ' subheading inside the section
+//does not end the slice, which a plain indexOf('## ') would do.
+const headed = (text, file, level, heading) => {
+  const marker = `${'#'.repeat(level)} ${heading}\n`;
+  //a leading newline lets one indexOf match the heading at the start of a line
+  const start = `\n${text}`.indexOf(`\n${marker}`);
+  assert.notEqual(start, -1, `${file} has no '${marker.trim()}' section`);
+  const rest = text.slice(start + marker.length);
+  const end = rest.search(new RegExp(`^#{1,${level}} `, 'm'));
   return end === -1 ? rest : rest.slice(0, end);
 };
+const section = (heading) => headed(readme, 'README', 2, heading);
 
 //Field tables live under '## Configuration' only. Scoping the parse there keeps
 //an unrelated table elsewhere in the README from being read as a config option.
 const configSection = section('Configuration');
 const deviceSupportSection = section('Device support');
 
-//The body of a '### Heading' subsection within an already sliced section.
-const subsection = (text, heading) => {
-  const start = text.indexOf(`### ${heading}\n`);
-  assert.notEqual(start, -1, `README has no '### ${heading}' subsection`);
-  const rest = text.slice(start + heading.length + 5);
-  const end = rest.search(/^#{2,3} /m);
-  return end === -1 ? rest : rest.slice(0, end);
+//The device tiers are a two-column table, one row per tier: '| **Supported** |
+//Description.<br>**Models:** AC1715, AC3036 |'. Every tier but the last promises
+//a dedicated mapping; the last one is the default. The lists are written out in
+//full: markup such as a collapsed '<details>' would be read as part of a model ID
+//and fail the mapping checks below.
+const tierRows = deviceSupportSection
+  .split('\n')
+  .filter((line) => line.startsWith('| **'))
+  .map((line) => {
+    const [name = '', cell = ''] = line
+      .split('|')
+      .slice(1, -1)
+      .map((part) => part.trim());
+    const models = cell.split('<br>').find((part) => part.trim().startsWith('**Models:**'));
+    return { name: name.replace(/\*/g, '').trim(), cell: models ? models.replace('**Models:**', '').trim() : '' };
+  });
+const tierNames = tierRows.map((row) => row.name);
+
+//the models one tier's row names, or undefined when it has none
+const tierList = (name) => {
+  const cell = tierRows.find((row) => row.name === name)?.cell;
+  const models = cell
+    ?.split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return models?.length ? models : undefined;
 };
+
+const listed = tierNames.map(tierList);
+const supportedModels = listed
+  .filter((_, index) => index < tierNames.length - 1)
+  .flat()
+  .filter((item) => item !== undefined)
+  .map((item) => item.replace('★', '').trim());
+const validatedModels = listed
+  .flat()
+  .filter((item) => item !== undefined && item.includes('★'))
+  .map((item) => item.replace('★', '').trim());
+
+//The body of a '### Heading' subsection within an already sliced README section.
+const subsection = (text, heading) => headed(text, 'README', 3, heading);
 
 //Each Markdown table in a slice, as an ordered list of the option names in its
 //first column, stripped of the formatting the README uses: '| `host` |' -> 'host'.
@@ -192,12 +230,121 @@ describe('docs', () => {
     }
   });
 
-  it('lists every model with a dedicated mapping in the README device-support section', () => {
+  it('lists the models of every device tier', () => {
+    assert.ok(tierNames.length > 0, "README 'Device support' has no tier table");
+    tierNames.forEach((name, index) => {
+      assert.ok(listed[index]?.length, `README 'Device support' tier '${name}' has no **Models:** line`);
+    });
+    assert.ok(supportedModels.length > 0, "README 'Device support' lists no model in a 'Supported' tier");
+  });
+
+  //the Supported tiers promise a dedicated mapping, so a model listed there
+  //without an entry in accessories.models.js silently runs the default one
+  it('lists exactly the models with a dedicated mapping in the Supported tiers', () => {
+    for (const model of supportedModels) {
+      assert.ok(
+        mappedModels.includes(model),
+        `README lists ${model} as Supported, but accessories.models.js has no entry for it`
+      );
+    }
+
     for (const model of mappedModels) {
       assert.ok(
-        deviceSupportSection.includes(model),
-        `model ${model} from accessories.models.js is missing from the README 'Device support' section`
+        supportedModels.includes(model),
+        `model ${model} from accessories.models.js is missing from the README Supported tiers`
       );
+    }
+  });
+
+  it('marks a model validated (★) only within the Supported tiers', () => {
+    assert.ok(validatedModels.length > 0, 'README marks no model as validated (★)');
+
+    for (const model of validatedModels) {
+      assert.ok(supportedModels.includes(model), `README marks ${model} validated (★) outside the Supported tiers`);
+    }
+  });
+
+  //the slider layout is what a user sees of the speed table, and it changes
+  //whenever a step is added or Auto moves off the slider
+  it('gives every mapped model a docs/controls.md slider row with one step per speed', () => {
+    const rows = headed(controls, 'docs/controls.md', 2, 'Fan speed and Auto')
+      .split('\n')
+      .filter((line) => line.trimStart().startsWith('|'))
+      .map((line) => line.split('|').map((cell) => cell.trim()));
+    const modelConfig = require('../src/accessories/accessories.models');
+
+    //the docs' name for each register dialect
+    const DIALECT_LABELS = { dashed: 'dashed', dashless: 'dash-less' };
+
+    //a row can name several models that share one slider, comma separated. A
+    //model that ships more than one register dialect needs a row per dialect,
+    //named like 'AC0850 (dash-less)', since a variant can change the slider
+    for (const model of mappedModels) {
+      const { dialects } = modelConfig({ model });
+      for (const dialect of dialects.length ? dialects : [undefined]) {
+        const name = dialect ? `${model} (${DIALECT_LABELS[dialect]})` : model;
+        const row = rows.find((cells) => cells[1].split(',').some((cell) => cell.trim() === name));
+        assert.ok(row, `the docs/controls.md 'Fan speed and Auto' table has no row for ${name}`);
+
+        //a model whose slider follows the fan level has a step per level, not per speed
+        const { fanLevel, speeds } = modelConfig({ model, dialect });
+        const steps = (row[2].match(/\d+%/g) || []).length;
+        assert.equal(
+          steps,
+          (fanLevel ? fanLevel.steps : speeds).length,
+          `the docs/controls.md slider row for ${name} is out of date`
+        );
+      }
+    }
+  });
+});
+
+//The model format is documented in two places: the header comment of
+//accessories.models.js and the dialect section of the protocol skill. A field
+//added to a model entry without either goes unexplained, and one modelConfig
+//does not pass through is silently ignored.
+describe('model format', () => {
+  const modelsSource = readFile('src/accessories/accessories.models.js');
+  const header = modelsSource.slice(modelsSource.indexOf('\n'), modelsSource.indexOf('\nconst '));
+  const skill = readFile('.claude/skills/aioairctrl-and-device-protocol/SKILL.md');
+  const dialects = skill.slice(skill.indexOf('## The three model dialects'), skill.indexOf('## Speed model'));
+  const { modelFields } = require('../src/accessories/accessories.models');
+
+  it('finds the fields the models use', () => {
+    assert.ok(modelFields.includes('speeds'), 'modelFields does not list speeds');
+  });
+
+  it('documents every field in the accessories.models.js header comment', () => {
+    for (const field of modelFields) {
+      assert.ok(header.includes(`'${field}'`), `accessories.models.js header does not document '${field}'`);
+    }
+  });
+
+  it('documents every field in the protocol skill dialect section', () => {
+    for (const field of modelFields) {
+      assert.ok(dialects.includes(`\`${field}`), `the protocol skill dialect section does not name \`${field}\``);
+    }
+  });
+
+  //modeMaps entries are a vocabulary of their own, including the default map's
+  it('documents every modeMaps entry in the header comment and the protocol skill', () => {
+    const modelConfig = require('../src/accessories/accessories.models');
+    const entries = new Set(
+      [undefined, ...modelConfig.mappedModels].flatMap((model) => Object.keys(modelConfig({ model }).modeMaps || {}))
+    );
+
+    assert.ok(entries.has('auto'), 'no model declares a modeMaps auto entry');
+    for (const entry of entries) {
+      assert.ok(header.includes(`'${entry}'`), `accessories.models.js header does not document modeMaps '${entry}'`);
+      assert.ok(dialects.includes(`\`${entry}\``), `the protocol skill dialect section does not name \`${entry}\``);
+    }
+  });
+
+  it('passes every field through modelConfig', () => {
+    const passed = Object.keys(require('../src/accessories/accessories.models')({}));
+
+    for (const field of modelFields) {
+      assert.ok(passed.includes(field), `modelConfig drops the '${field}' field`);
     }
   });
 });

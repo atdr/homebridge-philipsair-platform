@@ -64,23 +64,65 @@ describe('accessories.service', () => {
     ]);
   });
 
-  it('offers neither control on a model with no register for them', () => {
+  it('offers auto/manual but no lock on the AC0850, whose mode lives in its speed register', () => {
     const purifier = wire({ model: 'AC0850' });
 
     assert.ok(
       !purifier.testCharacteristic(hap.Characteristic.LockPhysicalControls),
       'a child lock was exposed for a model that has no child lock register'
     );
+    assert.deepEqual(purifier.getCharacteristic(hap.Characteristic.TargetAirPurifierState).props.validValues, [
+      hap.Characteristic.TargetAirPurifierState.MANUAL,
+      hap.Characteristic.TargetAirPurifierState.AUTO,
+    ]);
+  });
+
+  it('pins the auto/manual switch to AUTO on a model with no mode at all', () => {
+    const accessory = Object.assign(
+      new hap.Accessory('Modeless Purifier', hap.uuid.generate('service-test-modeless')),
+      {
+        context: { config: { host: '192.168.1.142', port: 5683, model: 'AC0850' } },
+      }
+    );
+    const handler = new Handler(fakeApi, accessory);
+    handler.longPoll = noop;
+    //no model ships like this today: the AC0850 without its modeMaps
+    handler.modeMaps = undefined;
+
+    new Accessory(fakeApi, accessory, handler);
+    const purifier = accessory.getService(hap.Service.AirPurifier);
+
     assert.deepEqual(
       purifier.getCharacteristic(hap.Characteristic.TargetAirPurifierState).props.validValues,
       [hap.Characteristic.TargetAirPurifierState.AUTO],
-      'the auto/manual switch was left switchable on a model with no mode register'
+      'the auto/manual switch was left switchable on a model with no mode'
     );
     assert.equal(
       purifier.getCharacteristic(hap.Characteristic.TargetAirPurifierState).value,
       hap.Characteristic.TargetAirPurifierState.AUTO,
       'the characteristic was left holding a value outside its own validValues'
     );
+  });
+
+  it('unpins the auto/manual switch on a cached AC0850 paired before it had one', () => {
+    const accessory = Object.assign(new hap.Accessory('Cached AC0850', hap.uuid.generate('service-test-pinned')), {
+      context: { config: { host: '192.168.1.142', port: 5683, model: 'AC0850' } },
+    });
+
+    //props are part of what Homebridge caches, so the old AUTO-only pin survives a restart
+    const purifier = accessory.addService(hap.Service.AirPurifier, 'Cached AC0850', 'purifier');
+    purifier
+      .getCharacteristic(hap.Characteristic.TargetAirPurifierState)
+      .setProps({ validValues: [hap.Characteristic.TargetAirPurifierState.AUTO] });
+
+    const handler = new Handler(fakeApi, accessory);
+    handler.longPoll = noop;
+    new Accessory(fakeApi, accessory, handler);
+
+    assert.deepEqual(purifier.getCharacteristic(hap.Characteristic.TargetAirPurifierState).props.validValues, [
+      hap.Characteristic.TargetAirPurifierState.MANUAL,
+      hap.Characteristic.TargetAirPurifierState.AUTO,
+    ]);
   });
 
   it('takes the lock back off a cached accessory that still has one', () => {
@@ -172,6 +214,46 @@ describe('accessories.service optional services', () => {
 
       assert.ok(!accessory.getService(hap.Service.HumidifierDehumidifier));
     });
+  });
+
+  //Copilot on PR #133: with the option on, a status like {D03102: 1, D03128:
+  //60} published a threshold of 0 and Active 0, because the humidifier reads
+  //func === 'PH', which these models never report, and its setters wrote the
+  //legacy func=PH they have no register for
+  describe('humidifier option on a model with no humidifier on/off', () => {
+    for (const model of ['AC3420', 'AC3421', 'AC3737']) {
+      it(`offers no humidifier on the ${model}, and publishes and writes nothing for one`, async () => {
+        const accessory = Object.assign(new hap.Accessory('Cached', hap.uuid.generate(`service-test-hum-${model}`)), {
+          context: { config: { host: '192.168.1.142', port: 5683, model, humidifier: true } },
+        });
+        //as paired before the option stopped applying to this model
+        const cached = accessory.addService(hap.Service.HumidifierDehumidifier, 'Humidifier', 'Humidifier');
+        const published = [];
+        cached.on('characteristic-change', ({ characteristic, newValue }) =>
+          published.push(`${characteristic.displayName}=${newValue}`)
+        );
+
+        const { handler } = wireAccessory({}, `hum-${model}`, accessory);
+        const writes = [];
+        handler.queueWrite = async (cmds) => {
+          writes.push(...cmds);
+          return true;
+        };
+
+        assert.ok(!accessory.getService(hap.Service.HumidifierDehumidifier), 'a humidifier was offered');
+
+        handler.handleResponse({ D03102: 1, D03128: 60, D0310C: 0 });
+        await handler.setHumidifierActive(1);
+        await handler.setHumidifierTargetState(60);
+
+        assert.deepEqual(published, []);
+        assert.deepEqual(
+          writes.filter((cmd) => /^(func|D03128)=/.test(cmd)),
+          [],
+          'a humidifier write was sent'
+        );
+      });
+    }
   });
 
   describe('temperature sensor', () => {

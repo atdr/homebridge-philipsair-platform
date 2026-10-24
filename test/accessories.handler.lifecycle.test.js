@@ -80,7 +80,8 @@ describe('processUpdate', () => {
     const handler = makeHandler({});
     handler.purifierService = makeService();
 
-    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2' }));
+    //in Manual, where the slider shows the device's own speed
+    await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'M', cl: false, om: '2' }));
 
     assert.deepEqual(updated(handler.purifierService, 'Active'), [['Active', 1]]);
     assert.deepEqual(updated(handler.purifierService, 'RotationSpeed'), [['RotationSpeed', 2 * (100 / 3)]]);
@@ -1337,7 +1338,7 @@ describe('write verification', { concurrency: 1 }, () => {
 
     //the scene #77 was observed under: power and speed set together
     await handler.setPurifierActive(true);
-    await handler.setPurifierRotationSpeed(50);
+    await handler.setPurifierRotationSpeed(100);
     assert.deepEqual([...handler.pendingWrites.keys()], ['pwr', 'D0310A', 'D0310C']);
     sent.length = 0;
 
@@ -1347,7 +1348,7 @@ describe('write verification', { concurrency: 1 }, () => {
     //would fire that same command twice. the wake-up goes last: it has to be
     //the last thing a sleeping device hears if wake disturbance is what #77 saw
     assert.deepEqual(sent, [
-      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=0',
+      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=18',
       '-H 192.168.1.142 -P 5683 set -I D03102=1',
     ]);
     //these purifiers serve one connection, and the plugin already holds one
@@ -1667,10 +1668,10 @@ describe('write verification', { concurrency: 1 }, () => {
     //onSet calls, so nothing awaits one before making the other. Both are
     //integer-encodable, so they should be folded into one command rather
     //than sent (and possibly raced or dropped) as two
-    await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(50)]);
+    await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(100)]);
 
     assert.equal(overlapped, 1, 'a merged write is still one process on the wire');
-    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1 D0310A=2 D0310C=0']);
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1 D0310A=2 D0310C=18']);
     assert.deepEqual([...handler.pendingWrites.keys()], ['pwr', 'D0310A', 'D0310C']);
 
     const pending = [...handler.pendingWrites.values()];
@@ -1735,9 +1736,11 @@ describe('write verification', { concurrency: 1 }, () => {
       sent.push(args.join(' '));
     };
 
-    await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 17 }));
+    //off, so the power-on is not redundant and is sent: a device already on
+    //would have it left out
+    await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 17 }));
     await handler.setPurifierActive(true);
-    await handler.setPurifierRotationSpeed(50);
+    await handler.setPurifierRotationSpeed(100);
     sent.length = 0;
 
     //the device answers, still disagreeing about both commands
@@ -1746,9 +1749,117 @@ describe('write verification', { concurrency: 1 }, () => {
 
     assert.equal(overlapped, 1, 'two contradicted commands were resent at once');
     assert.deepEqual(sent, [
-      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=0',
+      '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=18',
       '-H 192.168.1.142 -P 5683 set -I D03102=1',
     ]);
+
+    handler.kill(true);
+  });
+
+  it('resends a scene without its power-on once the device reports on', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({ model: 'AC0850' });
+    handler.purifierService = makeService();
+    handler.writeSettle = 0;
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+
+    //off, so the power-on is needed and goes out merged with the speed
+    await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 0 }));
+    await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(25)]);
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1 D0310A=2 D0310C=17']);
+    sent.length = 0;
+
+    //the device came on but ignored the speed merged with the power-on, so the
+    //resend must not repeat the power-on that made it ignore the rest
+    await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 0 }));
+    await delay(50);
+
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=17']);
+    //pwr and D0310A were confirmed by that status, D0310C is the one still owed
+    assert.deepEqual([...handler.pendingWrites.keys()], ['D0310C']);
+
+    //and the resent write is still tracked against the command that went out
+    await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 17 }));
+    assert.equal(handler.pendingWrites.size, 0);
+
+    handler.kill(true);
+  });
+
+  //the two below reach the resend with the power-on still pending although
+  //the device reports on: the status that said so arrived inside the settling
+  //allowance, so it confirmed nothing, and the unprompted wake-up resend then
+  //fires on a write recorded while the device was off
+  it('drops a still pending power-on from a scene it resends to a device now on', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    const handler = makeHandler({ model: 'AC0850' });
+    handler.purifierService = makeService();
+    handler.writeSettle = 100000;
+    handler.verifyWindow = 60;
+    handler.offStallTimeout = 100000;
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+
+    await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 0 }));
+    await Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(25)]);
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1 D0310A=2 D0310C=17']);
+    sent.length = 0;
+
+    //on, but too soon after the command to count as an answer to it
+    await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 0 }));
+    assert.deepEqual([...handler.pendingWrites.keys()].sort(), ['D0310A', 'D0310C', 'pwr']);
+
+    await delay(150);
+
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=17']);
+    //the reading of on is what the power-on was waiting for, and the speed is
+    //tracked against the command that actually went out
+    assert.deepEqual([...handler.pendingWrites.keys()].sort(), ['D0310A', 'D0310C']);
+    for (const pending of handler.pendingWrites.values()) {
+      assert.equal(pending.args.join(' '), '-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=17');
+    }
+
+    handler.kill(true);
+  });
+
+  it('resends nothing for a lone power-on once the device reports on', async (t) => {
+    t.after(silenceLogger);
+    const logs = captureLogs();
+
+    const handler = makeHandler({ model: 'AC0850' });
+    handler.purifierService = makeService();
+    handler.writeSettle = 100000;
+    handler.verifyWindow = 60;
+    handler.offStallTimeout = 100000;
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+
+    await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 0 }));
+    await handler.setPurifierActive(true);
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03102=1']);
+    sent.length = 0;
+
+    await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 0 }));
+    assert.deepEqual([...handler.pendingWrites.keys()], ['pwr']);
+
+    await delay(150);
+
+    assert.deepEqual(sent, [], 'a power-on to a device reporting on was resent');
+    assert.equal(handler.pendingWrites.size, 0);
+    assert.deepEqual(logs.warn, []);
 
     handler.kill(true);
   });
@@ -2128,6 +2239,57 @@ describe('setLightBrightness', () => {
     await handler.setLightBrightness(50);
 
     assert.deepEqual(sent, [], 'a brightness drag raced a light toggle instead of yielding to it');
+  });
+});
+
+describe('light on the AC1715', () => {
+  //the AC1715 display register D03-05 takes 100/0, not the '1'/'0' the legacy
+  //uil key takes (ruaan-deysel/ha-philips-airpurifier)
+  const recording = (t) => {
+    const handler = makeHandler({ model: 'AC1715' });
+    t.after(() => handler.kill(true));
+    /** @type {string[]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args.join(' '));
+    };
+    return { handler, sent };
+  };
+
+  it('writes the display register as 100 and 0', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+    const { handler, sent } = recording(t);
+
+    await handler.setLightOn(true);
+    await handler.setLightOn(false);
+
+    assert.deepEqual(sent, [
+      '-H 192.168.1.142 -P 5683 set -I D03-04=100',
+      '-H 192.168.1.142 -P 5683 set -I D03-05=100',
+      '-H 192.168.1.142 -P 5683 set -I D03-04=0',
+      '-H 192.168.1.142 -P 5683 set -I D03-05=0',
+    ]);
+  });
+
+  it('switches the display on with any brightness above 0', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+    const { handler, sent } = recording(t);
+
+    await handler.setLightBrightness(50);
+
+    assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D03-04=50', '-H 192.168.1.142 -P 5683 set -I D03-05=100']);
+  });
+
+  it('reads the display register back as the generic on/off', (t) => {
+    const { handler } = recording(t);
+
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-05': 100 });
+    assert.equal(handler.obj.uil, 1);
+
+    handler.handleResponse({ 'D03-02': 'ON', 'D03-05': 0 });
+    assert.equal(handler.obj.uil, 0);
   });
 });
 

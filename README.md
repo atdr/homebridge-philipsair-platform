@@ -1,6 +1,4 @@
-<p align="center">
-    <img src="https://raw.githubusercontent.com/atdr/homebridge-philipsair-platform/main/images/logo.png" alt="Plugin logo" height="200">
-</p>
+![homebridge-philipsair-platform: Philips air purifiers in Apple Home](https://raw.githubusercontent.com/atdr/homebridge-philipsair-platform/main/images/banner.png)
 
 # homebridge-philipsair-platform
 
@@ -20,7 +18,7 @@ In the Home app you get:
 - Optional **temperature** and **humidity** sensors
 - The device's own **lights** as lightbulbs
 
-Not every model exposes every control. The AC0850, for example, reports no auto/manual mode and no child lock, so neither is offered in the Home app for that model; power, fan speed, air quality and filter status are unaffected.
+Not every model exposes every control. The AC0850, for example, reports no child lock register, so that control is not offered in the Home app for that model. On every model, Auto is on the Home app's auto/manual switch rather than on the fan speed slider, and as everywhere in the Home app, 0% switches the purifier off. The slider's steps differ per model: [Controls by model](https://github.com/atdr/homebridge-philipsair-platform/blob/main/docs/controls.md) lists them, with the other controls that vary.
 
 ## Requirements
 
@@ -139,7 +137,7 @@ Each entry in the `devices` array is one purifier. Three fields are required:
 | `temperature`     | Expose device temperature as a temperature sensor to HomeKit.                                                                                                                          | `false`     |
 | `humidity`        | Expose device humidity as a humidity sensor to HomeKit.                                                                                                                                | `false`     |
 | `sleepSpeed`      | Adds a 'sleep' step below the lowest fan speed.[^sleep-speed]                                                                                                                          | `false`     |
-| `allergicFunc`    | Does this device support the 'allergic' function?                                                                                                                                      | `false`     |
+| `allergicFunc`    | Makes Auto in the Home app start the allergen mode instead of the general Auto mode.[^allergic]                                                                                        | `false`     |
 | `preFilter`       | Expose pre-filter status to HomeKit.                                                                                                                                                   | `false`     |
 | `carbonFilter`    | Expose active carbon filter status to HomeKit.                                                                                                                                         | `false`     |
 | `hepaFilter`      | Expose HEPA/NanoProtect filter status to HomeKit.                                                                                                                                      | `false`     |
@@ -154,26 +152,29 @@ For a complete `config.json`, see [`example-config.json`](https://github.com/atd
 
 [^sleep-speed]: Ignored for models that have their own speed mapping. Those use the right speeds automatically, and the plugin warns when the option cannot do anything.
 
+[^allergic]: Ignored for models with no plain allergen mode, which are those whose row in [Fan speed and Auto](https://github.com/atdr/homebridge-philipsair-platform/blob/main/docs/controls.md#fan-speed-and-auto) does not mention `allergicFunc`, and the plugin warns when the option cannot do anything. Manual never starts the allergen mode.
+
 ## Device support
 
-The `model` field selects how the plugin encodes power, mode and fan speed, because Philips models do not agree on any of the three. Support falls into three tiers.
+The `model` field selects how the plugin encodes power, mode and fan speed, because Philips models do not agree on any of the three. It also sets the fan speed slider's steps and which controls the Home app offers, as [Controls by model](https://github.com/atdr/homebridge-philipsair-platform/blob/main/docs/controls.md) lists for each model.
 
-| Tier            | Tested                                                 | Mapped, unverified                                | Everything else                                |
-| --------------- | ------------------------------------------------------ | ------------------------------------------------- | ---------------------------------------------- |
-| **Description** | Dedicated mapping, verified on real hardware.          | Dedicated mapping, inherited and never confirmed. | Default mapping. Often fits, never guaranteed. |
-| **Models**      | <ul><li>AC0850</li><li>AC1715</li><li>AC3036</li></ul> | <ul><li>AC3829</li></ul>                          | <ul><li>Any other model</li></ul>              |
+Supported mappings come from people who own the hardware: users and contributors of the [original plugin](https://github.com/seydx/homebridge-philipsair-platform), the Home Assistant integration [ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier) with corrections from its Homebridge port [homebridge-philips-airctrl](https://github.com/ruaan-deysel/homebridge-philips-airctrl), and, for the AC0651 and the dash-less AC1715, the Philips cloud plugin [homebridge-philips-airplus](https://github.com/Micheledipaola/homebridge-philips-airplus). Most have not been tried on hardware by this project. [THIRD_PARTY_NOTICES.md](https://github.com/atdr/homebridge-philipsair-platform/blob/main/THIRD_PARTY_NOTICES.md) records what came from where. The model dropdown in the Homebridge UI offers every Supported model.
 
-The model dropdown in the Homebridge UI offers every model with a mapping of its own, tested or not. Anything else falls back to the default.
+A mapping that does not fit shows up as an accessory whose controls do nothing, and the log tells you: the plugin compares the first status a device sends with the mapping in force and reports a mismatch (see [Troubleshooting](#the-device-appears-in-the-home-app-but-none-of-its-controls-work)).
 
-The symptom of a mapping that does not fit is an accessory that appears in the Home app with controls that do nothing. The plugin compares the first status a device sends against the mapping in force and reports a mismatch in the log, so it usually tells you when it has guessed wrong.
-
-**To get your model added**, open a [model support request](https://github.com/atdr/homebridge-philipsair-platform/issues/new?template=model_support.yml) with a status dump from your device:
+**Report your model** on the [model support form](https://github.com/atdr/homebridge-philipsair-platform/issues/new?template=model_support.yml), whether it works (a confirmed Supported model earns the ★), its controls misbehave, or it is not supported yet. Attach a status dump from the device, which is what a mapping is derived from, so a report with one can usually be acted on straight away:
 
 ```bash
 aioairctrl -H 10.0.1.16 -P 5683 status -J
 ```
 
-That dump is what the mapping is derived from, so a request with one attached can usually be acted on straight away.
+Support falls into three tiers:
+
+| Tier            | Description and models                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Validated ★** | As Supported, and also confirmed on hardware by this project.<br>**Models:** AC0850 ★                                                                                                                                                                                                                                                                                                                |
+| **Supported**   | Dedicated mapping, taken from a source with hardware evidence.<br>**Models:** AC0650, AC0651, AC0950, AC0951, AC1214, AC1715, AC2210, AC2220, AC2221, AC2729, AC2889, AC2936, AC2939, AC2958, AC2959, AC3033, AC3036, AC3039, AC3055, AC3059, AC3210, AC3220, AC3221, AC3259, AC3420, AC3421, AC3737, AC3829, AC3836, AC3854, AC3858, AC4220, AC4221, AC4236, AC4550, AC4558, AC5659, AC5660, AMF765 |
+| **Other**       | Default mapping. Often fits, never guaranteed.<br>**Models:** Any other model                                                                                                                                                                                                                                                                                                                        |
 
 ## Troubleshooting
 
@@ -207,7 +208,7 @@ Check all three of these:
    Bedroom: Using the AC0850 command set.
    ```
 
-   A device that instead reports `No tested mapping for model "..."`, or `No model is configured`, is running on the default mapping. That is expected for a model outside the tested list, and a bug in your config if your model is on it.
+   A device that instead reports `No dedicated mapping for model "..."`, or `No model is configured`, is running on the default mapping. That is expected for a model in the Other tier, and a bug in your config if your model is Supported.
 
 The plugin also checks the config against the device itself. The first status a device sends is compared with the mapping in force, and one that answers in registers the mapping cannot read is reported:
 
@@ -224,6 +225,14 @@ Bedroom: Using the AC0850 command set instead of the default, detected from this
 Expect the Home app to change at the restart that adopts a model. A mapping knows which controls a model has no register for, so tiles the previous run offered can disappear. That is the plugin matching what the device can actually do, not a fault.
 
 That is a fallback, not a fix. Setting `model` correctly is what makes the plugin get the device right on its first run, including which services it offers in the Home app.
+
+The same check covers a model that ships in two register dialects (see [Fan speed and Auto](https://github.com/atdr/homebridge-philipsair-platform/blob/main/docs/controls.md#fan-speed-and-auto)). A device that answers in the model's other dialect, for instance after a Wi-Fi firmware update, is reported once, and its controls work from the next restart:
+
+```text
+Bedroom: This device reports model AC0850/11, region 11, Wi-Fi firmware AWS_Philips_AIR@62, dashed registers, not the dash-less registers the AC0850 mapping in force uses, so its controls will not work until the next restart. From the next restart the dashed AC0850 command set will be used.
+```
+
+When the device names a different model from the one configured, its dialect is judged against the model it names, and the restart that adopts that model adopts the matching dialect with it.
 
 If the model is right and the controls still do nothing, set `debug` to true, copy a logged status line, and open an issue with it.
 
@@ -399,6 +408,9 @@ This plugin stands on other people's work:
 - [seydx/homebridge-philipsair-platform](https://github.com/seydx/homebridge-philipsair-platform), the project this one is based on.
 - [NikDevx/homebridge-philips-air](https://github.com/NikDevx/homebridge-philips-air), originally by Sunoo, which seydx's plugin drew heavily on.
 - [we5/homebridge-philipsair-platform](https://github.com/we5/homebridge-philipsair-platform/tree/refactor/use-config-mappings), for the mappable config parameters.
+- [ruaan-deysel/ha-philips-airpurifier](https://github.com/ruaan-deysel/ha-philips-airpurifier), the Home Assistant integration most of the Supported model mappings are derived from, under the Apache License 2.0 (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
+- [ruaan-deysel/homebridge-philips-airctrl](https://github.com/ruaan-deysel/homebridge-philips-airctrl), for the hardware corrections applied to that data, also under the Apache License 2.0.
+- [Micheledipaola/homebridge-philips-airplus](https://github.com/Micheledipaola/homebridge-philips-airplus), for the AC0651 mapping, under the MIT License (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
 - [kandelvijaya/homebridge-philipsair-platform](https://github.com/kandelvijaya/homebridge-philipsair-platform), for AC1715 speed and power mode fixes.
 - [`aioairctrl`](https://github.com/kongo09/aioairctrl), maintained by kongo09 and written by [betaboon](https://github.com/betaboon/aioairctrl), which does all of the talking to the device.
 

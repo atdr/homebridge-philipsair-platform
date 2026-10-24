@@ -86,7 +86,7 @@
               "type": "string",
               "required": true,
               "placeholder": "AC0850",
-              "description": "The model ID printed on your device. Ignore any /11 or /31 suffix. It selects the commands the plugin sends, so a missing or wrong model is the usual reason the Home app controls do nothing. Suggested models are tested; anything else uses a default mapping that may not fit."
+              "description": "The model ID printed on your device. Ignore any /11 or /31 suffix. It selects the commands the plugin sends, so a missing or wrong model is the usual reason the Home app controls do nothing. Suggested models have a mapping of their own; anything else uses a default mapping that may not fit."
             },
             "serialNumber": {
               "title": "Serial Number",
@@ -155,7 +155,7 @@
             "allergicFunc": {
               "title": "Allergic mode function",
               "type": "boolean",
-              "description": "Does this device support 'allergic' function?"
+              "description": "Makes Auto in the Home app start the allergen mode instead of the general Auto mode. Ignored for models with no plain allergen mode: the Fan speed and Auto table in docs/controls.md shows which models have one."
             },
             "preFilter": {
               "title": "Pre Filter",
@@ -205,7 +205,48 @@
             {
               "key": "devices[].model",
               "typeahead": {
-                "source": ["AC0850", "AC1715", "AC3036", "AC3829"]
+                "source": [
+                  "AC0650",
+                  "AC0651",
+                  "AC0850",
+                  "AC0950",
+                  "AC0951",
+                  "AC1214",
+                  "AC1715",
+                  "AC2210",
+                  "AC2220",
+                  "AC2221",
+                  "AC2729",
+                  "AC2889",
+                  "AC2936",
+                  "AC2939",
+                  "AC2958",
+                  "AC2959",
+                  "AC3033",
+                  "AC3036",
+                  "AC3039",
+                  "AC3055",
+                  "AC3059",
+                  "AC3210",
+                  "AC3220",
+                  "AC3221",
+                  "AC3259",
+                  "AC3420",
+                  "AC3421",
+                  "AC3737",
+                  "AC3829",
+                  "AC3836",
+                  "AC3854",
+                  "AC3858",
+                  "AC4220",
+                  "AC4221",
+                  "AC4236",
+                  "AC4550",
+                  "AC4558",
+                  "AC5659",
+                  "AC5660",
+                  "AMF765"
+                ]
               }
             },
             "devices[].name",
