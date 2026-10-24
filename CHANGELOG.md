@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/atdr/homebridge-philipsair-platform/compare/v2.0.0...v2.0.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **platform:** stay quiet with no active device, and catch launch errors ([#143](https://github.com/atdr/homebridge-philipsair-platform/issues/143)) ([26570cf](https://github.com/atdr/homebridge-philipsair-platform/commit/26570cf8327a004d821dc2db92dc14010ee86d2c))
+
 ## [2.0.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.5.1...v2.0.0) (2026-10-24)
 
 
