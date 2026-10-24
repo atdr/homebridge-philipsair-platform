@@ -237,4 +237,27 @@ describe('config.schema', () => {
       `these descriptions contain markdown, which the config UI shows literally: ${offenders.join(', ')}`
     );
   });
+
+  //The Homebridge plugin checks compile the schema with Ajv, which rejects the
+  //old per-field `required: true`; JSON Schema wants a list on the object
+  it('marks required fields with a required list on the object, never a boolean on the field', () => {
+    const booleans = [];
+    const walk = (node, at) => {
+      if (Array.isArray(node)) {
+        node.forEach((child, i) => walk(child, `${at}[${i}]`));
+      } else if (node && typeof node === 'object') {
+        if (typeof node.required === 'boolean') {
+          booleans.push(at);
+        }
+        for (const [key, child] of Object.entries(node)) {
+          walk(child, `${at}.${key}`);
+        }
+      }
+    };
+    walk(schema.schema, 'schema');
+    assert.deepEqual(booleans, []);
+
+    assert.deepEqual(schema.schema.required, ['devices']);
+    assert.deepEqual(schema.schema.properties.devices.items.required, ['name', 'model', 'host']);
+  });
 });
