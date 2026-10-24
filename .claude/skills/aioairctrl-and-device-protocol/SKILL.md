@@ -618,9 +618,11 @@ writes both in one coalescing window is resolved by `queueWrite`'s `yielding` le
 wins over a speed, and a speed wins over Manual's restore (the same levels let a real power
 write win over RotationSpeed 0's implied power-off). After that, a power-on to a device
 whose last status reports it on is left out of the batch (`dropRedundantPowerOn`), and out
-of any resend (`withoutRedundantPowerOn`), because an AC0850 that is already on ignores every
-register merged with a power-on; a power-on alone is then not sent at all. A power-off, or a
-power-on to a device that is off or has not reported yet, is merged as before. The fields are listed in the header of
+of any resend (`withoutRedundantPowerOn`); a power-on alone is then not sent at all. Any other
+power write is never merged: it goes as its own `set`, after the rest of the batch, because an
+AC0850 ignores every register merged with a power-on, whether it was off or already on (#117).
+Sent apart, it applied them in either order (live test 2026-10-24: Sleep written while off held
+through the power-on). The fields are listed in the header of
 `accessories.models.js`, and `test/docs.test.js` fails if a model uses one that header and this
 section do not name.
 
