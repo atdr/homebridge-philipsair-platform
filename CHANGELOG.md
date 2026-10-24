@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.5.1...v2.0.0) (2026-10-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* Node 20 is no longer supported. It reached end of life in April 2026; use Node 22, 24 or 26. 1.x remains installable on Node 20 but receives no further releases.
+
+### Features
+
+* support Node 26 and drop end-of-life Node 20 ([#137](https://github.com/atdr/homebridge-philipsair-platform/issues/137)) ([418f7f0](https://github.com/atdr/homebridge-philipsair-platform/commit/418f7f013aa75b30a58776ef4d076e53ab936116))
+
 ## [1.5.1](https://github.com/atdr/homebridge-philipsair-platform/compare/v1.5.0...v1.5.1) (2026-10-24)
 
 
