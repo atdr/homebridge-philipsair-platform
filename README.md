@@ -2,6 +2,7 @@
 
 # homebridge-philipsair-platform
 
+[![verified-by-homebridge](https://img.shields.io/badge/homebridge-verified-blueviolet?color=%23491F59&style=flat-square&logoColor=%23FFFFFF&logo=homebridge)](https://github.com/homebridge/homebridge/wiki/Verified-Plugins)
 [![npm](https://img.shields.io/npm/v/@atdr/homebridge-philipsair-platform.svg?style=flat-square)](https://www.npmjs.com/package/@atdr/homebridge-philipsair-platform)
 [![npm@beta](https://img.shields.io/npm/v/@atdr/homebridge-philipsair-platform/beta.svg?style=flat-square&label=npm%40beta)](https://www.npmjs.com/package/@atdr/homebridge-philipsair-platform/v/beta)
 [![npm](https://img.shields.io/npm/dt/@atdr/homebridge-philipsair-platform.svg?style=flat-square)](https://www.npmjs.com/package/@atdr/homebridge-philipsair-platform)
@@ -379,6 +380,16 @@ Open a [bug report](https://github.com/atdr/homebridge-philipsair-platform/issue
 - Your `config.json` platform block, with addresses redacted if you prefer
 
 </details>
+
+## Switching from the original plugin
+
+This plugin replaces [`homebridge-philipsair-platform`](https://www.npmjs.com/package/homebridge-philipsair-platform), which has had no release since 2022 and is no longer the Homebridge verified plugin for these purifiers. Your configuration carries over as it is: the platform block keeps the same `PhilipsAirPlatform` name and every setting the original accepted, so there is nothing to rewrite.
+
+1. Uninstall `homebridge-philipsair-platform` and install `@atdr/homebridge-philipsair-platform`, from the Plugins tab in the Homebridge UI or with npm.
+2. Check that the `aioairctrl` command runs for the Homebridge user, as in [Install aioairctrl](#1-install-aioairctrl). The original plugin ran its own bundled Python script, so an install that worked with it may still be missing the command this one needs.
+3. Restart Homebridge.
+
+The package name is the plugin's identifier in Homebridge, so switching has the same one-time effects as [upgrading from v1.1.0 or earlier](#upgrading-from-v110-or-earlier): your device may be removed and re-added in HomeKit once, and a polling process left behind by the original may need killing.
 
 ## Upgrading from v1.1.0 or earlier
 
