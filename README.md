@@ -2,6 +2,7 @@
 
 # homebridge-philipsair-platform
 
+[![verified-by-homebridge](https://img.shields.io/badge/homebridge-verified-blueviolet?color=%23491F59&style=flat-square&logoColor=%23FFFFFF&logo=homebridge)](https://github.com/homebridge/homebridge/wiki/Verified-Plugins)
 [![npm](https://img.shields.io/npm/v/@atdr/homebridge-philipsair-platform.svg?style=flat-square)](https://www.npmjs.com/package/@atdr/homebridge-philipsair-platform)
 [![npm@beta](https://img.shields.io/npm/v/@atdr/homebridge-philipsair-platform/beta.svg?style=flat-square&label=npm%40beta)](https://www.npmjs.com/package/@atdr/homebridge-philipsair-platform/v/beta)
 [![npm](https://img.shields.io/npm/dt/@atdr/homebridge-philipsair-platform.svg?style=flat-square)](https://www.npmjs.com/package/@atdr/homebridge-philipsair-platform)
