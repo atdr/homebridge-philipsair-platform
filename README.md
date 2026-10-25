@@ -381,6 +381,16 @@ Open a [bug report](https://github.com/atdr/homebridge-philipsair-platform/issue
 
 </details>
 
+## Switching from the original plugin
+
+This plugin replaces [`homebridge-philipsair-platform`](https://www.npmjs.com/package/homebridge-philipsair-platform), which has had no release since 2022 and is no longer the Homebridge verified plugin for these purifiers. Your configuration carries over as it is: the platform block keeps the same `PhilipsAirPlatform` name and every setting the original accepted, so there is nothing to rewrite.
+
+1. Uninstall `homebridge-philipsair-platform` and install `@atdr/homebridge-philipsair-platform`, from the Plugins tab in the Homebridge UI or with npm.
+2. Check that the `aioairctrl` command runs for the Homebridge user, as in [Install aioairctrl](#1-install-aioairctrl). The original plugin ran its own bundled Python script, so an install that worked with it may still be missing the command this one needs.
+3. Restart Homebridge.
+
+The package name is the plugin's identifier in Homebridge, so switching has the same one-time effects as [upgrading from v1.1.0 or earlier](#upgrading-from-v110-or-earlier): your device may be removed and re-added in HomeKit once, and a polling process left behind by the original may need killing.
+
 ## Upgrading from v1.1.0 or earlier
 
 <details>
