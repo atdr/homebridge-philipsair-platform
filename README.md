@@ -107,12 +107,13 @@ Open the plugin's settings, add a device, and fill in **Model**, **Name** and
 **Host Address**. Everything else has a working default, and the UI explains
 each field as you go.
 
-> [!IMPORTANT] **Model** and **Name** are not interchangeable. **Model** is the
-> ID printed on the device (`AC0850`), and it selects the commands the plugin
-> sends. **Name** is only your own label in the Home app (`Bedroom Purifier`).
-> Putting the model ID in Name and leaving Model unset is the single most common
-> configuration mistake with this plugin, and it leaves you with an accessory
-> whose controls do nothing.
+> [!IMPORTANT]
+> **Model** and **Name** are not interchangeable. **Model** is the ID printed on
+> the device (`AC0850`), and it selects the commands the plugin sends. **Name**
+> is only your own label in the Home app (`Bedroom Purifier`). Putting the model
+> ID in Name and leaving Model unset is the single most common configuration
+> mistake with this plugin, and it leaves you with an accessory whose controls
+> do nothing.
 
 <details>
 <summary>Finding your model ID</summary>

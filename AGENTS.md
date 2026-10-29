@@ -104,7 +104,7 @@ Python, so not an npm script:
 
 ```bash
 uvx --python 3.13 --with mdformat-gfm --with mdformat-frontmatter \
-  --with mdformat-footnote mdformat .
+  --with mdformat-footnote --with mdformat-gfm-alerts mdformat .
 ```
 
 Tests use the built-in `node:test` runner — no test framework dependencies. New
