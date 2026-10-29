@@ -1,139 +1,54 @@
 name: ci
 
-permissions:
-  contents: read
-
 on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, edited, synchronize, reopened]
 
-#edited events also fire for closed/merged PRs, where the commit range no
-#longer resolves after a squash merge - only run PR jobs while the PR is open
+permissions:
+  contents: read
+
+# Pull requests share a group per branch, so a new push cancels the run it
+# supersedes. Every other run gets a group of its own: GitHub keeps only one
+# pending run per group and drops the older for a newer, even with
+# cancel-in-progress false, so a shared group on main would leave commits
+# with no result. Each commit on main keeps its own, so a red one points at
+# the commit that broke it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  build:
-    name: Node ${{ matrix.node-version }}
-    if: github.event_name == 'push' || github.event.pull_request.state == 'open'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [22.x, 24.x, 26.x]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm run format:check
-      - run: npm run check
-      - run: npm run lint:md
-      - run: npm test
+  node:
+    uses: atdr/github-boilerplate/.github/workflows/node-ci.yml@v0.2.2
+    with:
+      # Exactly the majors engines.node declares, not the LTS lines node-ci
+      # picks by default: Homebridge plugin verification expects every
+      # declared line tested. test/ci-workflow.test.js keeps the two in step.
+      node-versions: '["22.x", "24.x", "26.x"]'
+      # Each must exist in package.json; a missing one fails the job.
+      scripts: typecheck lint format:check check test
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  # Reporting, not a gate: the Node matrix above is what proves the suite passes.
-  # This job re-runs it under V8 instrumentation only to produce lcov.info. Scope and
-  # preload live in the `coverage` npm script rather than here, so a developer running
-  # it locally measures what CI measures; test/coverage.test.js guards both.
-  coverage:
-    name: coverage
-    if: github.event_name == 'push' || github.event.pull_request.state == 'open'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          # --test-coverage-include needs Node >= 22.5; 22.x resolves well above it.
-          node-version: 22.x
-          cache: npm
-      - run: npm ci
-      - run: npm run coverage
-      # Advisory only, like the dev-tree audit below. A Codecov outage or a missing
-      # token says nothing about the change under review, but the coverage run itself
-      # stays blocking, because a job that can never fail is a check that proves nothing.
-      - uses: codecov/codecov-action@v7
-        continue-on-error: true
-        with:
-          files: ./lcov.info
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
-
-  # Separate from the build job: an audit result reflects the advisory database
-  # at a point in time, not the diff under review, so a fresh advisory must not
-  # look like the PR broke something. Kept out of the Node matrix too — the
-  # advisories are Node-independent. --package-lock-only audits the resolved
-  # tree without an install.
-  audit:
-    name: dependency audit
-    if: github.event_name == 'push' || github.event.pull_request.state == 'open'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22.x
-          cache: npm
-      # Blocking. There are no runtime dependencies today, so this passes
-      # trivially; it exists as a tripwire for the day one is added, because
-      # only production dependencies reach a user's Homebridge install.
-      - run: npm audit --audit-level=high --omit=dev --package-lock-only
-      # Advisory only. Linters and commit tooling never ship, so a DoS in one
-      # should not block unrelated PRs. Dependabot alerts stay the signal of
-      # record for the dev tree; this surfaces them during review.
-      #
-      # The step swallows npm audit's exit code itself rather than deferring to
-      # continue-on-error. Both leave the job green, but continue-on-error cannot
-      # touch the annotation: the runner raises its own 'Process completed with
-      # exit code 1' the moment the process exits, and only the conclusion beneath
-      # it gets rewritten. That notice explains nothing, so a reader who spots it
-      # has to come here to find out whether CI is broken.
-      #
-      # ::error rather than ::warning is deliberate. A red annotation on a green
-      # job is incongruous enough that someone stops and reads it, which is the
-      # entire job of this step; a warning sinks into the standing noise of
-      # deprecation notices and gets scrolled past. It does not become wallpaper,
-      # because a Dependabot bump clears the advisory and the annotation with it.
-      # Guarded by test/ci-workflow.test.js.
-      - name: audit development tree (advisory)
-        run: |
-          if ! npm audit --audit-level=high --package-lock-only; then
-            echo "::error title=Development dependency advisory::npm audit found a high advisory in the development tree. This does not block: development dependencies never reach a user's install, and the job is green on purpose. Dependabot alerts are the signal of record; the report above says which package."
-          fi
-
-  commitlint:
-    name: commit messages
-    if: github.event_name == 'pull_request' && github.event.pull_request.state == 'open'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22.x
-          cache: npm
-      - run: npm ci
-      - run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
-
-  pr-title:
-    name: PR title
-    if: github.event_name == 'pull_request' && github.event.pull_request.state == 'open'
-    runs-on: ubuntu-latest
+  # The one check branch protection requires from this workflow. The Node
+  # matrix follows engines.node, so requiring its jobs by name would break the
+  # ruleset every time a Node line is added or dropped.
+  gate:
+    name: ci gate
+    # Not always(): a run superseded by a newer one is cancelled, and its gate
+    # would report a failure on the same commit the newer run is checking.
+    if: ${{ !cancelled() }}
+    needs: [node]
     timeout-minutes: 5
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22.x
-          cache: npm
-      - run: npm ci
-      - run: echo "$PR_TITLE" | npx commitlint --verbose
+      - name: Require every job to have passed
         env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            case "$result" in
+              failure|cancelled) echo "::error::a required job finished as $result"; exit 1 ;;
+            esac
+          done

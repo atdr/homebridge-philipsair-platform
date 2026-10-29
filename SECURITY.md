@@ -23,6 +23,9 @@ Please include:
 - What an attacker can do, and what access they need to do it
 - Steps to reproduce, or a proof of concept
 
+**Do not include real secrets** (API keys, tokens, private URLs). Describe the
+exposure instead; the secret itself is not needed.
+
 You can expect an acknowledgement within a week. If the report is accepted, a
 fix and an advisory will follow; if it is declined, you will get the reasoning.
 

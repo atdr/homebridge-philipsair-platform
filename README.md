@@ -7,7 +7,7 @@
 [![npm@beta](https://img.shields.io/npm/v/@atdr/homebridge-philipsair-platform/beta.svg?style=flat-square&label=npm%40beta)](https://www.npmjs.com/package/@atdr/homebridge-philipsair-platform/v/beta)
 [![npm](https://img.shields.io/npm/dt/@atdr/homebridge-philipsair-platform.svg?style=flat-square)](https://www.npmjs.com/package/@atdr/homebridge-philipsair-platform)
 [![GitHub last commit](https://img.shields.io/github/last-commit/atdr/homebridge-philipsair-platform.svg?style=flat-square)](https://github.com/atdr/homebridge-philipsair-platform)
-[![CI](https://img.shields.io/github/actions/workflow/status/atdr/homebridge-philipsair-platform/ci.yml?style=flat-square&label=CI)](https://github.com/atdr/homebridge-philipsair-platform/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/atdr/homebridge-philipsair-platform/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/atdr/homebridge-philipsair-platform/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/codecov/c/github/atdr/homebridge-philipsair-platform?style=flat-square&label=coverage)](https://codecov.io/gh/atdr/homebridge-philipsair-platform)
 
 A [Homebridge](https://homebridge.io) plugin that brings Philips air purifiers

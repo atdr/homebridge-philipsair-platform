@@ -65,13 +65,22 @@ commit messages, e.g. `fix/handler-timeout`, `docs/refresh-readme`.
 
 **Commits** follow [Conventional Commits](https://www.conventionalcommits.org/):
 `<type>(<optional scope>): <imperative summary>`. Allowed types are `feat`,
-`fix`, `refactor`, `test`, `docs`, `chore`, and `ci`, enforced by commitlint
-(`commitlint.config.js`) in CI and locally via the husky `commit-msg` hook. Keep
-each commit to one logical change so it can be reviewed and reverted
-independently.
+`fix`, `perf`, `refactor`, `test`, `docs`, `chore`, and `ci`, enforced locally
+by commitlint (`commitlint.config.js`) via the husky `commit-msg` hook, and in
+CI by `pull-request.yml`. Keep each commit to one logical change so it can be
+reviewed and reverted independently.
 
-**Pull requests** target `main`. Their titles are checked in CI against the same
-commitlint rules (`type(scope): summary`).
+**Pull requests** target `main` and squash merge. Their titles become the commit
+on `main`, so `pull-request.yml` checks them against the same types
+(`type(scope): summary`).
+
+**CI** comes from
+[atdr/github-boilerplate](https://github.com/atdr/github-boilerplate): `ci.yml`,
+`checks.yml` and `pull-request.yml` call its reusable workflows, pinned to a
+release tag that Dependabot bumps. The `main` ruleset requires one gate job from
+each: `ci gate`, `checks gate` and `pull-request gate`. The repository settings
+(merge types, ruleset, security features) are applied by the boilerplate's
+`scripts/configure.sh`.
 
 **Releases** are automated with release-please: a `feat` commit drives a minor
 bump, a `fix` a patch. Do not bump the version or edit the changelog by hand.
@@ -86,8 +95,9 @@ by `test/publish-release-workflow.test.js`).
 
 ## Quality checks
 
-Run all six gates before opening a PR — CI (`.github/workflows/ci.yml`) runs
-them on Node 22/24/26 and every gate must pass:
+Run all six gates before opening a PR. CI runs them all: `ci.yml` the first five
+(minus `lint:md`) on Node 22/24/26, and `checks.yml` markdownlint plus mdformat.
+Every gate must pass:
 
 ```bash
 npm run typecheck     # tsc with checkJs over the plain JS
@@ -111,15 +121,17 @@ Tests use the built-in `node:test` runner — no test framework dependencies. Ne
 logic should come with tests; pure data/logic (models, utils, handler mapping)
 is the easiest to cover.
 
-CI also runs a **dependency audit** job that is not one of the six and has no
-local script. It blocks on `npm audit --omit=dev` (production dependencies are
-the only ones that reach a user's install) and reports the full tree
-advisory-only, so a development advisory surfaces as an `::error` annotation the
-step raises itself, on a run that stays green. Red on green is deliberate: it is
-incongruous enough to get read, where a warning would sink into the standing
-deprecation noise. Dependabot alerts remain the signal of record for the
-development tree, and a bump there clears the annotation.
-`test/ci-workflow.test.js` guards the split.
+CI also runs a **dependency audit** job (in the boilerplate's `node-ci.yml`)
+that is not one of the six and has no local script. It blocks on
+`npm audit --omit=dev` (production dependencies are the only ones that reach a
+user's install) and reports the full tree advisory-only, so a development
+advisory surfaces as an `::error` annotation the step raises itself, on a run
+that stays green. Red on green is deliberate: it is incongruous enough to get
+read, where a warning would sink into the standing deprecation noise. Dependabot
+alerts remain the signal of record for the development tree, and a bump there
+clears the annotation. The boilerplate owns the split;
+`test/ci-workflow.test.js` checks that `ci.yml` keeps the audit on and tests
+exactly the Node lines `engines.node` declares.
 
 ### Coverage
 
@@ -155,21 +167,20 @@ Two flags in it are load-bearing and worth not "tidying away":
 It was first kept out because `--test-coverage-include` needs Node 22.5 and the
 package then supported a `^20.18` floor; the `^22.10` floor removes that
 obstacle, but adding it to the publish gates is a separate decision.
-`test/coverage.test.js` guards all of the above.
+`test/coverage.test.js` guards the script, and that `ci.yml` keeps coverage on.
 
 ### Workflow naming and timeouts
 
 GitHub labels a check `<workflow name> / <job name>` and never shows the
 filename, so every workflow's top-level `name:` is the filename stem (`ci`,
-`claude`, `publish-release`, `publish-prerelease`, `stale`) and the job carries
-the description instead. This makes every check readable back to its source file
-without guessing.
+`checks`, `pull-request`, `claude`, `publish-release`, `publish-prerelease`,
+`stale`) and the job carries the description instead. This makes every check
+readable back to its source file without guessing.
 
 Every job also sets `timeout-minutes`: GitHub's default is six hours, and the
 failure that matters is a stall (`npm ci`/`npm publish` hanging on a network
-fetch), not an error. 10 minutes is the default; `pr-title` gets 5 (cheapest job
-in the repo); `claude` gets 30 (it runs an actual Claude Code session, not a
-fixed script).
+fetch), not an error. 10 minutes is the default; the gate jobs get 5; `claude`
+gets 30 (it runs an actual Claude Code session, not a fixed script).
 
 **Exception:** `Analyze (actions)` / `Analyze (javascript-typescript)` /
 `CodeQL` come from code scanning default setup, a repo setting rather than a
@@ -188,9 +199,9 @@ This is not hypothetical: it is how the v1.2.0 release failed. CI on the release
 PR sat in `action_required`, was read as three green checks, and the PR was
 merged — four minutes after the approved run had actually gone red.
 
-Before merging, confirm the Node 22.x/24.x/26.x jobs are present in
-`gh pr checks` (not merely that nothing is pending), and check for a blocked
-run:
+Before merging, confirm `ci gate`, `checks gate` and `pull-request gate` are
+present in `gh pr checks` and passed (not merely that nothing is pending), and
+check for a blocked run:
 
 ```bash
 gh run list --branch "$(gh pr view <n> --json headRefName --jq .headRefName)" \

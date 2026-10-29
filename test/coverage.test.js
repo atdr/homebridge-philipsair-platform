@@ -1,7 +1,7 @@
 'use strict';
 
-//Drift guards for the coverage job in .github/workflows/ci.yml and the `coverage`
-//script it runs. Coverage is reporting, not a gate: the Node matrix is what proves the
+//Drift guards for the `coverage` script, which CI runs through atdr/github-boilerplate's
+//node-ci.yml. Coverage is reporting, not a gate: the Node matrix is what proves the
 //suite passes. But a report that quietly measures the wrong thing is worse than
 //no report, because the number still looks authoritative.
 //
@@ -34,27 +34,8 @@ const script = pkg.scripts.coverage ?? '';
 const workflow = read('.github/workflows/ci.yml');
 
 //The LCOV file name has to agree in three places: the script that writes it, the CI
-//step that uploads it, and .gitignore. Take the script as the source of truth.
+//step that uploads it, and .gitignore. node-ci uploads ./lcov.info, so that is fixed.
 const LCOV = 'lcov.info';
-
-//Same job splitting as test/ci-workflow.test.js: job keys are the only two-space
-//indented keys with no inline value, so a heading regex suffices without a YAML
-//parser (this repo ships no runtime dependencies).
-const jobs = (() => {
-  const jobsIndex = workflow.indexOf('\njobs:');
-  assert.notEqual(jobsIndex, -1, "ci.yml has no 'jobs:' mapping");
-  const section = workflow.slice(jobsIndex);
-  const heading = /^ {2}([a-z][a-z0-9-]*):$/gm;
-  const blocks = new Map();
-  let previous = null;
-  let match;
-  while ((match = heading.exec(section)) !== null) {
-    if (previous) blocks.set(previous.name, section.slice(previous.end, match.index));
-    previous = { name: match[1], end: heading.lastIndex };
-  }
-  if (previous) blocks.set(previous.name, section.slice(previous.end));
-  return blocks;
-})();
 
 describe('coverage script', () => {
   it('exists', () => {
@@ -102,37 +83,10 @@ describe('coverage script', () => {
 });
 
 describe('CI coverage job', () => {
-  const job = () => {
-    const block = jobs.get('coverage');
-    assert.ok(block, 'no coverage job in ci.yml');
-    return block;
-  };
-
-  it('runs the same command as a developer would', () => {
-    assert.match(job(), /run: npm run coverage/, 'CI must call the npm script, so CI and local cannot drift apart');
-  });
-
-  it('uploads the file the script writes', () => {
-    assert.match(job(), new RegExp(`files: \\./${LCOV.replace('.', '\\.')}`));
-    assert.match(job(), /uses: codecov\/codecov-action@v\d+/);
-  });
-
-  it('lets the upload fail without failing the job', () => {
-    //An outage at Codecov, or a missing CODECOV_TOKEN, says nothing about the change
-    //under review. The test run itself stays blocking: a job that can never fail is a
-    //check that proves nothing.
-    const upload = job().slice(job().indexOf('codecov/codecov-action'));
-    assert.match(upload, /fail_ci_if_error: false/);
-    assert.doesNotMatch(
-      job(),
-      /^ {4}continue-on-error: true/m,
-      'continue-on-error belongs on the upload step, not the job'
-    );
-  });
-
-  it('skips PR jobs once the pull request is closed', () => {
-    //Same guard as every other job: 'edited' events fire for merged PRs.
-    assert.match(job(), /if: github\.event_name == 'push' \|\| github\.event\.pull_request\.state == 'open'/);
+  it('stays on in ci.yml', () => {
+    //node-ci runs `npm run coverage` and uploads ./lcov.info, advisory only, unless
+    //told not to.
+    assert.doesNotMatch(workflow, /^ {6}coverage: false/m);
   });
 });
 
