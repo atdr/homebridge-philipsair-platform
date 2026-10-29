@@ -1,10 +1,10 @@
 'use strict';
 
-//Drift guards for the dependency audit in .github/workflows/ci.yml. The two
-//audit steps differ only in a flag and in how each treats a non-zero exit, so an
-//edit that loses the distinction would leave CI looking green while nothing
-//blocks a vulnerable runtime dependency from reaching a user's Homebridge
-//install.
+//Drift guards for .github/workflows/ci.yml. The jobs themselves live in
+//atdr/github-boilerplate's node-ci.yml, pinned by tag, which owns the audit's
+//blocking/advisory split and the coverage upload. What this repo controls is how
+//it calls that workflow: which Node lines, which gates, and that neither the
+//audit nor coverage is switched off.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -12,87 +12,31 @@ const path = require('node:path');
 const { describe, it } = require('node:test');
 
 const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'ci.yml'), 'utf8');
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
-//Same job splitting as test/publish-release-workflow.test.js: job keys are the only
-//two-space-indented keys with no inline value, so a heading regex suffices
-//without a YAML parser (this repo ships no runtime dependencies).
-const jobs = (() => {
-  const jobsIndex = workflow.indexOf('\njobs:');
-  assert.notEqual(jobsIndex, -1, "ci.yml has no 'jobs:' mapping");
-  const section = workflow.slice(jobsIndex);
-  const heading = /^ {2}([a-z][a-z0-9-]*):$/gm;
-  const blocks = new Map();
-  let previous = null;
-  let match;
-  while ((match = heading.exec(section)) !== null) {
-    if (previous) blocks.set(previous.name, section.slice(previous.end, match.index));
-    previous = { name: match[1], end: heading.lastIndex };
-  }
-  if (previous) blocks.set(previous.name, section.slice(previous.end));
-  return blocks;
-})();
-
-const auditSteps = () => {
-  const audit = jobs.get('audit');
-  assert.ok(audit, 'no audit job in ci.yml');
-  //One entry per '- run:' step, each carrying the lines that follow it.
-  return audit
-    .split(/^ {6}- (?=run:|uses:|name:)/m)
-    .slice(1)
-    .filter((step) => /^ *run:/m.test(step));
-};
-
-describe('CI dependency audit', () => {
-  it('blocks on production advisories', () => {
-    const blocking = auditSteps().filter((step) => step.includes('--omit=dev'));
-    assert.equal(blocking.length, 1, 'expected exactly one production-only audit step');
-    assert.doesNotMatch(
-      blocking[0],
-      /continue-on-error:\s*true/,
-      'the production audit must fail the job — it is the only gate on what reaches users'
-    );
-    assert.match(blocking[0], /--audit-level=high/);
+describe('CI workflow', () => {
+  it('calls the boilerplate node-ci at a pinned tag', () => {
+    assert.match(workflow, /uses: atdr\/github-boilerplate\/\.github\/workflows\/node-ci\.yml@v\d+\.\d+\.\d+$/m);
   });
 
-  it('keeps the full-tree audit advisory only', () => {
-    const advisory = auditSteps().filter((step) => step.includes('npm audit') && !step.includes('--omit=dev'));
-    assert.equal(advisory.length, 1, 'expected exactly one full-tree audit step');
-    //The step swallows npm audit's exit code rather than being forgiven by
-    //continue-on-error, so that the annotation it leaves behind is one this repo wrote.
-    //continue-on-error cannot change the runner's own 'exit code 1' notice, only the
-    //conclusion beneath it, and that notice explains nothing.
-    assert.match(
-      advisory[0],
-      /if ! npm audit/,
-      'a dev-tree advisory must not block unrelated PRs; Dependabot alerts are the signal of record'
-    );
-    //Deliberately ::error, not ::warning. A red annotation on a green job is incongruous
-    //enough to get read, which is the whole job of this step; a warning sinks into the
-    //standing noise of deprecation notices. It is not permanent wallpaper either, because
-    //a Dependabot bump clears it.
-    assert.match(advisory[0], /::error title=/, 'a swallowed advisory must still surface, or the step is useless');
-    assert.doesNotMatch(
-      advisory[0],
-      /continue-on-error/,
-      'the step handles its own exit code; continue-on-error would also mask a broken wrapper'
-    );
-  });
-
-  it('audits without installing', () => {
-    //An install would run lifecycle scripts from the very tree under audit.
-    for (const step of auditSteps()) {
-      assert.match(step, /--package-lock-only/, `audit step runs without --package-lock-only: ${step.trim()}`);
+  it('runs every gate prepublishOnly runs, bar markdownlint', () => {
+    //lint:md runs in checks.yml, through the boilerplate's markdown workflow.
+    const match = /^ {6}scripts: (.+)$/m.exec(workflow);
+    assert.ok(match, 'ci.yml passes no scripts to node-ci');
+    const scripts = match[1].trim().split(/\s+/);
+    for (const script of scripts)
+      assert.ok(pkg.scripts[script], `ci.yml runs npm script '${script}', which is missing`);
+    const gates = [...pkg.scripts.prepublishOnly.matchAll(/npm run ([\w:]+)/g)].map((m) => m[1]);
+    for (const gate of gates.filter((gate) => gate !== 'lint:md')) {
+      assert.ok(scripts.includes(gate), `prepublishOnly runs '${gate}' but CI does not`);
     }
-    assert.doesNotMatch(jobs.get('audit'), /npm ci/, 'the audit job does not need an install');
   });
 
-  it('skips PR jobs once the pull request is closed', () => {
-    //'edited' events fire for merged PRs, where the commit range no longer
-    //resolves after a squash merge (see the comment above the jobs mapping).
-    assert.match(
-      jobs.get('audit'),
-      /if: github\.event_name == 'push' \|\| github\.event\.pull_request\.state == 'open'/
-    );
+  it('keeps the dependency audit and coverage on', () => {
+    //Both default to true in node-ci; turning either off here would leave CI green
+    //with nothing auditing what reaches a user's Homebridge install.
+    assert.doesNotMatch(workflow, /^ {6}audit: false/m);
+    assert.doesNotMatch(workflow, /^ {6}coverage: false/m);
   });
 });
 
@@ -100,8 +44,6 @@ describe('CI Node matrix', () => {
   //Homebridge plugin verification requires the plugin to run on every Node line it
   //declares, so the matrix must test exactly the majors in engines.node: no more,
   //no fewer. A major added to one and not the other is caught here, not by a user.
-  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-
   const engineMajors = () =>
     pkg.engines.node
       .split('||')
@@ -113,15 +55,12 @@ describe('CI Node matrix', () => {
       .sort((a, b) => a - b);
 
   const matrixMajors = () => {
-    const build = jobs.get('build');
-    assert.ok(build, 'no build job in ci.yml');
-    const match = /^\s*node-version: \[([^\]]*)\]$/m.exec(build);
-    assert.ok(match, 'build job has no inline node-version matrix');
-    return match[1]
-      .split(',')
+    const match = /^ {6}node-versions: '(.*)'$/m.exec(workflow);
+    assert.ok(match, 'ci.yml does not pass node-versions to node-ci, so it tests the LTS lines instead');
+    return JSON.parse(match[1])
       .map((entry) => {
-        const version = /^\s*(\d+)\.x\s*$/.exec(entry);
-        assert.ok(version, `matrix entry is not a <major>.x line: ${entry.trim()}`);
+        const version = /^(\d+)\.x$/.exec(entry);
+        assert.ok(version, `matrix entry is not a <major>.x line: ${entry}`);
         return Number(version[1]);
       })
       .sort((a, b) => a - b);

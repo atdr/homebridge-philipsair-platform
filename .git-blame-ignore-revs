@@ -1,0 +1,5 @@
+# Bulk reformatting, skipped by git blame. GitHub reads this file, and locally:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# docs: wrap Markdown at 80 columns with mdformat (#154)
+d40eeeb0e7179f0c36ad7a18818f4e62893c73dc
