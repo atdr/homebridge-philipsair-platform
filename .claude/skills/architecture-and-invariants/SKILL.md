@@ -5,61 +5,67 @@ description: Load-bearing design decisions, invariants, and known weak points of
 
 # Architecture and invariants
 
-Audience: engineers and AI agents changing this plugin's source. AGENTS.md is the doc of
-record for the module map, code style, and workflow — read it first. This skill adds what
-AGENTS.md deliberately leaves out: why the load-bearing decisions were made, which
-invariants must never break, where each one is enforced, and where the code is weak.
+Audience: engineers and AI agents changing this plugin's source. AGENTS.md is
+the doc of record for the module map, code style, and workflow — read it first.
+This skill adds what AGENTS.md deliberately leaves out: why the load-bearing
+decisions were made, which invariants must never break, where each one is
+enforced, and where the code is weak.
 
-When NOT to use this skill: for triage of a live problem use `debugging-and-operations`;
-for device protocol details use `aioairctrl-and-device-protocol`; for adding a new
-Philips model use `new-model-support-campaign`.
+When NOT to use this skill: for triage of a live problem use
+`debugging-and-operations`; for device protocol details use
+`aioairctrl-and-device-protocol`; for adding a new Philips model use
+`new-model-support-campaign`.
 
 ## Load-bearing decisions and their WHY
 
-### 1. Device I/O goes through the external `aioairctrl` CLI — never reimplement it
+### 1. Device I/O goes through the `aioairctrl` CLI. Never reimplement it
 
-Philips purifiers speak an **encrypted CoAP** (Constrained Application Protocol, a UDP
-protocol for small devices) dialect. This repo does not implement it. All device I/O
-shells out to the [`aioairctrl`](https://pypi.org/project/aioairctrl/) Python CLI from
-`src/accessories/accessories.handler.js` (`sendCMD` uses `execFile`, `longPoll` uses
-`spawn`).
+Philips purifiers speak an **encrypted CoAP** (Constrained Application Protocol,
+a UDP protocol for small devices) dialect. This repo does not implement it. All
+device I/O shells out to the
+[`aioairctrl`](https://pypi.org/project/aioairctrl/) Python CLI from
+`src/accessories/accessories.handler.js` (`sendCMD` uses `execFile`, `longPoll`
+uses `spawn`).
 
-- WHY: the encryption/protocol maintenance burden lives in a dedicated upstream project;
-  this plugin stays a thin HomeKit mapping layer. Decided in issue #1 / PR #3
-  (commit a9f8715).
-- Corollary (unwritten rule, maintainer-confirmed 2026-07-12): **the published npm
-  package has zero runtime dependencies** — `package.json` has only `devDependencies`.
-  Do not add a runtime dependency (e.g. a CoAP or crypto library) without explicit
-  maintainer sign-off.
+- WHY: the encryption/protocol maintenance burden lives in a dedicated upstream
+  project; this plugin stays a thin HomeKit mapping layer. Decided in issue #1 /
+  PR #3 (commit a9f8715).
+- Corollary (unwritten rule, maintainer-confirmed 2026-07-12): **the published
+  npm package has zero runtime dependencies** — `package.json` has only
+  `devDependencies`. Do not add a runtime dependency (e.g. a CoAP or crypto
+  library) without explicit maintainer sign-off.
 
 ### 2. Child processes get argument arrays — never a shell string
 
-`execFile(this.binary, args, ...)` and `spawn(this.binary, [...])` take arrays. The old
-code built a shell string (`exec(args.join(' '))`), which forced value-quoting
-workarounds (commits bf691b0, 358fb82) and let config values reach a shell. PR #3
-removed the shell; PR #5 (commit 9ce2128) additionally made `validHost` in
-`src/utils/utils.js` reject hosts that start with `-` or contain whitespace so a config
-value can never be parsed as a CLI flag. **Fenced wrong path: any change that routes a
-command through a shell string, or that reintroduces manual quoting of values.**
+`execFile(this.binary, args, ...)` and `spawn(this.binary, [...])` take arrays.
+The old code built a shell string (`exec(args.join(' '))`), which forced
+value-quoting workarounds (commits bf691b0, 358fb82) and let config values reach
+a shell. PR #3 removed the shell; PR #5 (commit 9ce2128) additionally made
+`validHost` in `src/utils/utils.js` reject hosts that start with `-` or contain
+whitespace so a config value can never be parsed as a CLI flag. **Fenced wrong
+path: any change that routes a command through a shell string, or that
+reintroduces manual quoting of values.**
 
 ### 3. Per-model behaviour is pure data in `accessories.models.js`
 
-Model differences (speed steps, register names, value translations, extra CLI flags)
-live in one data file, `src/accessories/accessories.models.js`, consumed by the handler
-constructor. Supporting a new device is a data change plus docs, not new logic (PR #3
-extracted this from duplicated `if (model == ...)` blocks in the handler; PR #19
-explains the design). See `new-model-support-campaign` for the procedure.
+Model differences (speed steps, register names, value translations, extra CLI
+flags) live in one data file, `src/accessories/accessories.models.js`, consumed
+by the handler constructor. Supporting a new device is a data change plus docs,
+not new logic (PR #3 extracted this from duplicated `if (model == ...)` blocks
+in the handler; PR #19 explains the design). See `new-model-support-campaign`
+for the procedure.
 
 ### 4. The plugin identifier and accessory UUIDs are compatibility surfaces
 
 - The Homebridge plugin identifier is the **package name**
-  (`@atdr/homebridge-philipsair-platform`), taken from `package.json` in both `index.js`
-  and `src/platform.js`. Pre-fork versions registered accessories under a different
-  identifier; fixing that (PR #3) cost users a one-time accessory re-add, documented in
-  README "Upgrading from v1.1.0 or earlier".
-- Accessory UUIDs are generated from the configured device `name`: `src/platform.js`
-  passes `api.hap.uuid.generate` into `AccessoriesSetup`, which calls it as
-  `generateUUID(device.name)` (`src/accessories/accessories.setup.js`).
+  (`@atdr/homebridge-philipsair-platform`), taken from `package.json` in both
+  `index.js` and `src/platform.js`. Pre-fork versions registered accessories
+  under a different identifier; fixing that (PR #3) cost users a one-time
+  accessory re-add, documented in README "Upgrading from v1.1.0 or earlier".
+- Accessory UUIDs are generated from the configured device `name`:
+  `src/platform.js` passes `api.hap.uuid.generate` into `AccessoriesSetup`,
+  which calls it as `generateUUID(device.name)`
+  (`src/accessories/accessories.setup.js`).
 
 ## Invariants and enforcement points
 
@@ -79,34 +85,40 @@ The docs-sync invariants and how to add new mechanical guards are covered in
 
 ## Known weak points (2026-07-12)
 
-- **Humidifier logic is fragile and unverified on hardware** (maintainer-confirmed).
-  The `rhset`/water-level branches in `accessories.handler.js`
-  (`setHumidifierActive`, `setHumidifierTargetState`, and the humidifier block of
-  `processUpdate`) duplicate a hard-coded rhset→percent table in three places, contain
-  commented-out methods (`setHumidifierCurrentState`, `setHumidifierThreshold`), and no
-  current tester owns a humidifier-capable device. **Do not refactor these
-  opportunistically**; touch them only with a live device to verify against.
-- **Only the AC0850 is validated (★) on hardware by this project.** Every other mapped
-  model is Supported, never confirmed here. The AC1715, AC3036 and AC3829 come from the
-  original plugin's users and contributors or from ruaan-deysel/ha-philips-airpurifier;
-  the other 35 were imported in bulk from that integration, with hardware corrections
-  from ruaan-deysel/homebridge-philips-airctrl, and the AC0651 comes from the cloud
-  plugin Micheledipaola/homebridge-philips-airplus (`THIRD_PARTY_NOTICES.md` pins the
-  sources). A report that one of them misbehaves is a report against that data.
-- Speed matching in `Handler.rotationSpeed` compares stringified values for exact
-  equality against the model's `speeds` entries; a device reporting an unexpected value
-  matches nothing and reports speed index 0 (RotationSpeed 0) with no warning.
+- **Humidifier logic is fragile and unverified on hardware**
+  (maintainer-confirmed). The `rhset`/water-level branches in
+  `accessories.handler.js` (`setHumidifierActive`, `setHumidifierTargetState`,
+  and the humidifier block of `processUpdate`) duplicate a hard-coded
+  rhset→percent table in three places, contain commented-out methods
+  (`setHumidifierCurrentState`, `setHumidifierThreshold`), and no current tester
+  owns a humidifier-capable device. **Do not refactor these opportunistically**;
+  touch them only with a live device to verify against.
+- **Only the AC0850 is validated (★) on hardware by this project.** Every other
+  mapped model is Supported, never confirmed here. The AC1715, AC3036 and AC3829
+  come from the original plugin's users and contributors or from
+  ruaan-deysel/ha-philips-airpurifier; the other 35 were imported in bulk from
+  that integration, with hardware corrections from
+  ruaan-deysel/homebridge-philips-airctrl, and the AC0651 comes from the cloud
+  plugin Micheledipaola/homebridge-philips-airplus (`THIRD_PARTY_NOTICES.md`
+  pins the sources). A report that one of them misbehaves is a report against
+  that data.
+- Speed matching in `Handler.rotationSpeed` compares stringified values for
+  exact equality against the model's `speeds` entries; a device reporting an
+  unexpected value matches nothing and reports speed index 0 (RotationSpeed 0)
+  with no warning.
 - `setLightOn`/`setLightBrightness` guard against each other with the
-  `settingLightState`/`settingBrightness` flags, dropping one command when both fire
-  (inferred purpose: HomeKit sends On and Brightness together; commit records no
-  rationale). Treat the mutual exclusion as intentional until proven otherwise.
-- When the humidifier water tank is empty (`wl == 0`), `processUpdate` actively sends a
-  mode command to the device (`setPurifierTargetState(true)`) — a read path that writes.
-  Inherited behaviour; commit records no rationale.
+  `settingLightState`/`settingBrightness` flags, dropping one command when both
+  fire (inferred purpose: HomeKit sends On and Brightness together; commit
+  records no rationale). Treat the mutual exclusion as intentional until proven
+  otherwise.
+- When the humidifier water tank is empty (`wl == 0`), `processUpdate` actively
+  sends a mode command to the device (`setPurifierTargetState(true)`) — a read
+  path that writes. Inherited behaviour; commit records no rationale.
 
 ## Provenance and maintenance
 
-Verified against the repo at commit 36067a6, 2026-07-12. Re-verify volatile claims:
+Verified against the repo at commit 36067a6, 2026-07-12. Re-verify volatile
+claims:
 
 ```bash
 node -e "console.log(Object.keys(require('./package.json').dependencies || {}).length)"  # 0 = still no runtime deps

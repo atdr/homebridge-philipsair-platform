@@ -5,90 +5,100 @@ description: How changes land in this repo and what must stay in sync - the rati
 
 # Change control and docs sync
 
-AGENTS.md is the doc of record for the workflow itself: branch naming, Conventional
-Commits, the six quality gates, logging rules, and the docs rules. CONTRIBUTING.md is
-the human-facing summary. **Follow those; this skill only adds rationale, the release
-path, and a mechanical sync table.** On any conflict, AGENTS.md wins.
+AGENTS.md is the doc of record for the workflow itself: branch naming,
+Conventional Commits, the six quality gates, logging rules, and the docs rules.
+CONTRIBUTING.md is the human-facing summary. **Follow those; this skill only
+adds rationale, the release path, and a mechanical sync table.** On any
+conflict, AGENTS.md wins.
 
-When NOT to use this skill: test-writing specifics are in `testing-and-validation`;
-what the gates catch at runtime is not covered here.
+When NOT to use this skill: test-writing specifics are in
+`testing-and-validation`; what the gates catch at runtime is not covered here.
 
 ## Why the conventions are load-bearing (not ceremony)
 
-- **Commit types drive releases.** release-please reads the merged commit history:
-  `feat` → minor bump, `fix` → patch. A mislabeled type ships a wrong version number
-  and changelog entry. That is also why commitlint checks both commits and PR titles in
-  CI (`.github/workflows/ci.yml`) — squash merges take the PR title as the commit.
+- **Commit types drive releases.** release-please reads the merged commit
+  history: `feat` → minor bump, `fix` → patch. A mislabeled type ships a wrong
+  version number and changelog entry. That is also why commitlint checks both
+  commits and PR titles in CI (`.github/workflows/ci.yml`) — squash merges take
+  the PR title as the commit.
 - **Never hand-edit `CHANGELOG.md` or `version`.** release-please owns both; it
   prepends above the hand-written v1.x history. Hand edits collide with its PRs
   (AGENTS.md states the rule; this is the mechanism behind it).
 - **Releasing = merging the release-please PR.** After changes merge to `main`,
-  release-please opens/updates a release PR; merging it tags the release and triggers
-  `npm publish` in `.github/workflows/publish-release.yml`.
+  release-please opens/updates a release PR; merging it tags the release and
+  triggers `npm publish` in `.github/workflows/publish-release.yml`.
 - **Prereleases are a manual dispatch of their own workflow**,
-  `.github/workflows/publish-prerelease.yml`. `workflow_dispatch` takes a `version` and a
-  `dist_tag`, bumps the version on the runner with `--no-git-tag-version`, and publishes
-  under that tag. It used to share a file with the release path because npm pins a
-  trusted publisher to a single workflow filename, but npm now supports up to 10 trusted
-  publishers per package, so each workflow has its own entry: `publish-release.yml`
-  requires the `npm-release` GitHub environment (branch-restricted to `main`) and
-  `publish-prerelease.yml` requires `npm-prerelease` (unrestricted, so a beta can be
-  dispatched from a PR branch to test it before merge). The guards (no stable version,
-  never `latest`, never committed, inputs read via `env`) are asserted by
-  `test/publish-prerelease-workflow.test.js`; fix the workflow, not the test. Note
-  `npm publish` tags whatever it publishes `latest` unless `--tag` is passed: npm does
-  not infer anything from the `-beta.1` suffix. For the same reason the release `publish`
-  job (guarded by `test/publish-release-workflow.test.js`) branches on the version and
-  derives a tag from the prerelease identifier (`1.2.0-beta.1` → `beta`), so a deliberate
-  `Release-As: 1.2.0-beta.1` footer publishes correctly instead of moving `latest`.
-- **npm publishing uses trusted publishing (OIDC)** — GitHub Actions authenticates to
-  npm directly; there is no `NPM_TOKEN` secret to leak or rotate, and provenance is
-  automatic (PR #3). Each publish job also declares a GitHub `environment:` so its OIDC
-  token carries an environment claim npm can require, on top of the workflow filename
-  match. If publishing breaks, the trusted-publisher configuration lives on npmjs.com
-  under the package settings (maintainer account required — agents cannot fix this side).
-- **One logical change per commit** exists so a bad change can be reverted without
-  collateral (AGENTS.md); the release automation above amplifies the cost of tangled
-  commits.
-- **Dependabot PRs** arrive pre-formatted from `.github/dependabot.yml`, and the prefix
-  encodes whether the bump reaches users. Development bumps are `chore(deps)` and
-  release-silent; production bumps are `fix(deps)` and cut a patch release. The split
-  exists because npm never publishes `package-lock.json`, so consumers resolve their own
-  tree from the ranges in `package.json`: only a direct production bump changes what they
-  install. There are no runtime dependencies today, so **both prefixes are `chore(deps)`**
-  and no npm bump can cut a release. That is not belt and braces: Dependabot cannot tell
-  that a transitive dependency belongs to the dev tree, so it falls back to `prefix` for
-  those, and a `js-yaml` security bump arrived as `fix(deps)` on PR #109. Restore
-  `prefix: fix(deps)` when a runtime dependency is first declared;
-  `test/dependabot-config.test.js` ties the two together and fails on the PR that declares
-  one, so the revert is enforced rather than remembered.
-  Dev minor/patch updates are grouped; majors and every security advisory arrive
-  individually for isolated review (commit bce7dc3). **Do not group security updates.** A
-  group carrying `applies-to: security-updates` used to batch the development ones, and
-  it filtered a high `js-yaml` advisory out of its own update job while still reporting
-  success, so the alert sat open with nothing to show for it (alert 14, September 2026).
-  Grouping bought little against that: advisories arrive here one at a time, nine of the
-  ten after the initial backfill alone. `test/dependabot-config.test.js` guards it. Major toolchain bumps sometimes need real fixes — e.g.
-  TypeScript 7 required config and JSDoc changes (commit 4292672).
-- **The CI audit job mirrors that same split** and is not one of the six gates: it blocks
-  on `npm audit --omit=dev` and reports the full tree advisory-only, so a red
-  "Development dependency advisory" annotation on a green job is the development tree, not
-  a regression in the PR. That step swallows npm audit's exit code and raises the
-  annotation itself rather than using `continue-on-error`, which cannot change the
-  runner's own "Process completed with exit code 1" and leaves it explaining nothing. It
-  stays an `::error` rather than a `::warning` on purpose: red on green is incongruous
-  enough to get read, and a Dependabot bump clears it (the reasoning is in the `ci.yml`
+  `.github/workflows/publish-prerelease.yml`. `workflow_dispatch` takes a
+  `version` and a `dist_tag`, bumps the version on the runner with
+  `--no-git-tag-version`, and publishes under that tag. It used to share a file
+  with the release path because npm pins a trusted publisher to a single
+  workflow filename, but npm now supports up to 10 trusted publishers per
+  package, so each workflow has its own entry: `publish-release.yml` requires
+  the `npm-release` GitHub environment (branch-restricted to `main`) and
+  `publish-prerelease.yml` requires `npm-prerelease` (unrestricted, so a beta
+  can be dispatched from a PR branch to test it before merge). The guards (no
+  stable version, never `latest`, never committed, inputs read via `env`) are
+  asserted by `test/publish-prerelease-workflow.test.js`; fix the workflow, not
+  the test. Note `npm publish` tags whatever it publishes `latest` unless
+  `--tag` is passed: npm does not infer anything from the `-beta.1` suffix. For
+  the same reason the release `publish` job (guarded by
+  `test/publish-release-workflow.test.js`) branches on the version and derives a
+  tag from the prerelease identifier (`1.2.0-beta.1` → `beta`), so a deliberate
+  `Release-As: 1.2.0-beta.1` footer publishes correctly instead of moving
+  `latest`.
+- **npm publishing uses trusted publishing (OIDC)** — GitHub Actions
+  authenticates to npm directly; there is no `NPM_TOKEN` secret to leak or
+  rotate, and provenance is automatic (PR #3). Each publish job also declares a
+  GitHub `environment:` so its OIDC token carries an environment claim npm can
+  require, on top of the workflow filename match. If publishing breaks, the
+  trusted-publisher configuration lives on npmjs.com under the package settings
+  (maintainer account required — agents cannot fix this side).
+- **One logical change per commit** exists so a bad change can be reverted
+  without collateral (AGENTS.md); the release automation above amplifies the
+  cost of tangled commits.
+- **Dependabot PRs** arrive pre-formatted from `.github/dependabot.yml`, and the
+  prefix encodes whether the bump reaches users. Development bumps are
+  `chore(deps)` and release-silent; production bumps are `fix(deps)` and cut a
+  patch release. The split exists because npm never publishes
+  `package-lock.json`, so consumers resolve their own tree from the ranges in
+  `package.json`: only a direct production bump changes what they install. There
+  are no runtime dependencies today, so **both prefixes are `chore(deps)`** and
+  no npm bump can cut a release. That is not belt and braces: Dependabot cannot
+  tell that a transitive dependency belongs to the dev tree, so it falls back to
+  `prefix` for those, and a `js-yaml` security bump arrived as `fix(deps)` on PR
+  #109. Restore `prefix: fix(deps)` when a runtime dependency is first declared;
+  `test/dependabot-config.test.js` ties the two together and fails on the PR
+  that declares one, so the revert is enforced rather than remembered. Dev
+  minor/patch updates are grouped; majors and every security advisory arrive
+  individually for isolated review (commit bce7dc3). **Do not group security
+  updates.** A group carrying `applies-to: security-updates` used to batch the
+  development ones, and it filtered a high `js-yaml` advisory out of its own
+  update job while still reporting success, so the alert sat open with nothing
+  to show for it (alert 14, September 2026). Grouping bought little against
+  that: advisories arrive here one at a time, nine of the ten after the initial
+  backfill alone. `test/dependabot-config.test.js` guards it. Major toolchain
+  bumps sometimes need real fixes — e.g. TypeScript 7 required config and JSDoc
+  changes (commit 4292672).
+- **The CI audit job mirrors that same split** and is not one of the six gates:
+  it blocks on `npm audit --omit=dev` and reports the full tree advisory-only,
+  so a red "Development dependency advisory" annotation on a green job is the
+  development tree, not a regression in the PR. That step swallows npm audit's
+  exit code and raises the annotation itself rather than using
+  `continue-on-error`, which cannot change the runner's own "Process completed
+  with exit code 1" and leaves it explaining nothing. It stays an `::error`
+  rather than a `::warning` on purpose: red on green is incongruous enough to
+  get read, and a Dependabot bump clears it (the reasoning is in the `ci.yml`
   comment). Both steps use `--package-lock-only`, so nothing is installed from
-  the tree being audited. `test/ci-workflow.test.js` asserts the production step can never
-  become non-blocking and the advisory step can never go silent; fix the workflow, not the
-  test. A dev advisory that Dependabot
-  auto-dismisses still shows up here, and is cleared by hand with
+  the tree being audited. `test/ci-workflow.test.js` asserts the production step
+  can never become non-blocking and the advisory step can never go silent; fix
+  the workflow, not the test. A dev advisory that Dependabot auto-dismisses
+  still shows up here, and is cleared by hand with
   `npm update <pkg> --package-lock-only` (commit 5389f52).
 
 ## Docs-sync obligations (mechanical table)
 
-"Same PR" means the PR does not merge without the update. Rows marked **enforced** fail
-CI via the named test if forgotten; the others rely on you.
+"Same PR" means the PR does not merge without the update. Rows marked
+**enforced** fail CI via the named test if forgotten; the others rely on you.
 
 | If your change touches...                                                                                                            | You must also update (same PR)                                                                         | Enforced by                                                                                                           |
 | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
@@ -112,8 +122,8 @@ git push -u origin <type>/<short-description>
 # open a PR against main; title must also pass commitlint (type(scope): summary)
 ```
 
-Never commit directly to `main` (AGENTS.md). Evidence expectations per kind of change
-are in `testing-and-validation`.
+Never commit directly to `main` (AGENTS.md). Evidence expectations per kind of
+change are in `testing-and-validation`.
 
 ## Provenance and maintenance
 

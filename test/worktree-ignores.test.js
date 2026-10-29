@@ -4,10 +4,10 @@
 //
 //An agent session that calls EnterWorktree checks a second copy of this repo out
 //under .claude/worktrees/. Every gate that walks the tree from the repo root then
-//sees that copy: eslint and the check script parse its JavaScript, prettier and
-//markdownlint check its prose. A worktree holding work in progress therefore turns
-//four gates red for reasons that have nothing to do with the branch under test,
-//which happened once already and cost a debugging session.
+//sees that copy: eslint and the check script parse its JavaScript, prettier,
+//markdownlint and mdformat check its prose. A worktree holding work in progress
+//therefore turns five gates red for reasons that have nothing to do with the
+//branch under test, which happened once already and cost a debugging session.
 //
 //The dangerous repair is to weaken a gate to quieten the noise, so the ignores are
 //checked here rather than left to a reviewer noticing they went missing. Node's
@@ -60,12 +60,20 @@ describe('agent worktrees', () => {
   });
 
   it('are ignored by markdownlint', () => {
-    for (const script of ['lint:md', 'lint:md:fix']) {
-      assert.match(
-        pkg.scripts[script],
-        /--ignore \.claude\/worktrees/,
-        `${script} must skip .claude/worktrees: --dot makes markdownlint descend into it`
-      );
-    }
+    assert.ok(
+      read('.markdownlint-cli2.yaml')
+        .split('\n')
+        .some((line) => line.trim() === '- .claude/worktrees/**'),
+      '.markdownlint-cli2.yaml must ignore .claude/worktrees/**: its **/*.md glob descends into dot directories'
+    );
+  });
+
+  it('are ignored by mdformat', () => {
+    assert.ok(
+      read('.mdformat.toml')
+        .split('\n')
+        .some((line) => line.trim() === '".claude/worktrees/**",'),
+      '.mdformat.toml must exclude .claude/worktrees/**: `mdformat .` walks dot directories'
+    );
   });
 });

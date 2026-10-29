@@ -5,13 +5,14 @@ description: Triage playbook and day-2 operations for this plugin - the expected
 
 # Debugging and operations
 
-Audience: contributors and AI agents triaging a live problem, often reported by a
-non-technical user. Commands are copy-pasteable; replace `<hbuser>` with the account
-running Homebridge (often `homebridge` or `pi`) and `<ip>` with the device address.
+Audience: contributors and AI agents triaging a live problem, often reported by
+a non-technical user. Commands are copy-pasteable; replace `<hbuser>` with the
+account running Homebridge (often `homebridge` or `pi`) and `<ip>` with the
+device address.
 
-When NOT to use this skill: installation steps live in the README (doc of record);
-protocol/key semantics in `aioairctrl-and-device-protocol`; adding a new model in
-`new-model-support-campaign`.
+When NOT to use this skill: installation steps live in the README (doc of
+record); protocol/key semantics in `aioairctrl-and-device-protocol`; adding a
+new model in `new-model-support-campaign`.
 
 ## Golden path: what a healthy startup looks like
 
@@ -20,100 +21,120 @@ Sequence verified against the code (`src/platform.js` → `accessories.setup.js`
 
 1. Homebridge loads the plugin; cached accessories are restored silently
    (`configureAccessory`).
-2. On Homebridge's `didFinishLaunching`: `Initializing device...` (device validated and keyed by UUID), followed by **one line
-   naming the command set** that device runs on: `Using the AC0850 command set.` or
-   `No dedicated mapping for model "X", using the default command set.` A device on the
-   default mapping when its model is in a README Supported tier is a config fault, and this line
-   is how it is seen rather than inferred from controls that do nothing. Inactive devices
-   log `Not active in the config...` here instead and are skipped.
-3. Then, **before any device is touched**, and only when at least one device is active: the aioairctrl
-   preflight (`src/utils/preflight.js`) runs `<binary> --help` once. Healthy installs log
-   `Using <binary>` (plus `(found on PATH)` when unconfigured); a broken one logs the
-   multi-line `Cannot run '<binary>'...` report via `logger.alert` and setup continues
-   anyway. **The absence of either line, with a device active, means the plugin is older than 1.2.0.**
-   From 2.0.1 a config with no active device skips it, so no aioairctrl line is expected then.
-4. `Configuring new accessory...` (first ever run) **or** `Configuring cached
-accessory...` (every later run).
+2. On Homebridge's `didFinishLaunching`: `Initializing device...` (device
+   validated and keyed by UUID), followed by **one line naming the command set**
+   that device runs on: `Using the AC0850 command set.` or
+   `No dedicated mapping for model "X", using the default command set.` A device
+   on the default mapping when its model is in a README Supported tier is a
+   config fault, and this line is how it is seen rather than inferred from
+   controls that do nothing. Inactive devices log `Not active in the config...`
+   here instead and are skipped.
+3. Then, **before any device is touched**, and only when at least one device is
+   active: the aioairctrl preflight (`src/utils/preflight.js`) runs
+   `<binary> --help` once. Healthy installs log `Using <binary>` (plus
+   `(found on PATH)` when unconfigured); a broken one logs the multi-line
+   `Cannot run '<binary>'...` report via `logger.alert` and setup continues
+   anyway. **The absence of either line, with a device active, means the plugin
+   is older than 1.2.0.** From 2.0.1 a config with no active device skips it, so
+   no aioairctrl line is expected then.
+4. `Configuring new accessory...` (first ever run) **or**
+   `Configuring cached accessory...` (every later run).
 5. `Setup accessory...`
 6. `Initializing <device name>` (services wired), then the handler spawns
    `aioairctrl -H <ip> -P <port> status-observe -J`.
-7. With `debug: true`: each status line logs as `[DEBUG] <name>: {"pwr":"1",...}` and
-   HomeKit characteristics update.
+7. With `debug: true`: each status line logs as
+   `[DEBUG] <name>: {"pwr":"1",...}` and HomeKit characteristics update.
 
-Steady state is **one observe process per refresh cycle**. Two idle timers run on it, both
-re-armed by every status line in `processUpdate`:
+Steady state is **one observe process per refresh cycle**. Two idle timers run
+on it, both re-armed by every status line in `processUpdate`:
 
-- `armRefreshTimeout` (`refreshInterval`, default 60 s, per-device config, `0` disables) asks the
-  device for a fresh reading by killing the stream so the `close` handler re-subscribes after 5 s.
-  Since #71 the configured value is a **floor**, not a cadence: `adaptRefresh` times each
-  re-subscription (`refreshKilledAt` to the next reading) and doubles `refreshFactor` whenever one
-  cost more than the wait it replaced, halving it back toward 1 when one is answered inside half
-  the wait. `refreshDelay()` is what is actually armed, capped at `stallTimeout`, at which point
-  the refresh is dormant and the stall detector is the only teardown.
-  A fresh subscription is what prompts an idle purifier to answer. It is armed **only** from
-  `processUpdate`, so a subscription that has never been answered is never killed by it.
-- `armStallTimeout` is the fault detector, and only fires when the device has said nothing for far
-  longer than a refresh cycle can explain. It has **two regimes**, chosen at arm time from
-  `deviceKnownOff()` (the last reported `pwr`): `STALL_TIMEOUT` 300 s when the device is on or has
-  never answered, `OFF_STALL_TIMEOUT` 30 min when it reported itself off. A stall in the off
-  regime restarts the stream silently and counts as no failure at all, because a switched-off
-  purifier answering nothing is normal (issue #48) and restarting does not make it answer.
+- `armRefreshTimeout` (`refreshInterval`, default 60 s, per-device config, `0`
+  disables) asks the device for a fresh reading by killing the stream so the
+  `close` handler re-subscribes after 5 s. Since #71 the configured value is a
+  **floor**, not a cadence: `adaptRefresh` times each re-subscription
+  (`refreshKilledAt` to the next reading) and doubles `refreshFactor` whenever
+  one cost more than the wait it replaced, halving it back toward 1 when one is
+  answered inside half the wait. `refreshDelay()` is what is actually armed,
+  capped at `stallTimeout`, at which point the refresh is dormant and the stall
+  detector is the only teardown. A fresh subscription is what prompts an idle
+  purifier to answer. It is armed **only** from `processUpdate`, so a
+  subscription that has never been answered is never killed by it.
+- `armStallTimeout` is the fault detector, and only fires when the device has
+  said nothing for far longer than a refresh cycle can explain. It has **two
+  regimes**, chosen at arm time from `deviceKnownOff()` (the last reported
+  `pwr`): `STALL_TIMEOUT` 300 s when the device is on or has never answered,
+  `OFF_STALL_TIMEOUT` 30 min when it reported itself off. A stall in the off
+  regime restarts the stream silently and counts as no failure at all, because a
+  switched-off purifier answering nothing is normal (issue #48) and restarting
+  does not make it answer.
 
-So on an **idle** device a PID cycling every ~65 s is the refresh working as designed. On a
-**running** device the picture measured on v1.2.1 over the night of 2026-08-19 is not the one this
-file previously described: the AC0850 pushes in bursts about 9 s apart, then pauses, and the median
-burst is **3 readings before the refresh kills the stream**. Over that night the refresh fired 173
-times and one PID rarely persisted. Spawn failures retry after 30 s and log only once
-(`failureLogged`).
+So on an **idle** device a PID cycling every ~65 s is the refresh working as
+designed. On a **running** device the picture measured on v1.2.1 over the night
+of 2026-08-19 is not the one this file previously described: the AC0850 pushes
+in bursts about 9 s apart, then pauses, and the median burst is **3 readings
+before the refresh kills the stream**. Over that night the refresh fired 173
+times and one PID rarely persisted. Spawn failures retry after 30 s and log only
+once (`failureLogged`).
 
-That churn is also what a stall used to mean. Before #71 `armStallTimeout` was armed in `longPoll`
-at spawn, not from the last reading, so with the refresh cutting in at 60 s and the restart taking
-5 s, **every one of the night's 50 stalls on the AC0850 fired at exactly 365 s since the last
-reading**, with no variance (60 + 5 + 300): the on-state stall was measuring "this subscription has
-not been answered yet", not "the device has gone silent". It now arms from `lastReadingAt`, which
-survives the stream that produced it, with a floor of `refreshDelay()` so a replacement
-subscription still gets time to answer a deadline that is already past. A device that has **never**
-answered has no reading to measure from and still gets the full timeout, which is #48's case.
+That churn is also what a stall used to mean. Before #71 `armStallTimeout` was
+armed in `longPoll` at spawn, not from the last reading, so with the refresh
+cutting in at 60 s and the restart taking 5 s, **every one of the night's 50
+stalls on the AC0850 fired at exactly 365 s since the last reading**, with no
+variance (60 + 5 + 300): the on-state stall was measuring "this subscription has
+not been answered yet", not "the device has gone silent". It now arms from
+`lastReadingAt`, which survives the stream that produced it, with a floor of
+`refreshDelay()` so a replacement subscription still gets time to answer a
+deadline that is already past. A device that has **never** answered has no
+reading to measure from and still gets the full timeout, which is #48's case.
 
-> Reading logs from v1.2.0-beta.3 or earlier? `STALL_TIMEOUT` was 120 s there and there was no
-> refresh, so an idle purifier was torn down every ~125 s **with a warning each time** (issue #38).
+> Reading logs from v1.2.0-beta.3 or earlier? `STALL_TIMEOUT` was 120 s there
+> and there was no refresh, so an idle purifier was torn down every ~125 s
+> **with a warning each time** (issue #38).
 >
-> Reading logs from v1.2.0-beta.1 or earlier? There the watchdog was a **fixed 60 s process
-> lifetime**, so the PID cycled every ~65 s even when perfectly healthy, and that was
-> normal. It also raced the device: an AC0850 notifies roughly every 50 s, leaving ~9 s of
-> margin, and any device slower than the timeout would have been restarted before its first
-> update ever arrived — forever, logging nothing.
+> Reading logs from v1.2.0-beta.1 or earlier? There the watchdog was a **fixed
+> 60 s process lifetime**, so the PID cycled every ~65 s even when perfectly
+> healthy, and that was normal. It also raced the device: an AC0850 notifies
+> roughly every 50 s, leaving ~9 s of margin, and any device slower than the
+> timeout would have been restarted before its first update ever arrived —
+> forever, logging nothing.
 
-A poll that returns **no data at all** is reported rather than retried in silence: after
-three consecutive failed spawns, or immediately on a stall that never delivered anything,
-the plugin warns and logs the CLI's captured stderr, then logs `Device is responding again`
-when status resumes. Both are deduplicated to once per outage.
+A poll that returns **no data at all** is reported rather than retried in
+silence: after three consecutive failed spawns, or immediately on a stall that
+never delivered anything, the plugin warns and logs the CLI's captured stderr,
+then logs `Device is responding again` when status resumes. Both are
+deduplicated to once per outage.
 
-> ⚠️ **In debug mode, stderr carries progress as well as faults** (issue #49, seen on
-> 1.2.0-beta.4). `cliDebug: true` passes `-D`, which makes aioairctrl write its entire debug
-> log to stderr, so the buffer was never empty and any unexpected exit — including the stall
-> restarts and `requestRefresh` kills the plugin causes itself — surfaced a benign line as an
-> error. `Error: aioairctrl wrote: DEBUG:aioairctrl.coap.client:syncing` is the signature in
-> logs from 1.2.0-beta.4 and earlier; read it as "a process exited", not "a process failed".
+> ⚠️ **In debug mode, stderr carries progress as well as faults** (issue #49,
+> seen on 1.2.0-beta.4). `cliDebug: true` passes `-D`, which makes aioairctrl
+> write its entire debug log to stderr, so the buffer was never empty and any
+> unexpected exit — including the stall restarts and `requestRefresh` kills the
+> plugin causes itself — surfaced a benign line as an error.
+> `Error: aioairctrl wrote: DEBUG:aioairctrl.coap.client:syncing` is the
+> signature in logs from 1.2.0-beta.4 and earlier; read it as "a process
+> exited", not "a process failed".
 >
-> Since 1.2.0-beta.5 `captureStderr` drops whole lines matching `CLI_PROGRESS_LINE`
-> (`DEBUG:`/`INFO:` records in Python logging's format) as they arrive, so what
-> `reportableStderr()` hands the user is only `WARNING` and above plus anything that is not a
-> log record at all, tracebacks included. **The raw stream is still in the debug log**, so
-> reading it there stays the way to see what the CLI actually did.
+> Since 1.2.0-beta.5 `captureStderr` drops whole lines matching
+> `CLI_PROGRESS_LINE` (`DEBUG:`/`INFO:` records in Python logging's format) as
+> they arrive, so what `reportableStderr()` hands the user is only `WARNING` and
+> above plus anything that is not a log record at all, tracebacks included.
+> **The raw stream is still in the debug log**, so reading it there stays the
+> way to see what the CLI actually did.
 >
-> **Verified on hardware 2026-08-18 with `debug: true`**: 53 minutes on 1.2.0-beta.5, including a
-> real stall that did report a failure, produced **zero `ERROR` lines and zero `aioairctrl wrote:`
-> lines**, while that stall's own warning still appeared. The filter is not blanket suppression of
-> stall reporting, which was the risk in fixing this by silencing plugin-initiated exits instead.
+> **Verified on hardware 2026-08-18 with `debug: true`**: 53 minutes on
+> 1.2.0-beta.5, including a real stall that did report a failure, produced
+> **zero `ERROR` lines and zero `aioairctrl wrote:` lines**, while that stall's
+> own warning still appeared. The filter is not blanket suppression of stall
+> reporting, which was the risk in fixing this by silencing plugin-initiated
+> exits instead.
 
-First move on any runtime issue: set `debug: true` in the platform config (Homebridge
-UI → plugin config, or config.json) and restart. That is the plugin's own tracing only.
-`cliDebug: true` adds aioairctrl's `-D` log on top, which is the noisier half and is worth
-turning on only when the CLI itself is the suspect; before #63 the two were one switch, and
-a night of evidence did not survive log truncation. Log access: Homebridge UI log page, or
-`journalctl -u homebridge -f`, or `hb-service logs`, depending on the install (standard
-Homebridge, not plugin-specific).
+First move on any runtime issue: set `debug: true` in the platform config
+(Homebridge UI → plugin config, or config.json) and restart. That is the
+plugin's own tracing only. `cliDebug: true` adds aioairctrl's `-D` log on top,
+which is the noisier half and is worth turning on only when the CLI itself is
+the suspect; before #63 the two were one switch, and a night of evidence did not
+survive log truncation. Log access: Homebridge UI log page, or
+`journalctl -u homebridge -f`, or `hb-service logs`, depending on the install
+(standard Homebridge, not plugin-specific).
 
 ## Symptom → triage
 
@@ -145,24 +166,28 @@ Homebridge, not plugin-specific).
 
 ## State: what survives what
 
-- **Survives restart and plugin upgrade**: HomeKit pairing, room/scene/automation
-  assignments (keyed to the name-derived accessory UUID), Homebridge's
-  `cachedAccessories` store. `accessory.context.config` is overwritten from the live
-  config on every launch (`setupAccessory` in `src/platform.js`), so config edits win.
-  `accessory.context.detectedModel` and `accessory.context.detectedDialect` are the only
-  things this plugin writes to that store (`checkModelMapping` and `checkDialect` in
-  `src/accessories/accessories.handler.js`), and both call `updatePlatformAccessories` so
-  an unclean stop does not lose them. Neither feeds the accessory UUID. The dialect is
-  stored as `{ model, dialect }` and applied only while that model is the one in force.
-- **Destroyed by**: renaming a device in config (new UUID → HomeKit treats it as a new
-  accessory), changing the npm package name (new plugin identifier → cached accessories
-  orphaned), or the user deleting Homebridge's persist/cache directories.
-- Nothing else is persisted by this plugin — there is no database, no state files.
+- **Survives restart and plugin upgrade**: HomeKit pairing,
+  room/scene/automation assignments (keyed to the name-derived accessory UUID),
+  Homebridge's `cachedAccessories` store. `accessory.context.config` is
+  overwritten from the live config on every launch (`setupAccessory` in
+  `src/platform.js`), so config edits win. `accessory.context.detectedModel` and
+  `accessory.context.detectedDialect` are the only things this plugin writes to
+  that store (`checkModelMapping` and `checkDialect` in
+  `src/accessories/accessories.handler.js`), and both call
+  `updatePlatformAccessories` so an unclean stop does not lose them. Neither
+  feeds the accessory UUID. The dialect is stored as `{ model, dialect }` and
+  applied only while that model is the one in force.
+- **Destroyed by**: renaming a device in config (new UUID → HomeKit treats it as
+  a new accessory), changing the npm package name (new plugin identifier →
+  cached accessories orphaned), or the user deleting Homebridge's persist/cache
+  directories.
+- Nothing else is persisted by this plugin — there is no database, no state
+  files.
 
 Upgrade loop for a live install: update via the Homebridge UI Plugins page (or
-`sudo npm install -g @atdr/homebridge-philipsair-platform@latest`), restart Homebridge,
-then confirm the golden-path sequence above. Local development uses `npm run watch`
-(see CONTRIBUTING.md).
+`sudo npm install -g @atdr/homebridge-philipsair-platform@latest`), restart
+Homebridge, then confirm the golden-path sequence above. Local development uses
+`npm run watch` (see CONTRIBUTING.md).
 
 ## Failure archaeology (mined from git history)
 
@@ -184,7 +209,8 @@ then confirm the golden-path sequence above. Local development uses `npm run wat
 
 ## Provenance and maintenance
 
-Verified against the repo at branch `fix/poller-stall-and-failure-visibility`, 2026-08-17. Re-verify:
+Verified against the repo at branch `fix/poller-stall-and-failure-visibility`,
+2026-08-17. Re-verify:
 
 ```bash
 grep -n "STALL_TIMEOUT\|RESTART_DELAY\|SPAWN_ERROR_RESTART_DELAY\|FAILURE_ESCALATION" src/accessories/accessories.handler.js  # watchdog/retry timings

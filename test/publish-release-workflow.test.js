@@ -62,11 +62,15 @@ describe('generated changelog', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   const prettierIgnore = fs.readFileSync(path.join(__dirname, '..', '.prettierignore'), 'utf8');
 
-  it('is excluded from markdownlint', () => {
-    assert.match(
-      pkg.scripts['lint:md'],
-      /--ignore CHANGELOG\.md/,
-      'lint:md must skip CHANGELOG.md: release-please writes it, and prepublishOnly runs lint:md before every publish'
+  it('is excluded from markdownlint and mdformat', () => {
+    const lines = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8').split('\n');
+    assert.ok(
+      lines('.markdownlint-cli2.yaml').some((line) => line.trim() === '- CHANGELOG.md'),
+      '.markdownlint-cli2.yaml must ignore CHANGELOG.md: release-please writes it, and prepublishOnly runs lint:md before every publish'
+    );
+    assert.ok(
+      lines('.mdformat.toml').some((line) => line.trim() === '"CHANGELOG.md",'),
+      '.mdformat.toml must exclude CHANGELOG.md: release-please writes it'
     );
   });
 
