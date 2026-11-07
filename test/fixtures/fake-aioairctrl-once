@@ -27,3 +27,7 @@ if (!answered) {
 }
 
 setInterval(() => {}, 1000);
+
+//exit with the process that spawned it, whose end of the stdin pipe closes
+//then, rather than outliving a killed test run (#58)
+process.stdin.on('end', () => process.exit(0)).resume();
