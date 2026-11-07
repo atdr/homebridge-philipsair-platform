@@ -1,7 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { describe, it } = require('node:test');
+const { afterEach, describe, it } = require('node:test');
+const { ChildProcess } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -40,6 +41,22 @@ const HANG_SHIM = path.join(__dirname, 'fixtures', 'fake-aioairctrl-hang');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+//polls until the condition holds, or fails once a generous deadline passes.
+//every shim is a real node process, and under full-suite load spawning one
+//takes far longer than on a quiet machine, so a fixed sleep sized for the
+//second loses the race on the first (#58). A fixed delay() is kept only where
+//a test asserts that something did NOT happen within a window
+const waitFor = async (condition, { timeout = 10000, interval = 10, what = 'the condition' } = {}) => {
+  const deadline = Date.now() + timeout;
+
+  while (!condition()) {
+    if (Date.now() >= deadline) {
+      throw new Error(`timed out after ${timeout}ms waiting for ${what}`);
+    }
+    await delay(interval);
+  }
+};
+
 //waits for the first status to be processed, since a shim is a node process and
 //its startup is slower than the timers these tests shorten
 const answered = async (handler, timeout = 2000) => {
@@ -67,11 +84,63 @@ const makeService = () => {
   return service;
 };
 
-const makeHandler = (config = {}) =>
-  new Handler(fakeApi, {
+//every handler a test makes, so teardown can stop it whether or not the test
+//reached its own kill(true). An assertion that threw used to skip that line and
+//leave the handler restarting its shim for as long as the file ran, which kept
+//the file from ever exiting and loaded the machine for every later test (#58)
+/** @type {Set<Handler>} */
+const handlers = new Set();
+
+const makeHandler = (config = {}) => {
+  const handler = new Handler(fakeApi, {
     displayName: 'Lifecycle Purifier',
     context: { config: { host: '192.168.1.142', port: 5683, debug: false, ...config } },
   });
+
+  handlers.add(handler);
+  return handler;
+};
+
+const exited = (child) => child.exitCode !== null || child.signalCode !== null;
+
+//stops every handler the test made and waits until its polling child is really
+//gone, so nothing from one test is still running, or logging, in the next
+afterEach(async () => {
+  const stopping = [...handlers];
+  handlers.clear();
+
+  for (const handler of stopping) {
+    handler.kill(true);
+  }
+
+  for (const handler of stopping) {
+    const child = handler.airControl;
+
+    //some tests stand an object in for the child
+    if (child instanceof ChildProcess && !exited(child)) {
+      try {
+        await waitFor(() => exited(child), { timeout: 5000, what: `shim ${child.pid} to exit after kill` });
+      } catch {
+        child.kill('SIGKILL');
+        await waitFor(() => exited(child), { timeout: 5000, what: `shim ${child.pid} to exit after SIGKILL` });
+      }
+    }
+
+    //a `set` still running holds the event loop open, and can log into the
+    //next test's capture when it settles. execFile caps it at sendTimeout, and
+    //the cap is cleared once the queue drains so it holds nothing open itself
+    let cap;
+    await Promise.race([
+      handler.writeQueue,
+      new Promise((resolve) => {
+        cap = setTimeout(resolve, handler.sendTimeout + 1000);
+      }),
+    ]);
+    clearTimeout(cap);
+  }
+
+  silenceLogger();
+});
 
 const updated = (service, characteristic) => service.updates.filter(([name]) => name === characteristic);
 
