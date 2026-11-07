@@ -59,15 +59,7 @@ const waitFor = async (condition, { timeout = 10000, interval = 10, what = 'the 
 
 //waits for the first status to be processed, since a shim is a node process and
 //its startup is slower than the timers these tests shorten
-const answered = async (handler, timeout = 2000) => {
-  for (let waited = 0; waited < timeout; waited += 20) {
-    if (handler.obj.pwr !== undefined) {
-      return;
-    }
-    await delay(20);
-  }
-  throw new Error('the shim never answered');
-};
+const answered = (handler) => waitFor(() => handler.obj.pwr !== undefined, { what: 'the shim to answer' });
 
 //characteristics resolve to their own names so updates can be asserted by name
 const fakeApi = {
@@ -482,7 +474,9 @@ describe('stall deadline', () => {
     assert.equal(handler.lastStallAt, null);
 
     handler.armStallTimeout();
-    await delay(100);
+    await waitFor(() => handler.lastStallAt !== null, {
+      what: 'the stall teardown to leave its mark for the next deadline',
+    });
 
     assert.ok(handler.lastStallAt, 'the stall teardown left no mark for the next deadline to run from');
     assert.ok(handler.lastStallAt >= handler.lastReadingAt);
@@ -499,7 +493,7 @@ describe('handleStdoutChunk', () => {
     assert.equal(handler.purifierService.updates.length, 0);
 
     handler.handleStdoutChunk(status.slice(10) + '\n');
-    await delay(10);
+    await waitFor(() => updated(handler.purifierService, 'Active').length > 0, { what: 'the completed line' });
     assert.ok(updated(handler.purifierService, 'Active').length > 0);
   });
 
@@ -521,16 +515,21 @@ describe('polling lifecycle', () => {
     handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
 
     handler.longPoll();
-    await delay(400);
+    await answered(handler);
 
     //the shim splits the JSON line across two writes 50ms apart
     assert.equal(handler.obj.pwr, '1');
     assert.ok(updated(purifier, 'Active').length > 0);
 
     handler.kill(true);
+    const child = handler.airControl;
+    await waitFor(() => exited(child), { what: 'the killed shim to exit' });
+    //a fixed window on purpose: nothing may schedule a restart after the
+    //child's close, and a restart would land here if anything did
     await delay(200);
 
     assert.equal(handler.restartTimeout, null);
+    assert.equal(handler.airControl, child, 'a killed stream was replaced');
     assert.ok(handler.airControl.killed);
   });
 
@@ -541,19 +540,23 @@ describe('polling lifecycle', () => {
 
     //the shim notifies every 20ms, so a stall timer reset by incoming data
     //never fires; a fixed process lifetime would kill the stream at 200ms.
-    //the 10x margin keeps this from flaking on a loaded CI runner
-    handler.stallTimeout = 200;
+    //the 10x margin keeps this from flaking on a loaded CI runner. the short
+    //timeout goes on only once the stream is talking: armed at spawn, it was
+    //racing node's own startup, which under load takes longer than 200ms
+    handler.stallTimeout = 5000;
     handler.restartDelay = 10;
 
     handler.longPoll();
     const firstPid = handler.airControl.pid;
+    await answered(handler);
+
+    handler.stallTimeout = 200;
+    handler.armStallTimeout();
+    //a fixed window on purpose: the claim is that no restart happens in it
     await delay(500);
 
     assert.equal(handler.airControl.pid, firstPid, 'a healthy stream was restarted anyway');
     assert.ok(updated(purifier, 'Active').length > 1);
-
-    handler.kill(true);
-    await delay(50);
   });
 
   it('restarts a stream that accepts the subscription and then goes silent', async () => {
@@ -565,12 +568,9 @@ describe('polling lifecycle', () => {
 
     handler.longPoll();
     const firstPid = handler.airControl.pid;
-    await delay(400);
+    await waitFor(() => handler.airControl.pid !== firstPid, { what: 'the stalled stream to be restarted' });
 
     assert.notEqual(handler.airControl.pid, firstPid, 'a stalled stream was never restarted');
-
-    handler.kill(true);
-    await delay(50);
   });
 
   it('asks for a fresh reading once an answered stream goes quiet', async (t) => {
@@ -582,21 +582,19 @@ describe('polling lifecycle', () => {
     const handler = makeHandler({ aioairctrlPath: SHIM });
     const purifier = makeService();
     handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
-    handler.stallTimeout = 5000;
+    //far past the wait below, so a replaced stream can only be the refresh
+    handler.stallTimeout = 30000;
     handler.restartDelay = 10;
     handler.refreshInterval = 150;
 
     handler.longPoll();
-    await delay(120);
     const firstPid = handler.airControl.pid;
-    await delay(400);
+    await answered(handler);
+    await waitFor(() => handler.airControl.pid !== firstPid, { what: 'the idle stream to be refreshed' });
 
     assert.notEqual(handler.airControl.pid, firstPid, 'an idle stream was never refreshed');
     assert.equal(handler.pollFailures, 0, 'a deliberate refresh counted as a failed poll');
     assert.deepEqual(logs.warn, []);
-
-    handler.kill(true);
-    await delay(50);
   });
 
   it('leaves a stream that keeps notifying alone past the refresh interval', async () => {
@@ -612,12 +610,12 @@ describe('polling lifecycle', () => {
 
     handler.longPoll();
     const firstPid = handler.airControl.pid;
+    //the window has to be spent with the stream talking, not starting up
+    await answered(handler);
+    //a fixed window on purpose: the claim is that no refresh happens in it
     await delay(500);
 
     assert.equal(handler.airControl.pid, firstPid, 'a device reporting on its own was refreshed anyway');
-
-    handler.kill(true);
-    await delay(50);
   });
 
   it('does not schedule overlapping restarts', () => {
@@ -655,7 +653,9 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     handler.restartDelay = 10;
 
     handler.longPoll();
-    await delay(400);
+    //the warning needs three real spawn/exit cycles (FAILURE_ESCALATION_THRESHOLD),
+    //and three more past it give the one-warning check below retries to repeat on
+    await waitFor(() => handler.pollFailures >= 6, { what: 'six failed polls of the broken shim' });
     handler.kill(true);
 
     assert.ok(
@@ -680,7 +680,8 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     handler.restartDelay = 5000;
 
     handler.longPoll();
-    await delay(200);
+    //the failure is counted on close, once all of its stderr has been read
+    await waitFor(() => handler.pollFailures === 1, { what: 'the debug-log shim to exit' });
     handler.kill(true);
 
     assert.equal(handler.reportableStderr(), '');
@@ -713,7 +714,7 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     handler.restartDelay = 5000;
 
     handler.longPoll();
-    await delay(200);
+    await waitFor(() => handler.pollFailures === 1, { what: 'the first attempt to fail' });
     handler.kill(true);
 
     assert.deepEqual(logs.warn, []);
@@ -729,7 +730,9 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     handler.restartDelay = 5000;
 
     handler.longPoll();
-    await delay(300);
+    await waitFor(() => logs.warn.some((line) => line.includes('No status received from the device')), {
+      what: 'the silent device to be reported',
+    });
     handler.kill(true);
 
     assert.ok(
@@ -759,7 +762,9 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     handler.refreshInterval = 60;
 
     handler.longPoll();
-    await delay(600);
+    await waitFor(() => logs.warn.some((line) => line.includes('No status received from the device')), {
+      what: 'the device that went dark to be reported',
+    });
 
     assert.ok(
       logs.warn.some((line) => line.includes('No status received from the device')),
@@ -767,7 +772,6 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     );
 
     handler.kill(true);
-    await delay(50);
   });
 
   it('leaves a stream alone while the device reports itself switched off', async (t) => {
@@ -805,13 +809,13 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     //re-arm the way a status does, now that the device has reported itself off
     handler.stallTimeout = 50;
     handler.armStallTimeout();
+    //a fixed window on purpose: the claim is that no restart happens in it
     await delay(400);
 
     assert.equal(handler.airControl.pid, pid, 'the stream serving a switched-off device was restarted');
     assert.deepEqual(logs.warn, []);
 
     handler.kill(true);
-    await delay(50);
   });
 
   it('still restarts and reports a device that went dark while switched on', async (t) => {
@@ -842,7 +846,9 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
 
     handler.stallTimeout = 50;
     handler.armStallTimeout();
-    await delay(400);
+    await waitFor(() => logs.warn.some((line) => line.includes('No status received from the device')), {
+      what: 'the running device that went dark to be reported',
+    });
 
     assert.ok(
       logs.warn.some((line) => line.includes('No status received from the device')),
@@ -850,7 +856,6 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     );
 
     handler.kill(true);
-    await delay(50);
   });
 
   it('waits for the threshold when a device that has answered goes quiet', async (t) => {
@@ -942,18 +947,18 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     handler.restartDelay = 5000;
 
     handler.longPoll();
-    await delay(150);
+    //a child that started has a pid, which is what tells the two faults apart
+    await waitFor(() => handler.airControl.pid !== undefined, { what: 'the shim to start' });
 
     //node reports a kill that failed on the same 'error' event as a command
-    //that never started; only the second is anything to do with the install
+    //that never started; only the second is anything to do with the install.
+    //emit() runs the listener synchronously, so the warning is already logged
     handler.airControl.emit('error', new Error('kill ESRCH'));
-    await delay(20);
 
     assert.deepEqual(logs.warn, ['Lifecycle Purifier: Failed to stop the polling process']);
     assert.equal(handler.loggedFailureKind, 'stop');
 
     handler.kill(true);
-    await delay(50);
   });
 
   it('warns again when the kind of failure changes', async (t) => {
@@ -1162,7 +1167,7 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.verifyWindow = 60;
 
     await handler.setPurifierActive(true);
-    await delay(150);
+    await waitFor(() => handler.pendingWrites.size === 0, { what: 'the unanswered write to be given up on' });
 
     assert.equal(handler.pendingWrites.size, 0);
     assert.deepEqual(logs.warn, []);
@@ -1183,7 +1188,12 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.offStallTimeout = 100000;
 
     await handler.setPurifierActive(true);
-    await delay(150);
+    //the unprompted resend fires on the responsive window, so once it has gone
+    //that window is known to have passed (or the write is gone, which the
+    //assertion below reports)
+    await waitFor(() => !handler.pendingWrites.has('pwr') || handler.pendingWrites.get('pwr').blindResent, {
+      what: 'the responsive window to pass',
+    });
 
     assert.equal(handler.pendingWrites.size, 1, 'a wake-up write was discarded on the responsive window');
     assert.equal(handler.pendingWrites.get('pwr').window, 100000);
@@ -1204,7 +1214,7 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.offStallTimeout = 100000;
 
     await handler.setPurifierActive(false);
-    await delay(150);
+    await waitFor(() => handler.pendingWrites.size === 0, { what: 'the write to expire on the responsive window' });
 
     assert.equal(handler.pendingWrites.size, 0, 'a write to a responsive device outlived its window');
     assert.deepEqual(logs.warn, []);
@@ -1224,7 +1234,7 @@ describe('write verification', { concurrency: 1 }, () => {
     await handler.setPurifierActive(true);
     sent.length = 0;
 
-    await delay(150);
+    await waitFor(() => sent.length > 0, { what: 'the unprompted resend' });
 
     assert.deepEqual(sent.length, 1, 'a wake-up nothing answered was never resent');
     assert.ok(sent[0].includes('pwr=1'));
@@ -1248,6 +1258,9 @@ describe('write verification', { concurrency: 1 }, () => {
     await handler.setPurifierActive(true);
     sent.length = 0;
 
+    await waitFor(() => sent.length > 0, { what: 'the unprompted resend' });
+    //a fixed window on purpose, several sweeps long: the claim is that the
+    //resend does not repeat in it
     await delay(300);
 
     assert.equal(sent.length, 1, 'the unprompted resend repeated on every sweep');
@@ -1270,7 +1283,7 @@ describe('write verification', { concurrency: 1 }, () => {
 
     //the write is still pending when the evidence finally lands, so the retry
     //path that already worked gets to act on it. this is the whole of #77
-    await delay(150);
+    await waitFor(() => sent.length > 0, { what: 'the unprompted resend' });
     //the unprompted resend has already gone by now. charging it to `attempts`
     //would leave nothing for this, the one moment the device is known to listen
     await handler.processUpdate(status({ pwr: '0' }));
@@ -1293,7 +1306,7 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.offStallTimeout = 120;
 
     await handler.setPurifierActive(true);
-    await delay(300);
+    await waitFor(() => handler.pendingWrites.size === 0, { what: 'the wake-up to be given up on' });
 
     assert.equal(handler.pendingWrites.size, 0);
     assert.ok(
@@ -1306,7 +1319,7 @@ describe('write verification', { concurrency: 1 }, () => {
     //a repeating automation reports once, not on every cycle
     logs.warn.length = 0;
     await handler.setPurifierActive(true);
-    await delay(300);
+    await waitFor(() => handler.pendingWrites.size === 0, { what: 'the repeat wake-up to be given up on' });
 
     assert.deepEqual(logs.warn, []);
 
@@ -1329,7 +1342,7 @@ describe('write verification', { concurrency: 1 }, () => {
       2,
     ]);
 
-    await delay(300);
+    await waitFor(() => handler.pendingWrites.size === 0, { what: 'the wake-up to be given up on' });
 
     //#77: the Home app kept reporting PURIFYING_AIR for a purifier the plugin
     //knew was off, and stayed wrong until a real status happened to arrive
@@ -1359,7 +1372,7 @@ describe('write verification', { concurrency: 1 }, () => {
     await handler.setPurifierActive(true);
     handler.purifierService.updates.length = 0;
 
-    await delay(300);
+    await waitFor(() => handler.pendingWrites.size === 0, { what: 'the write to be given up on' });
 
     //there is no reading to revert to, so publishing one would be a guess
     assert.deepEqual(handler.purifierService.updates, []);
@@ -1411,7 +1424,7 @@ describe('write verification', { concurrency: 1 }, () => {
     assert.deepEqual([...handler.pendingWrites.keys()], ['pwr', 'D0310A', 'D0310C']);
     sent.length = 0;
 
-    await delay(250);
+    await waitFor(() => sent.length >= 2, { what: 'both unprompted resends' });
 
     //an AC0850 speed is D0310A and D0310C in one command, so resending per key
     //would fire that same command twice. the wake-up goes last: it has to be
@@ -1436,7 +1449,9 @@ describe('write verification', { concurrency: 1 }, () => {
     await handler.setPurifierActive(true);
 
     //a chatty device that never mentions pwr must not hold the write open: the
-    //expiry timer is re-armed by every status, the deadline is not
+    //expiry timer is re-armed by every status, the deadline is not. fixed
+    //delays on purpose: the claim is about a point in time, and load can only
+    //stretch them, which gives a correct deadline more time, never less
     for (let i = 0; i < 6; i += 1) {
       await delay(50);
       await handler.processUpdate(JSON.stringify({ mode: 'M', cl: false, om: '1' }));
@@ -1461,18 +1476,17 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.refreshInterval = 0;
 
     handler.longPoll();
-    await delay(100);
+    await answered(handler);
     const firstPid = handler.airControl.pid;
 
     handler.requestRefresh();
-    await delay(300);
+    await waitFor(() => handler.airControl.pid !== firstPid, { what: 'the stream to be re-subscribed' });
 
     assert.notEqual(handler.airControl.pid, firstPid, 'the stream was never re-subscribed');
     assert.equal(handler.pollFailures, 0, 'a deliberate refresh counted as a failed poll');
     assert.deepEqual(logs.warn, []);
 
     handler.kill(true);
-    await delay(50);
   });
 
   it('recovers a dropped write end to end against a stateful device', async (t) => {
@@ -1494,15 +1508,19 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
     handler.stallTimeout = 5000;
     handler.restartDelay = 10;
-    handler.verifyWindow = 400;
+    //the resend under test is driven by the device contradicting the write,
+    //not by this window, which only has to outlast a loaded runner's spawns
+    handler.verifyWindow = 5000;
     //the shim answers in milliseconds, so the settling allowance scales with the
     //rest of the timings rather than staying at its real-device size
     handler.writeSettle = 20;
 
     handler.longPoll();
-    await delay(60);
+    await answered(handler);
     await handler.setPurifierActive(true);
-    await delay(400);
+    await waitFor(() => handler.obj.pwr === '1' && handler.pendingWrites.size === 0, {
+      what: 'the dropped write to be resent and confirmed',
+    });
 
     assert.equal(handler.obj.pwr, '1', 'the dropped write was never resent');
     assert.equal(handler.pendingWrites.size, 0);
@@ -1510,7 +1528,6 @@ describe('write verification', { concurrency: 1 }, () => {
     assert.deepEqual(updated(purifier, 'Active').at(-1), ['Active', 1]);
 
     handler.kill(true);
-    await delay(50);
   });
 
   it('records the write before the command has been sent', async (t) => {
@@ -1527,7 +1544,7 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.sendCMD = () => new Promise(() => {});
 
     const setting = handler.setPurifierActive(true);
-    await delay(20);
+    await waitFor(() => handler.pendingWrites.size > 0, { what: 'the write to be recorded' });
 
     //the whole point: a command that has not left the host is still a write the
     //give-up machinery can act on
@@ -1554,12 +1571,16 @@ describe('write verification', { concurrency: 1 }, () => {
       sent.push(args);
     };
 
+    //a window that cannot close on its own, so the write is certain to still be
+    //waiting in it when kill() runs, however slowly a loaded runner gets there
+    handler.writeCoalesceWindow = 100000;
+
     const setting = handler.setPurifierActive(true);
 
-    //still inside the default coalescing window: the optimistic HomeKit
-    //update has already applied, but recordWrite only runs at flush, so
-    //there is no pendingWrites entry yet for kill() to act on the usual way
-    await delay(10);
+    //still inside the coalescing window: the optimistic HomeKit update has
+    //already applied, but recordWrite only runs at flush, so there is no
+    //pendingWrites entry yet for kill() to act on the usual way
+    await waitFor(() => handler.writeBatch.length === 1, { what: 'the write to join the coalescing batch' });
     assert.equal(handler.pendingWrites.size, 0, 'recorded earlier than the coalescing window allows');
 
     handler.kill(true);
@@ -1847,7 +1868,7 @@ describe('write verification', { concurrency: 1 }, () => {
 
     //the device answers, still disagreeing about both commands
     await handler.processUpdate(JSON.stringify({ D03102: 0, D0310A: 2, D0310C: 17 }));
-    await delay(120);
+    await waitFor(() => sent.length >= 2, { what: 'both resends' });
 
     assert.equal(overlapped, 1, 'two contradicted commands were resent at once');
     assert.deepEqual(sent, [
@@ -1882,7 +1903,7 @@ describe('write verification', { concurrency: 1 }, () => {
 
     //the device came on but without the speed, so only the speed goes again
     await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 0 }));
-    await delay(50);
+    await waitFor(() => sent.length > 0, { what: 'the speed to be resent' });
 
     assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=17']);
     //pwr and D0310A were confirmed by that status, D0310C is the one still owed
@@ -1926,7 +1947,7 @@ describe('write verification', { concurrency: 1 }, () => {
     await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 0 }));
     assert.deepEqual([...handler.pendingWrites.keys()].sort(), ['D0310A', 'D0310C', 'pwr']);
 
-    await delay(150);
+    await waitFor(() => sent.length > 0, { what: 'the unprompted resend' });
 
     assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set -I D0310A=2 D0310C=17']);
     //the reading of on is what the power-on was waiting for, and the speed is
@@ -1962,7 +1983,10 @@ describe('write verification', { concurrency: 1 }, () => {
     await handler.processUpdate(JSON.stringify({ D03102: 1, D0310A: 2, D0310C: 0 }));
     assert.deepEqual([...handler.pendingWrites.keys()], ['pwr']);
 
-    await delay(150);
+    //the unprompted sweep either drops it or, wrongly, sends it again
+    await waitFor(() => handler.pendingWrites.size === 0 || sent.length > 0, {
+      what: 'the unprompted sweep to deal with the power-on',
+    });
 
     assert.deepEqual(sent, [], 'a power-on to a device reporting on was resent');
     assert.equal(handler.pendingWrites.size, 0);
@@ -1989,7 +2013,9 @@ describe('write verification', { concurrency: 1 }, () => {
     assert.deepEqual(logs.warn, []);
 
     //the allowance is a window, not a permanent exemption: once it has passed,
-    //a device still reporting the old value is contradicting the command
+    //a device still reporting the old value is contradicting the command. a
+    //fixed delay is right here: it only has to let the window pass, and load
+    //can only make it longer
     await delay(220);
     await handler.processUpdate(status({ pwr: '0' }));
 
@@ -2012,7 +2038,7 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.pendingWrites.get('pwr').since = Date.now() - 1000;
 
     await handler.processUpdate(status({ pwr: '0' }));
-    await delay(20);
+    await waitFor(() => sent.length > 0, { what: 'the contradiction to be resent' });
 
     assert.equal(sent.length, 1, 'the contradiction was not resent');
     assert.ok(handler.pendingWrites.get('pwr').since > Date.now(), 'the resend reopened the horizon immediately');
@@ -2024,7 +2050,8 @@ describe('write verification', { concurrency: 1 }, () => {
     assert.deepEqual(logs.warn, [], 'a push that raced the resend was reported as a failed write');
     assert.equal(handler.pendingWrites.size, 1);
 
-    //the next push, once the device has acted on it
+    //the next push, once the device has acted on it. a fixed delay is right
+    //here: it only has to let the settling window pass
     await delay(220);
     await handler.processUpdate(status({ pwr: '1' }));
 
@@ -2439,7 +2466,7 @@ describe('resendInTurn ordering', () => {
 
     //the device answers, still disagreeing about both, with no power write in play
     await handler.processUpdate(JSON.stringify({ pwr: '0', mode: 'M', cl: false, om: '1' }));
-    await delay(120);
+    await waitFor(() => sent.length >= 2, { what: 'both resends' });
 
     assert.deepEqual(sent, ['-H 192.168.1.142 -P 5683 set cl=true', '-H 192.168.1.142 -P 5683 set om=2']);
 
@@ -2535,22 +2562,20 @@ describe('repeated spawn/stop failures', () => {
     handler.restartDelay = 5000;
 
     handler.longPoll();
-    await delay(150);
+    await waitFor(() => handler.airControl.pid !== undefined, { what: 'the shim to start' });
 
+    //emit() runs the listener synchronously, so each failure is logged by now
     handler.airControl.emit('error', new Error('kill ESRCH'));
-    await delay(20);
     assert.equal(logs.warn.length, 1);
     assert.equal(logs.error.length, 1);
 
     //a second failure of the same kind (another failed stop) stays quiet
     handler.airControl.emit('error', new Error('kill ESRCH again'));
-    await delay(20);
 
     assert.equal(logs.warn.length, 1, 'a repeat of the same failure kind was logged again, expected silence');
     assert.equal(logs.error.length, 1, 'a repeat of the same failure kind was logged again, expected silence');
 
     handler.kill(true);
-    await delay(50);
   });
 });
 
@@ -2634,7 +2659,9 @@ describe('setter error handling', () => {
 
     await handler.setPurifierActive(true);
     await handler.processUpdate(JSON.stringify({ pwr: '0', mode: 'M', cl: false, om: '1' }));
-    await delay(50);
+    await waitFor(() => logs.error.some((line) => line.includes('device unreachable')), {
+      what: 'the failed resend to be reported',
+    });
 
     assert.ok(
       logs.error.some((line) => line.includes('device unreachable')),
