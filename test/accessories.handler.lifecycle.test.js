@@ -1591,6 +1591,35 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.kill(true);
   });
 
+  it('tracks nothing after shutdown for the writes kill() flushes on its way out', async (t) => {
+    t.after(silenceLogger);
+    captureLogs();
+
+    //an AC0850 scene goes out as two commands, the power-on after the rest, so
+    //the second is recorded only after kill() has returned
+    const handler = makeHandler({ model: 'AC0850' });
+    handler.purifierService = makeService();
+    handler.writeCoalesceWindow = 100000;
+    /** @type {string[][]} */
+    const sent = [];
+    handler.sendCMD = async (args) => {
+      sent.push(args);
+    };
+
+    const setting = Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(100)]);
+    await waitFor(() => handler.writeBatch.length === 2, { what: 'both writes to join the coalescing batch' });
+
+    handler.kill(true);
+    await setting;
+
+    assert.equal(sent.length, 2, 'a write still queued when kill() ran was left stranded');
+    //nothing is left to verify against a stream that has been shut down. a
+    //verification timer armed here outlived kill() by the full window, five
+    //minutes by default, and could resend to the device after shutdown
+    assert.equal(handler.verifyTimeout, null, 'a verification timer was armed after shutdown');
+    assert.equal(handler.pendingWrites.size, 0, 'a write was left pending after shutdown');
+  });
+
   it('puts HomeKit back when the command never leaves the host', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
