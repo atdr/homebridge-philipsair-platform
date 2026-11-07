@@ -646,9 +646,13 @@ by the original may need killing.
 ### From `homebridge-philips-air`
 
 The older `homebridge-philips-air` plugin uses `philipsAir` as its platform
-identifier. This plugin still recognizes that identifier, so an existing
-platform block does not need to be renamed just to load. New configurations
-should use `PhilipsAirPlatform`.
+identifier. Change the platform identifier to `PhilipsAirPlatform` as part of
+the migration:
+
+```diff
+- "platform": "philipsAir"
++ "platform": "PhilipsAirPlatform"
+```
 
 The device settings use a different schema. When moving a device entry, change
 `ip` to `host`, add its model ID (for example, `AC0951`), and rename any options
@@ -665,6 +669,11 @@ you use:
 
 `protocol` and `timeout_seconds` are not used by this plugin. Install
 [`aioairctrl`](#1-install-aioairctrl) for the Homebridge user before restarting.
+The plugins generate different accessory UUIDs (the old plugin uses the device
+IP, while this plugin uses the device name), so Apple Home treats the purifier
+as a new accessory. After restarting Homebridge, add the purifier to Apple Home
+again once, then assign its room and recreate any automations that use it. The
+Homebridge bridge itself does not need to be paired again.
 
 ## Upgrading from v1.1.0 or earlier
 
