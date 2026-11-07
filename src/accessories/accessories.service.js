@@ -236,6 +236,12 @@ class Accessory {
       if (service) {
         this.accessory.removeService(service);
       }
+
+      //the wick filter is added with the humidifier, so it goes with it
+      const wickFilterService = this.accessory.getService('Wick filter');
+      if (wickFilterService) {
+        this.accessory.removeService(wickFilterService);
+      }
     }
 
     //Service.TemperatureSensor

@@ -198,21 +198,32 @@ describe('accessories.service optional services', () => {
       assert.equal(threshold.props.minStep, 25);
     });
 
-    //the else branch only removes HumidifierDehumidifier itself; the 'Wick
-    //filter' FilterMaintenance service it adds alongside is never cleaned up
-    //here, so it is left behind on the accessory. That looks like an
-    //oversight rather than intended behaviour, but fixing it is a production
-    //code change out of scope for this coverage-only change - flagged
-    //separately rather than folded in here.
-    it('removes a cached humidifier service when humidifier is off', () => {
+    //issue #115: the 'Wick filter' is added alongside the humidifier, so it
+    //has to go with it, or it is left as a tile that never updates again
+    it('removes a cached humidifier service and its wick filter when humidifier is off', () => {
       const accessory = Object.assign(new hap.Accessory('Cached', hap.uuid.generate('service-test-humidifier-off')), {
         context: { config: { host: '192.168.1.142', port: 5683 } },
       });
       accessory.addService(hap.Service.HumidifierDehumidifier, 'Humidifier', 'Humidifier');
+      accessory.addService(hap.Service.FilterMaintenance, 'Wick filter', 'Wick filter');
 
       wireAccessory({}, 'humidifier-off', accessory);
 
       assert.ok(!accessory.getService(hap.Service.HumidifierDehumidifier));
+      assert.ok(!accessory.getService('Wick filter'), 'Wick filter service was left behind');
+    });
+
+    //the reproduction from issue #115: the same accessory wired with the
+    //option on, then again with it off, as after unticking it and restarting
+    it('takes the wick filter away when the humidifier option is turned off', () => {
+      const { accessory } = wireAccessory({ humidifier: true }, 'humidifier-toggle');
+      assert.ok(accessory.getService('Wick filter'), 'Wick filter service was not added');
+
+      accessory.context.config = { ...accessory.context.config, humidifier: false };
+      wireAccessory({}, 'humidifier-toggle', accessory);
+
+      assert.ok(!accessory.getService(hap.Service.HumidifierDehumidifier));
+      assert.ok(!accessory.getService('Wick filter'), 'Wick filter service was left behind');
     });
   });
 
