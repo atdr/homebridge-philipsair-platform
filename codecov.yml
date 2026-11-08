@@ -1,12 +1,12 @@
-# Codecov reports; it does not gate. Without `informational`, Codecov adds two
-# status checks it owns to every pull request, and a check this repo does not
-# control is exactly the kind AGENTS.md warns can look green while never running.
-# CI is the source of truth for whether a change may merge.
+# Codecov warns; it does not gate. Neither status below is in the main ruleset,
+# so a red one is a visible warning and never blocks a merge. CI's three gates
+# are the source of truth. Neither is `informational` either: an informational
+# status always reports success, which is how a 0% patch on #158 showed green.
 coverage:
   status:
     project:
       default:
-        informational: true
+        # A one-line drop at ~99.7% is ~0.02%; a lost test is more than this.
+        threshold: 0.1%
     patch:
-      default:
-        informational: true
+      default: {}

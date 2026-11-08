@@ -139,10 +139,14 @@ CI also runs a **coverage** job, which like the audit is not one of the six
 gates. It re-runs the suite under V8 instrumentation to produce `lcov.info` and
 uploads it to Codecov, which supplies the README badge, per-PR comments, and
 history. The Node matrix is what proves the suite passes; coverage only reports
-on it. Codecov's own status checks are set `informational` in `codecov.yml` so
-they can never block a merge, and the upload step is `continue-on-error` because
-an outage there says nothing about the change under review. The coverage run
-itself stays blocking.
+on it. Codecov's own status checks (`codecov/patch` and `codecov/project`)
+report their real result, so a drop shows red, but neither is in the `main`
+ruleset, so they warn and can never block a merge. Do not set them
+`informational` to quiet them: an informational status always passes, which is
+how a 0% patch on #158 merged looking green. `codecov/project` allows a `0.1%`
+drop so a single line's rounding does not trip it. The upload step is
+`continue-on-error` because an outage there says nothing about the change under
+review. The coverage run itself stays blocking.
 
 Unlike the audit it has a local script, and CI calls that script rather than its
 own command line so the two cannot drift:
