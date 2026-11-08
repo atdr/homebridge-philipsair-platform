@@ -375,6 +375,10 @@ class Handler {
     //to send it now
     /** @type {{ value: number, timer: NodeJS.Timeout, fire: () => void } | null} */
     this.pendingSpeed = null;
+    //the registers the last slider write that went out asked for. see
+    //speedAlreadyRequested
+    /** @type {Record<string, unknown> | undefined} */
+    this.lastSpeedTarget = undefined;
 
     this.binary = this.accessory.context.config.aioairctrlPath || DEFAULT_BINARY;
     this.args = [
@@ -1373,11 +1377,23 @@ class Handler {
         `Purifier Rotation Speed: ${this.pendingSpeed.value} replaced by a newer value`,
         this.accessory.displayName
       );
+      this.pendingSpeed = null;
+    }
+
+    const target = this.speedTarget(value);
+
+    if (target && this.speedAlreadyRequested(target)) {
+      logger.debug(
+        `Purifier Rotation Speed: ${value} asks for what was already sent, not sending it again`,
+        this.accessory.displayName
+      );
+      return;
     }
 
     const fire = () => {
       clearTimeout(timer);
       this.pendingSpeed = null;
+      this.lastSpeedTarget = target;
 
       //queues its write synchronously, so it is in the batch before the release.
       //writeRotationSpeed has logged a failure, and a failed speed above 0% has
@@ -1392,6 +1408,54 @@ class Handler {
     const timer = setTimeout(fire, this.speedDebounceWindow);
 
     this.pendingSpeed = { value, timer, fire };
+  }
+
+  /**
+   * The registers a slider value writes, in generic key space, as
+   * `writeRotationSpeed` resolves it: a speed step, Auto for a fan level Auto
+   * step, or the power-off for 0%. Undefined where it writes nothing.
+   *
+   * @returns {Record<string, unknown> | undefined}
+   */
+  speedTarget(value) {
+    if (!(value > 0)) {
+      return { pwr: 0 };
+    }
+
+    if (this.fanLevel) {
+      const write = this.fanLevelWrite(value);
+      return write === 'auto' ? this.autoWrite : write.registers;
+    }
+
+    return this.speeds[Math.ceil(value / this.speedsMinStep()) - 1];
+  }
+
+  /**
+   * Whether a slider value's registers are already asked for, so sending them
+   * again would only make the purifier beep: a slow drag repeats one value, and
+   * on the AC0850 50% and 75% are one Auto step (seen on 2.1.0-beta.1, 50 five
+   * times in three seconds, each an identical `set`).
+   *
+   * Either every register is still pending with that value (the write is in
+   * flight or unconfirmed, and verification will resend it if the device
+   * disagrees), or the last slider write asked for exactly these and the
+   * device's last reading agrees. A reading that differs, or a write that
+   * failed (its pending entries are gone), lets the value through, so a
+   * genuinely needed write is never held back.
+   *
+   * @param {Record<string, unknown>} target
+   */
+  speedAlreadyRequested(target) {
+    const entries = Object.entries(target);
+    const pending = entries.every(
+      ([key, value]) => this.pendingWrites.has(key) && String(this.pendingWrites.get(key)?.expected) === String(value)
+    );
+    const confirmed =
+      !!this.lastSpeedTarget &&
+      this.sameRegisters(this.lastSpeedTarget, target) &&
+      entries.every(([key, value]) => key in this.obj && String(this.obj[key]) === String(value));
+
+    return pending || confirmed;
   }
 
   /**

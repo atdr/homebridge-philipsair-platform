@@ -719,11 +719,16 @@ RotationSpeed alone is also debounced (`SPEED_DEBOUNCE_WINDOW`, 350 ms, issue
 newer one replaces it. The setter resolves at once, because HomeKit sends a
 drag's next value only after the previous `onSet` has resolved (AC0850 on
 2.1.0-beta.1: a setter that waited for its write turned every value of a drag
-into its own `set`, about a second apart). While a speed waits, the coalescing
-batch is held rather than flushed at 75 ms, and the speed releases it on
-joining, so a scene's power-on is never split from its speed (#82). The fields
-are listed in the header of `accessories.models.js`, and `test/docs.test.js`
-fails if a model uses one that header and this section do not name.
+into its own `set`, about a second apart). A value whose registers are already
+asked for is not sent at all (`speedAlreadyRequested`): every one still pending
+with that value, or the last slider write asked for exactly these and the last
+reading agrees. A slow drag repeats one value, and 50 % and 75 % are one Auto
+step on the AC0850; a reading that differs, or a failed write, lets it through.
+While a speed waits, the coalescing batch is held rather than flushed at 75 ms,
+and the speed releases it on joining, so a scene's power-on is never split from
+its speed (#82). The fields are listed in the header of `accessories.models.js`,
+and `test/docs.test.js` fails if a model uses one that header and this section
+do not name.
 
 Translation mechanics in `accessories.handler.js`:
 

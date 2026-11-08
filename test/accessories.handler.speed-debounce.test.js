@@ -441,3 +441,115 @@ describe('a failed slider write', () => {
     await delay(COALESCE);
   });
 });
+
+describe('a slider value already asked for', () => {
+  //a slow drag repeats one value, and on the AC0850 50% and 75% are the same
+  //Auto step. Seen on 2.1.0-beta.1: 50 five times in three seconds, each an
+  //identical set, each a beep. A value whose command is already pending, or
+  //was sent and not contradicted, is not sent again
+  const AUTO_READING = { D03102: 1, D0310A: 2, D0310C: 0, D0310D: 2 };
+  const SLEEP_READING = { D03102: 1, D0310A: 2, D0310C: 17, D0310D: 1 };
+
+  const setAndSettle = async (handler, settled, value) => {
+    await handler.setPurifierRotationSpeed(value);
+    await settled();
+  };
+
+  it('is not sent again while the same command is still unconfirmed', async (t) => {
+    const { handler, sent, settled } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...RUNNING });
+
+    await setAndSettle(handler, settled, 50);
+    await setAndSettle(handler, settled, 50);
+
+    assert.deepEqual(sent, [AUTO]);
+  });
+
+  it('treats another value on the same step as the same request', async (t) => {
+    const { handler, sent, settled } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...RUNNING });
+
+    await setAndSettle(handler, settled, 50);
+    await setAndSettle(handler, settled, 75);
+
+    assert.deepEqual(sent, [AUTO]);
+  });
+
+  it('is not sent again once the device has confirmed it', async (t) => {
+    const { handler, sent, settled } = recording();
+    t.after(() => handler.kill(true));
+    handler.writeSettle = 0;
+    handler.handleResponse({ ...RUNNING });
+
+    await setAndSettle(handler, settled, 50);
+    await handler.processUpdate(JSON.stringify(AUTO_READING));
+    assert.equal(handler.pendingWrites.size, 0);
+    await setAndSettle(handler, settled, 50);
+
+    assert.deepEqual(sent, [AUTO]);
+  });
+
+  it('is sent again once the device reports something else', async (t) => {
+    //confirmed, then changed on the purifier's own panel
+    const { handler, sent, settled } = recording();
+    t.after(() => handler.kill(true));
+    handler.writeSettle = 0;
+    handler.handleResponse({ ...RUNNING });
+
+    await setAndSettle(handler, settled, 50);
+    await handler.processUpdate(JSON.stringify(AUTO_READING));
+    await handler.processUpdate(JSON.stringify(SLEEP_READING));
+    await setAndSettle(handler, settled, 50);
+
+    assert.deepEqual(sent, [AUTO, AUTO]);
+  });
+
+  it('is sent again after the first attempt failed', async (t) => {
+    const { handler, sent, settled } = recording({ fail: true });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...RUNNING });
+
+    await setAndSettle(handler, settled, 25);
+    await setAndSettle(handler, settled, 25);
+
+    assert.deepEqual(sent, [SLEEP, SLEEP]);
+  });
+
+  it('is sent when the device is already there but the plugin never asked', async (t) => {
+    const { handler, sent, settled } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...AUTO_READING });
+
+    await setAndSettle(handler, settled, 50);
+
+    assert.deepEqual(sent, [AUTO]);
+  });
+
+  it('drops a waiting value when the newest matches the command already out', async (t) => {
+    const { handler, sent, settled } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...RUNNING });
+
+    await setAndSettle(handler, settled, 50);
+    //Sleep waits, then the drag comes back to the Auto step already sent
+    await handler.setPurifierRotationSpeed(25);
+    await handler.setPurifierRotationSpeed(75);
+    await settled();
+
+    assert.deepEqual(sent, [AUTO]);
+    assert.equal(handler.pendingSpeed, null);
+  });
+
+  it('drops a repeated 0% while the power-off is unconfirmed', async (t) => {
+    const { handler, sent, settled } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...RUNNING });
+
+    await setAndSettle(handler, settled, 0);
+    await setAndSettle(handler, settled, 0);
+
+    assert.deepEqual(sent, ['-I D03102=0']);
+  });
+});
