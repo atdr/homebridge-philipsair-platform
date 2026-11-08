@@ -7,6 +7,11 @@
 //the last value goes out. These pin that, and that the wait never splits a
 //scene's power-on from its speed, which these devices punish by dropping one
 //of the two (issue #82).
+//
+//HomeKit sends the next slider value only once the previous onSet has
+//resolved (seen on an AC0850 running 2.1.0-beta.1: every value of four drags
+//became its own set, about a second apart). So the slider's setter resolves
+//at once and its write waits on its own; `homekit` below models that.
 
 const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
@@ -67,7 +72,37 @@ const recording = ({ fail = false, ...config } = {}) => {
       return handler.purifierService;
     },
   };
-  return { handler, sent, shown };
+
+  //the slider's setter resolves before its write goes out, so a test that
+  //means "once it is written" waits for the write itself
+  let lastWrite = Promise.resolve();
+  const write = handler.writeRotationSpeed.bind(handler);
+  handler.writeRotationSpeed = (value) => (lastWrite = write(value));
+  const settled = async () => {
+    while (handler.pendingSpeed) {
+      await delay(1);
+    }
+    await lastWrite.catch(() => {});
+    await delay(COALESCE * 2);
+  };
+
+  return { handler, sent, shown, settled };
+};
+
+//HomeKit as the AC0850 test showed it: the next value of a drag is sent only
+//once the previous onSet has resolved, and HAP-nodejs then stores the value it
+//was given as the characteristic's cached value
+const homekit = (handler, shown) => {
+  const onSet = async (value) => {
+    await handler.setPurifierRotationSpeed(value);
+    shown.RotationSpeed = value;
+  };
+  const drag = async (values) => {
+    for (const value of values) {
+      await onSet(value);
+    }
+  };
+  return { onSet, drag };
 };
 
 const SLEEP = '-I D0310A=2 D0310C=17';
@@ -75,6 +110,8 @@ const AUTO = '-I D0310A=2 D0310C=0';
 const TURBO = '-I D0310A=2 D0310C=18';
 const POWER_ON = '-I D03102=1';
 const ON = { D03102: 1, D0310A: 2, D0310C: 0 };
+//the AC0850 reading Turbo, which its slider shows as 100%
+const RUNNING = { D03102: 1, D0310A: 2, D0310C: 18, D0310D: 18 };
 
 const communicationFailure = (err) =>
   err instanceof HapStatusError && err.hapStatus === HAPStatus.SERVICE_COMMUNICATION_FAILURE;
@@ -88,16 +125,26 @@ describe('fan speed slider debounce', () => {
     assert.equal(handler.speedDebounceWindow, 350);
   });
 
-  it('sends a drag as one command, with the last value', async (t) => {
-    const { handler, sent } = recording();
+  it('sends a drag HomeKit delivers one value at a time as one command, with the last value', async (t) => {
+    const { handler, sent, shown, settled } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON });
+    const { drag } = homekit(handler, shown);
+
+    await drag([25, 50, 75, 100]);
+    await settled();
+
+    assert.deepEqual(sent, [TURBO]);
+    assert.equal(shown.RotationSpeed, 100);
+  });
+
+  it('sends the drag from issue #150, through Sleep to the Auto step, as Auto alone', async (t) => {
+    const { handler, sent, shown, settled } = recording();
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...ON });
 
-    //the drag from issue #150: through Sleep, ending on the Auto step
-    const first = handler.setPurifierRotationSpeed(25);
-    await delay(DEBOUNCE / 3);
-    const last = handler.setPurifierRotationSpeed(75);
-    await Promise.all([first, last]);
+    await homekit(handler, shown).drag([25, 75]);
+    await settled();
 
     assert.deepEqual(sent, [AUTO]);
   });
@@ -105,62 +152,55 @@ describe('fan speed slider debounce', () => {
   it('lets the last value win even where an earlier one would outrank it', async (t) => {
     //Auto outranks a speed in a scene, but a drag down from the Auto step to
     //Sleep means Sleep
-    const { handler, sent, shown } = recording();
+    const { handler, sent, shown, settled } = recording();
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...ON });
 
-    const steps = [handler.setPurifierRotationSpeed(75)];
-    await delay(DEBOUNCE / 3);
-    steps.push(handler.setPurifierRotationSpeed(50));
-    await delay(DEBOUNCE / 3);
-    steps.push(handler.setPurifierRotationSpeed(25));
-    await Promise.all(steps);
+    await homekit(handler, shown).drag([75, 50, 25]);
+    await settled();
 
     assert.deepEqual(sent, [SLEEP]);
     assert.equal(shown.TargetAirPurifierState, 0);
   });
 
+  it('sends five repeats of one value as one command', async (t) => {
+    const { handler, sent, shown, settled } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...RUNNING });
+
+    await homekit(handler, shown).drag([50, 50, 50, 50, 50]);
+    await settled();
+
+    assert.deepEqual(sent, [AUTO]);
+  });
+
   it('restarts the wait on every new value', async (t) => {
-    const { handler, sent } = recording();
+    const { handler, sent, settled } = recording();
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...ON });
 
-    const steps = [];
     for (const value of [25, 50, 75, 100, 25, 100]) {
-      steps.push(handler.setPurifierRotationSpeed(value));
+      await handler.setPurifierRotationSpeed(value);
       await delay(DEBOUNCE / 2);
     }
     //the drag has lasted far longer than one window, and nothing has gone out
     assert.deepEqual(sent, []);
 
-    await Promise.all(steps);
+    await settled();
     assert.deepEqual(sent, [TURBO]);
   });
 
-  it('resolves the setters a newer value replaced, even when the final send fails', async (t) => {
-    const { handler } = recording({ fail: true });
+  it('resolves at once and sends a lone tap once the window has passed', async (t) => {
+    const { handler, sent, settled } = recording();
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...ON });
 
-    const first = handler.setPurifierRotationSpeed(25);
-    const second = handler.setPurifierRotationSpeed(50);
-    const last = handler.setPurifierRotationSpeed(100);
-
-    await first;
-    await second;
-    await assert.rejects(last, communicationFailure);
-  });
-
-  it('sends a lone tap once the window has passed, and not before', async (t) => {
-    const { handler, sent } = recording();
-    t.after(() => handler.kill(true));
-    handler.handleResponse({ ...ON });
-
-    const tap = handler.setPurifierRotationSpeed(100);
+    await handler.setPurifierRotationSpeed(100);
+    assert.deepEqual(sent, []);
     await delay(DEBOUNCE / 2);
     assert.deepEqual(sent, []);
 
-    await tap;
+    await settled();
     assert.deepEqual(sent, [TURBO]);
   });
 
@@ -169,10 +209,8 @@ describe('fan speed slider debounce', () => {
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...ON });
 
-    const tap = handler.setPurifierRotationSpeed(25);
+    handler.setPurifierRotationSpeed(25);
     assert.equal(shown.RotationSpeed, 25);
-
-    await tap;
   });
 
   it('keeps every other write on the short coalescing window', async (t) => {
@@ -194,7 +232,7 @@ describe('fan speed debounce in a scene', () => {
   //the same flush, and never on its own while the speed waits
   for (const order of ['power first', 'speed first']) {
     it(`sends a power-on and a speed together to a device that is off (${order})`, async (t) => {
-      const { handler, sent } = recording();
+      const { handler, sent, settled } = recording();
       t.after(() => handler.kill(true));
       handler.handleResponse({ ...ON, D03102: 0 });
 
@@ -208,42 +246,46 @@ describe('fan speed debounce in a scene', () => {
       assert.deepEqual(sent, []);
 
       await Promise.all(writes);
+      await settled();
       //one flush: the power write goes last, on its own (#117)
       assert.deepEqual(sent, [SLEEP, POWER_ON]);
     });
   }
 
   it('holds a power-on that arrives after the speed, past its own window', async (t) => {
-    const { handler, sent } = recording();
+    const { handler, sent, settled } = recording();
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...ON, D03102: 0 });
 
-    const speed = handler.setPurifierRotationSpeed(100);
+    handler.setPurifierRotationSpeed(100);
     await delay(COALESCE);
     const power = handler.setPurifierActive(1);
     await delay(COALESCE * 3);
     assert.deepEqual(sent, []);
 
-    await Promise.all([speed, power]);
+    await power;
+    await settled();
     assert.deepEqual(sent, [TURBO, POWER_ON]);
   });
 
   it('sends a scene to a device already on as one command', async (t) => {
-    const { handler, sent } = recording();
+    const { handler, sent, settled } = recording();
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...ON });
 
     await Promise.all([handler.setPurifierActive(1), handler.setPurifierRotationSpeed(25)]);
+    await settled();
 
     assert.deepEqual(sent, [SLEEP]);
   });
 
   it('lets a power-on win over a 0% in the same scene', async (t) => {
-    const { handler, sent, shown } = recording();
+    const { handler, sent, shown, settled } = recording();
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...ON, D03102: 0 });
 
     await Promise.all([handler.setPurifierRotationSpeed(0), handler.setPurifierActive(1)]);
+    await settled();
 
     assert.deepEqual(sent, [POWER_ON]);
     assert.notEqual(shown.Active, 0);
@@ -251,7 +293,7 @@ describe('fan speed debounce in a scene', () => {
 
   for (const order of ['mode first', 'speed first']) {
     it(`lets Auto win over a speed (${order})`, async (t) => {
-      const { handler, sent, shown } = recording();
+      const { handler, sent, shown, settled } = recording();
       t.after(() => handler.kill(true));
       handler.handleResponse({ ...ON, D0310C: 18 });
 
@@ -260,13 +302,14 @@ describe('fan speed debounce in a scene', () => {
           ? [handler.setPurifierTargetState(1), handler.setPurifierRotationSpeed(100)]
           : [handler.setPurifierRotationSpeed(100), handler.setPurifierTargetState(1)];
       await Promise.all(writes);
+      await settled();
 
       assert.deepEqual(sent, [AUTO]);
       assert.equal(shown.TargetAirPurifierState, 1);
     });
 
     it(`lets a speed win over Manual (${order})`, async (t) => {
-      const { handler, sent, shown } = recording();
+      const { handler, sent, shown, settled } = recording();
       t.after(() => handler.kill(true));
       handler.handleResponse({ ...ON });
 
@@ -275,60 +318,51 @@ describe('fan speed debounce in a scene', () => {
           ? [handler.setPurifierTargetState(0), handler.setPurifierRotationSpeed(100)]
           : [handler.setPurifierRotationSpeed(100), handler.setPurifierTargetState(0)];
       await Promise.all(writes);
+      await settled();
 
       assert.deepEqual(sent, [TURBO]);
       assert.equal(shown.TargetAirPurifierState, 0);
     });
   }
 
-  it('rejects the final setter of a scene whose send fails', async (t) => {
-    const { handler } = recording({ fail: true });
+  it('rejects the power-on of a scene whose send fails, and snaps the slider back', async (t) => {
+    const { handler, shown, settled } = recording({ fail: true });
     t.after(() => handler.kill(true));
-    handler.handleResponse({ ...ON, D03102: 0 });
+    handler.handleResponse({ ...RUNNING, D03102: 0 });
 
     const power = handler.setPurifierActive(1);
-    const speed = handler.setPurifierRotationSpeed(25);
+    await handler.setPurifierRotationSpeed(25);
 
-    await assert.rejects(speed, communicationFailure);
     await assert.rejects(power, communicationFailure);
+    await settled();
+    //off reads as 0% on the AC0850
+    assert.equal(shown.RotationSpeed, 0);
   });
 });
 
 describe('fan speed debounce on shutdown', () => {
   it('sends a speed still waiting when the handler is killed, rather than stranding it', async (t) => {
-    const { handler, sent } = recording();
+    const { handler, sent, settled } = recording();
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...ON });
     handler.speedDebounceWindow = 60 * 1000;
 
-    const tap = handler.setPurifierRotationSpeed(100);
+    await handler.setPurifierRotationSpeed(100);
     handler.kill(true);
-    await tap;
+    await settled();
 
     assert.deepEqual(sent, [TURBO]);
   });
 });
 
 describe('the slider while a speed waits', () => {
-  //the AC0850 reading Turbo, which its slider shows as 100%
-  const RUNNING = { D03102: 1, D0310A: 2, D0310C: 18, D0310D: 18 };
-
-  //what HAP-nodejs does with an onSet: once the handler resolves, it stores
-  //the value it was given as the characteristic's cached value
-  const committing = (handler, shown) => async (value) => {
-    await handler.setPurifierRotationSpeed(value);
-    shown.RotationSpeed = value;
-  };
-
   it('answers a read with the requested value, not the last reading', async (t) => {
     const { handler } = recording();
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...RUNNING });
 
-    const tap = handler.setPurifierRotationSpeed(25);
+    await handler.setPurifierRotationSpeed(25);
     assert.equal(handler.rotationSpeed(), 25);
-
-    await tap;
   });
 
   it('keeps the requested value through a status that arrives while it waits', async (t) => {
@@ -336,71 +370,35 @@ describe('the slider while a speed waits', () => {
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...RUNNING });
 
-    const tap = handler.setPurifierRotationSpeed(25);
+    await handler.setPurifierRotationSpeed(25);
     await handler.processUpdate(JSON.stringify(RUNNING));
     assert.equal(shown.RotationSpeed, 25);
-
-    await tap;
   });
+});
 
-  it('puts the latest value back once HAP has stored a replaced one', async (t) => {
-    const { handler, shown } = recording();
-    t.after(() => handler.kill(true));
-    handler.handleResponse({ ...RUNNING });
-    const onSet = committing(handler, shown);
+describe('a failed slider write', () => {
+  //the setter has long since resolved, so there is no onSet left to reject:
+  //the slider goes back to what the device last reported instead
+  for (const [name, value] of [
+    ['a speed', 25],
+    ['an Auto step', 50],
+    ['0%', 0],
+  ]) {
+    it(`snaps the slider back to the last reading when ${name} fails`, async (t) => {
+      const { handler, shown, settled } = recording({ fail: true });
+      t.after(() => handler.kill(true));
+      handler.handleResponse({ ...RUNNING });
 
-    const first = onSet(25);
-    await delay(DEBOUNCE / 3);
-    const last = onSet(75);
-    await first;
-    await new Promise((resolve) => setImmediate(resolve));
+      await handler.setPurifierRotationSpeed(value);
+      await settled();
 
-    //the final write has not even been sent yet
-    assert.equal(shown.RotationSpeed, 75);
-
-    await last;
-  });
-
-  it('never puts back a value older than the latest request', async (t) => {
-    const { handler, shown } = recording();
-    t.after(() => handler.kill(true));
-    handler.handleResponse({ ...RUNNING });
-    const onSet = committing(handler, shown);
-
-    //three in one tick: the first two are both replaced before HAP stores either
-    const steps = [onSet(25), onSet(50), onSet(100)];
-    await steps[0];
-    await steps[1];
-    await new Promise((resolve) => setImmediate(resolve));
-
-    assert.equal(shown.RotationSpeed, 100);
-
-    await steps[2];
-  });
-
-  it('puts the slider back to the last reading when a 0% write fails', async (t) => {
-    const { handler, shown } = recording({ fail: true });
-    t.after(() => handler.kill(true));
-    handler.handleResponse({ ...RUNNING });
-
-    await assert.rejects(handler.setPurifierRotationSpeed(0), communicationFailure);
-
-    assert.equal(shown.RotationSpeed, 100);
-    assert.equal(shown.Active, 1);
-  });
-
-  it('puts the slider back to the last reading when a speed write fails', async (t) => {
-    const { handler, shown } = recording({ fail: true });
-    t.after(() => handler.kill(true));
-    handler.handleResponse({ ...RUNNING });
-
-    await assert.rejects(handler.setPurifierRotationSpeed(25), communicationFailure);
-
-    assert.equal(shown.RotationSpeed, 100);
-  });
+      assert.equal(shown.RotationSpeed, 100);
+      assert.notEqual(shown.Active, 0);
+    });
+  }
 
   it('leaves a newer request on the slider when an earlier 0% write fails', async (t) => {
-    const { handler, shown } = recording();
+    const { handler, shown, settled } = recording();
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...RUNNING });
 
@@ -408,16 +406,16 @@ describe('the slider while a speed waits', () => {
     /** @type {(err: Error) => void} */
     let failSend = () => {};
     handler.sendCMD = () => new Promise((resolve, reject) => (failSend = reject));
-    const off = handler.setPurifierRotationSpeed(0);
+    await handler.setPurifierRotationSpeed(0);
     await delay(DEBOUNCE + COALESCE * 2);
-    const newer = handler.setPurifierRotationSpeed(25);
+    await handler.setPurifierRotationSpeed(25);
 
     failSend(new Error('aioairctrl rejected the command'));
-    await assert.rejects(off, communicationFailure);
+    await delay(COALESCE);
     assert.equal(shown.RotationSpeed, 25);
 
     handler.sendCMD = async () => {};
-    await newer;
+    await settled();
   });
 
   it('leaves a newer speed already sent on the slider when an earlier 0% write fails', async (t) => {
@@ -429,17 +427,17 @@ describe('the slider while a speed waits', () => {
     /** @type {((err: Error) => void)[]} */
     const fails = [];
     handler.sendCMD = () => new Promise((resolve, reject) => fails.push(reject));
-    const off = handler.setPurifierRotationSpeed(0);
+    await handler.setPurifierRotationSpeed(0);
     await delay(DEBOUNCE + COALESCE * 2);
-    const newer = handler.setPurifierRotationSpeed(25);
+    await handler.setPurifierRotationSpeed(25);
     await delay(DEBOUNCE + COALESCE * 2);
     assert.equal(fails.length, 2);
 
     fails[0](new Error('aioairctrl rejected the command'));
-    await assert.rejects(off, communicationFailure);
+    await delay(COALESCE);
     assert.equal(shown.RotationSpeed, 25);
 
     fails[1](new Error('aioairctrl rejected the command'));
-    await assert.rejects(newer, communicationFailure);
+    await delay(COALESCE);
   });
 });

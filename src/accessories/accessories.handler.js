@@ -371,9 +371,9 @@ class Handler {
     //how long a RotationSpeed write waits for a newer one. an instance field
     //for the same reason: so a test can shorten it. see setPurifierRotationSpeed
     this.speedDebounceWindow = SPEED_DEBOUNCE_WINDOW;
-    //the speed waiting out that window, if any: its timer, how to send it now,
-    //and how to settle its setter when a newer value replaces it
-    /** @type {{ value: number, timer: NodeJS.Timeout, fire: () => void, supersede: () => void } | null} */
+    //the speed waiting out that window, if any: its value, its timer, and how
+    //to send it now
+    /** @type {{ value: number, timer: NodeJS.Timeout, fire: () => void } | null} */
     this.pendingSpeed = null;
 
     this.binary = this.accessory.context.config.aioairctrlPath || DEFAULT_BINARY;
@@ -1346,11 +1346,16 @@ class Handler {
    * through and then the last one, so each value waits `speedDebounceWindow`
    * and a newer value replaces it (issue #150). Only the last is written.
    *
-   * A value a newer one replaced resolves: that is the user changing their
-   * mind, not a failure, and HAP then stores the newer value anyway. The last
-   * one settles as its write does, so a genuine failure still rejects (#86).
-   * The slider is shown the new value at once, since HAP stores it only when
-   * this returns and it would otherwise jump back while the write waits.
+   * It resolves at once rather than with its write. HomeKit sends the next
+   * value of a drag only once the previous onSet has resolved (seen on an
+   * AC0850: every value of a drag became its own `set`, about a second apart),
+   * so a setter that waited for its write could never be replaced. The value
+   * is shown on the slider straight away, and HAP stores each one in order.
+   *
+   * With no onSet left to reject, a write that fails is logged as before and
+   * the slider goes back to the device's last reading (`abandonWrite`, and
+   * `restoreSpeedAfterFailedOff` for 0%), rather than HomeKit showing No Response
+   * as it does for the other controls (#86).
    *
    * The wait is for the slider alone. Every other write stays on the
    * coalescing window, and a batch that window would flush is held until the
@@ -1359,50 +1364,34 @@ class Handler {
    *
    * @returns {Promise<void>}
    */
-  setPurifierRotationSpeed(value) {
+  async setPurifierRotationSpeed(value) {
     this.purifierService.updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, value);
 
     if (this.pendingSpeed) {
       clearTimeout(this.pendingSpeed.timer);
-      this.pendingSpeed.supersede();
+      logger.debug(
+        `Purifier Rotation Speed: ${this.pendingSpeed.value} replaced by a newer value`,
+        this.accessory.displayName
+      );
     }
 
-    return new Promise((resolve, reject) => {
-      const fire = () => {
-        clearTimeout(timer);
-        this.pendingSpeed = null;
+    const fire = () => {
+      clearTimeout(timer);
+      this.pendingSpeed = null;
 
-        //queues its write synchronously, so it is in the batch before the release
-        this.writeRotationSpeed(value).then(resolve, (err) => {
-          if (value == 0) {
-            this.restoreSpeedAfterFailedOff();
-          }
-          reject(err);
-        });
-        this.releaseWriteBatch();
-      };
-      const timer = setTimeout(fire, this.speedDebounceWindow);
+      //queues its write synchronously, so it is in the batch before the release.
+      //writeRotationSpeed has logged a failure, and a failed speed above 0% has
+      //had its registers put back (abandonWrite); a 0% needs the slider too
+      this.writeRotationSpeed(value).catch(() => {
+        if (value == 0) {
+          this.restoreSpeedAfterFailedOff();
+        }
+      });
+      this.releaseWriteBatch();
+    };
+    const timer = setTimeout(fire, this.speedDebounceWindow);
 
-      this.pendingSpeed = {
-        value,
-        timer,
-        fire,
-        supersede: () => {
-          logger.debug(`Purifier Rotation Speed: ${value} replaced by a newer value`, this.accessory.displayName);
-          resolve();
-          //HAP stores this setter's value once it returns, over the newer one
-          //already shown, so the newest still waiting is put back after
-          setImmediate(() => {
-            if (this.pendingSpeed) {
-              this.purifierService.updateCharacteristic(
-                this.api.hap.Characteristic.RotationSpeed,
-                this.pendingSpeed.value
-              );
-            }
-          });
-        },
-      };
-    });
+    this.pendingSpeed = { value, timer, fire };
   }
 
   /**

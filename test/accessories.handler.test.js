@@ -476,8 +476,25 @@ describe('rotationSpeed', () => {
 
 //records what each write sends (the arguments after 'set') and the last value
 //pushed to each purifier characteristic
+//the slider's onSet resolves before its write goes out (#150). These tests
+//mean "once it is written", so the setter is wrapped to wait for the write
+const awaitingSpeedWrites = (handler) => {
+  let lastWrite = Promise.resolve();
+  const write = handler.writeRotationSpeed.bind(handler);
+  const set = handler.setPurifierRotationSpeed.bind(handler);
+  handler.writeRotationSpeed = (value) => (lastWrite = write(value));
+  handler.setPurifierRotationSpeed = async (value) => {
+    await set(value);
+    while (handler.pendingSpeed) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    await lastWrite.catch(() => {});
+  };
+  return handler;
+};
+
 const recordingWrites = (config, context) => {
-  const handler = makeHandler(config, context);
+  const handler = awaitingSpeedWrites(makeHandler(config, context));
   handler.api = {
     ...fakeApi,
     hap: {

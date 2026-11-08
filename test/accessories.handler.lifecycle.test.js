@@ -111,6 +111,23 @@ const makeHandler = (config = {}) => {
   return handler;
 };
 
+//the slider's onSet resolves before its write goes out (#150). Tests that mean
+//"once it is written" wrap the setter to wait for the write itself
+const awaitingSpeedWrites = (handler) => {
+  let lastWrite = Promise.resolve();
+  const write = handler.writeRotationSpeed.bind(handler);
+  const set = handler.setPurifierRotationSpeed.bind(handler);
+  handler.writeRotationSpeed = (value) => (lastWrite = write(value));
+  handler.setPurifierRotationSpeed = async (value) => {
+    await set(value);
+    while (handler.pendingSpeed) {
+      await delay(1);
+    }
+    await lastWrite.catch(() => {});
+  };
+  return handler;
+};
+
 const exited = (child) => child.exitCode !== null || child.signalCode !== null;
 
 //stops every handler the test made and waits until its polling child is really
@@ -1450,7 +1467,7 @@ describe('write verification', { concurrency: 1 }, () => {
     t.after(silenceLogger);
     captureLogs();
 
-    const handler = makeHandler({ model: 'AC0850' });
+    const handler = awaitingSpeedWrites(makeHandler({ model: 'AC0850' }));
     handler.purifierService = makeService();
     /** @type {string[]} */
     const sent = [];
@@ -1940,7 +1957,7 @@ describe('write verification', { concurrency: 1 }, () => {
     t.after(silenceLogger);
     captureLogs();
 
-    const handler = makeHandler({ model: 'AC0850' });
+    const handler = awaitingSpeedWrites(makeHandler({ model: 'AC0850' }));
     handler.purifierService = makeService();
     //no real time passes between the setters and the status below
     handler.writeSettle = 0;
@@ -2531,7 +2548,7 @@ describe('setPurifierRotationSpeed mode reset', () => {
     t.after(silenceLogger);
     captureLogs();
 
-    const handler = makeHandler({});
+    const handler = awaitingSpeedWrites(makeHandler({}));
     handler.purifierService = makeService();
     handler.sendCMD = async () => {};
 
@@ -2548,7 +2565,7 @@ describe('resendInTurn ordering', () => {
     t.after(silenceLogger);
     captureLogs();
 
-    const handler = makeHandler({});
+    const handler = awaitingSpeedWrites(makeHandler({}));
     handler.purifierService = makeService();
     handler.writeSettle = 0;
     /** @type {string[]} */
@@ -2602,7 +2619,7 @@ describe('revertOptimisticUpdate', () => {
     t.after(silenceLogger);
     captureLogs();
 
-    const handler = makeHandler({});
+    const handler = awaitingSpeedWrites(makeHandler({}));
     handler.purifierService = makeService();
 
     await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '1' }));
@@ -2611,7 +2628,8 @@ describe('revertOptimisticUpdate', () => {
     handler.sendCMD = async () => {
       throw new Error('device unreachable');
     };
-    await assert.rejects(handler.setPurifierRotationSpeed(100), communicationFailure);
+    //the slider's onSet resolved before the write went out, so it is not told (#150)
+    await handler.setPurifierRotationSpeed(100);
 
     assert.deepEqual(updated(handler.purifierService, 'RotationSpeed'), [
       //shown at once, so the slider holds while the write waits out its debounce (#150)
