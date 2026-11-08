@@ -1436,20 +1436,25 @@ class Handler {
    * on the AC0850 50% and 75% are one Auto step (seen on 2.1.0-beta.1, 50 five
    * times in three seconds, each an identical `set`).
    *
-   * Either every register is still pending with that value (the write is in
-   * flight or unconfirmed, and verification will resend it if the device
-   * disagrees), or the last slider write asked for exactly these and the
-   * device's last reading agrees. A reading that differs, or a write that
-   * failed (its pending entries are gone), lets the value through, so a
-   * genuinely needed write is never held back.
+   * Either every register is pending with that value and it is still too early
+   * for the device to have answered (not yet sent, or inside `writeSettle` of
+   * the send), or the last slider write asked for exactly these and the
+   * device's last reading agrees. A reading that differs, a write that failed
+   * (its pending entries are gone), or one the device has had time to confirm
+   * and has not, lets the value through, so a genuinely needed write is never
+   * held back. The last case was seen on 2.1.0-beta.2: a Turbo write the
+   * AC0850 never applied or answered, and the user's second ask for 100%
+   * dropped as a repeat, leaving the slider on Turbo over Sleep.
    *
    * @param {Record<string, unknown>} target
    */
   speedAlreadyRequested(target) {
     const entries = Object.entries(target);
-    const pending = entries.every(
-      ([key, value]) => this.pendingWrites.has(key) && String(this.pendingWrites.get(key)?.expected) === String(value)
-    );
+    const now = Date.now();
+    const pending = entries.every(([key, value]) => {
+      const write = this.pendingWrites.get(key);
+      return !!write && String(write.expected) === String(value) && now < write.since;
+    });
     const confirmed =
       !!this.lastSpeedTarget &&
       this.sameRegisters(this.lastSpeedTarget, target) &&

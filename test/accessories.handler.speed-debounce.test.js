@@ -466,6 +466,22 @@ describe('a slider value already asked for', () => {
     assert.deepEqual(sent, [AUTO]);
   });
 
+  it('is sent again once the device has had time to answer and has not', async (t) => {
+    //seen on 2.1.0-beta.2: a Turbo write went out, the AC0850 never applied it
+    //or reported anything, and the user asking for 100% again ten seconds
+    //later was dropped as a repeat, leaving the slider on Turbo over Sleep
+    const { handler, sent, settled } = recording();
+    t.after(() => handler.kill(true));
+    handler.writeSettle = 0;
+    handler.handleResponse({ ...RUNNING });
+
+    await setAndSettle(handler, settled, 50);
+    await delay(5);
+    await setAndSettle(handler, settled, 50);
+
+    assert.deepEqual(sent, [AUTO, AUTO]);
+  });
+
   it('treats another value on the same step as the same request', async (t) => {
     const { handler, sent, settled } = recording();
     t.after(() => handler.kill(true));
