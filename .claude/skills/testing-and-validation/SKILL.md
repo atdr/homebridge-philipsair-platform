@@ -76,9 +76,21 @@ process, so per-file setup does not leak).
   it with `aioairctrlPath: SHIM`. Extend the shim rather than spawning anything
   else.
 
-- **Timer hygiene**: lifecycle tests use short `delay(ms)` waits and MUST end
-  with `handler.kill(true)` so no watchdog/restart timer keeps the test process
-  alive.
+- **Wait for conditions, not durations** (issue #58): a shim is a real node
+  process, and under full-suite load spawning one takes far longer than on a
+  quiet machine. Wait with `waitFor(condition, { what })` in
+  `test/accessories.handler.lifecycle.test.js`, which polls and fails with a
+  named reason after a generous deadline. Keep a fixed `delay(ms)` only where
+  the test asserts that something did NOT happen within a window, or only needs
+  wall clock time to pass, and say so in a comment. Arm a shortened stall or
+  refresh timer once the stream has answered, never from spawn.
+
+- **Teardown is automatic**: `makeHandler` records every handler and a file
+  level `afterEach` kills each one and waits for its shim to exit, so a failed
+  assertion can no longer leave a handler respawning shims until the file is
+  killed. Construct handlers through `makeHandler`, not `new Handler`. The
+  long-lived shims also exit when their stdin closes, so a killed run does not
+  leave them idling forever.
 
 - **Pinned compatibility vectors**: `test/accessories.setup.test.js` pins the
   exact UUID for 'Livingroom Philips' produced by HAP's generator. If this test
@@ -95,7 +107,9 @@ process, so per-file setup does not leak).
 
 - The logger is a process-wide singleton: within one test file, a later
   `logger.configure` overrides an earlier one (this is how `test/logger.test.js`
-  works). Configure once per file unless testing the logger itself.
+  works). Configure once per file unless testing the logger itself. Tests in a
+  file run one at a time, so a capture is only ever disturbed by a handler a
+  previous test left running, which the lifecycle teardown now rules out.
 - `speeds` matching is stringified-equality; when writing mapping tests, mirror
   the exact types the device reports (numbers for AC0850, words for AC1715).
 - Don't assert on debug-level output: it's gated by `debugMode` and off in the

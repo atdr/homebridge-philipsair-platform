@@ -1526,6 +1526,15 @@ class Handler {
     const recordedAt = Date.now();
     const token = ++this.writeSeq;
 
+    //kill() flushes a write still waiting out its coalescing window, and that
+    //lands here after kill() has cleared pendingWrites and every timer. there
+    //is no stream left to verify it against, so it is sent and not tracked,
+    //the same as a write already in flight: tracking it armed a verification
+    //timer that outlived shutdown by the whole window, and could resend
+    if (this.shutdown) {
+      return token;
+    }
+
     //how long silence proves nothing depends on which regime the device is in,
     //and the plugin already models both: verifyWindow is derived from how fast a
     //*responsive* device answers, while a device reporting itself off may say

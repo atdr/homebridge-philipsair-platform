@@ -35,5 +35,8 @@ setTimeout(() => {
   process.stdout.write(status.slice(half) + '\n');
 }, 50);
 
-//keep the process alive until the handler kills it
+//keep the process alive until the handler kills it, or until the process that
+//spawned it is gone: its end of the stdin pipe closes then, and a shim orphaned
+//by a run that was itself killed would otherwise idle forever (#58)
 setInterval(() => {}, 1000);
+process.stdin.on('end', () => process.exit(0)).resume();

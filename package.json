@@ -13,8 +13,8 @@
     "check": "find . -name '*.js' -not -path './node_modules/*' -not -path './.claude/worktrees/*' -exec node --check {} ';'",
     "lint:md": "markdownlint-cli2",
     "lint:md:fix": "markdownlint-cli2 --fix",
-    "test": "node --test",
-    "coverage": "node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='index.js' --require ./src/platform.js --require ./index.js --test-reporter=lcov --test-reporter-destination=lcov.info --test-reporter=spec --test-reporter-destination=stdout",
+    "test": "node --test --test-timeout=60000",
+    "coverage": "node --test --test-timeout=60000 --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='index.js' --require ./src/platform.js --require ./index.js --test-reporter=lcov --test-reporter-destination=lcov.info --test-reporter=spec --test-reporter-destination=stdout",
     "watch": "npm link && nodemon",
     "prepublishOnly": "npm run typecheck && npm run lint && npm run format:check && npm run check && npm run lint:md && npm run test",
     "prepare": "husky"
