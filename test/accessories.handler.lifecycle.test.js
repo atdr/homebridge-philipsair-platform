@@ -539,10 +539,11 @@ describe('polling lifecycle', () => {
     handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
 
     //the shim notifies every 20ms, so a stall timer reset by incoming data
-    //never fires; a fixed process lifetime would kill the stream at 200ms.
-    //the 10x margin keeps this from flaking on a loaded CI runner. the short
-    //timeout goes on only once the stream is talking: armed at spawn, it was
-    //racing node's own startup, which under load takes longer than 200ms
+    //never fires; a fixed process lifetime would kill the stream at 500ms,
+    //three times over inside the window below. a 10x margin (200ms) still
+    //flaked 1 run in 15 with three suites at once, when the loaded scheduler
+    //starved the shim that long. the short timeout goes on only once the
+    //stream is talking: armed at spawn, it raced node's own startup
     handler.stallTimeout = 5000;
     handler.restartDelay = 10;
 
@@ -550,10 +551,10 @@ describe('polling lifecycle', () => {
     const firstPid = handler.airControl.pid;
     await answered(handler);
 
-    handler.stallTimeout = 200;
+    handler.stallTimeout = 500;
     handler.armStallTimeout();
     //a fixed window on purpose: the claim is that no restart happens in it
-    await delay(500);
+    await delay(1500);
 
     assert.equal(handler.airControl.pid, firstPid, 'a healthy stream was restarted anyway');
     assert.ok(updated(purifier, 'Active').length > 1);
