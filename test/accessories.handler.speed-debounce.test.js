@@ -308,3 +308,138 @@ describe('fan speed debounce on shutdown', () => {
     assert.deepEqual(sent, [TURBO]);
   });
 });
+
+describe('the slider while a speed waits', () => {
+  //the AC0850 reading Turbo, which its slider shows as 100%
+  const RUNNING = { D03102: 1, D0310A: 2, D0310C: 18, D0310D: 18 };
+
+  //what HAP-nodejs does with an onSet: once the handler resolves, it stores
+  //the value it was given as the characteristic's cached value
+  const committing = (handler, shown) => async (value) => {
+    await handler.setPurifierRotationSpeed(value);
+    shown.RotationSpeed = value;
+  };
+
+  it('answers a read with the requested value, not the last reading', async (t) => {
+    const { handler } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...RUNNING });
+
+    const tap = handler.setPurifierRotationSpeed(25);
+    assert.equal(handler.rotationSpeed(), 25);
+
+    await tap;
+  });
+
+  it('keeps the requested value through a status that arrives while it waits', async (t) => {
+    const { handler, shown } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...RUNNING });
+
+    const tap = handler.setPurifierRotationSpeed(25);
+    await handler.processUpdate(JSON.stringify(RUNNING));
+    assert.equal(shown.RotationSpeed, 25);
+
+    await tap;
+  });
+
+  it('puts the latest value back once HAP has stored a replaced one', async (t) => {
+    const { handler, shown } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...RUNNING });
+    const onSet = committing(handler, shown);
+
+    const first = onSet(25);
+    await delay(DEBOUNCE / 3);
+    const last = onSet(75);
+    await first;
+    await new Promise((resolve) => setImmediate(resolve));
+
+    //the final write has not even been sent yet
+    assert.equal(shown.RotationSpeed, 75);
+
+    await last;
+  });
+
+  it('never puts back a value older than the latest request', async (t) => {
+    const { handler, shown } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...RUNNING });
+    const onSet = committing(handler, shown);
+
+    //three in one tick: the first two are both replaced before HAP stores either
+    const steps = [onSet(25), onSet(50), onSet(100)];
+    await steps[0];
+    await steps[1];
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(shown.RotationSpeed, 100);
+
+    await steps[2];
+  });
+
+  it('puts the slider back to the last reading when a 0% write fails', async (t) => {
+    const { handler, shown } = recording({ fail: true });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...RUNNING });
+
+    await assert.rejects(handler.setPurifierRotationSpeed(0), communicationFailure);
+
+    assert.equal(shown.RotationSpeed, 100);
+    assert.equal(shown.Active, 1);
+  });
+
+  it('puts the slider back to the last reading when a speed write fails', async (t) => {
+    const { handler, shown } = recording({ fail: true });
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...RUNNING });
+
+    await assert.rejects(handler.setPurifierRotationSpeed(25), communicationFailure);
+
+    assert.equal(shown.RotationSpeed, 100);
+  });
+
+  it('leaves a newer request on the slider when an earlier 0% write fails', async (t) => {
+    const { handler, shown } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...RUNNING });
+
+    //the 0% goes out and fails only once a newer value is already waiting
+    /** @type {(err: Error) => void} */
+    let failSend = () => {};
+    handler.sendCMD = () => new Promise((resolve, reject) => (failSend = reject));
+    const off = handler.setPurifierRotationSpeed(0);
+    await delay(DEBOUNCE + COALESCE * 2);
+    const newer = handler.setPurifierRotationSpeed(25);
+
+    failSend(new Error('aioairctrl rejected the command'));
+    await assert.rejects(off, communicationFailure);
+    assert.equal(shown.RotationSpeed, 25);
+
+    handler.sendCMD = async () => {};
+    await newer;
+  });
+
+  it('leaves a newer speed already sent on the slider when an earlier 0% write fails', async (t) => {
+    const { handler, shown } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...RUNNING });
+
+    //both writes go out; the 0% fails only after the newer speed is on its way
+    /** @type {((err: Error) => void)[]} */
+    const fails = [];
+    handler.sendCMD = () => new Promise((resolve, reject) => fails.push(reject));
+    const off = handler.setPurifierRotationSpeed(0);
+    await delay(DEBOUNCE + COALESCE * 2);
+    const newer = handler.setPurifierRotationSpeed(25);
+    await delay(DEBOUNCE + COALESCE * 2);
+    assert.equal(fails.length, 2);
+
+    fails[0](new Error('aioairctrl rejected the command'));
+    await assert.rejects(off, communicationFailure);
+    assert.equal(shown.RotationSpeed, 25);
+
+    fails[1](new Error('aioairctrl rejected the command'));
+    await assert.rejects(newer, communicationFailure);
+  });
+});

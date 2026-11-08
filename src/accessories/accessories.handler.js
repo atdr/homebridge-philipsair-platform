@@ -373,7 +373,7 @@ class Handler {
     this.speedDebounceWindow = SPEED_DEBOUNCE_WINDOW;
     //the speed waiting out that window, if any: its timer, how to send it now,
     //and how to settle its setter when a newer value replaces it
-    /** @type {{ timer: NodeJS.Timeout, fire: () => void, supersede: () => void } | null} */
+    /** @type {{ value: number, timer: NodeJS.Timeout, fire: () => void, supersede: () => void } | null} */
     this.pendingSpeed = null;
 
     this.binary = this.accessory.context.config.aioairctrlPath || DEFAULT_BINARY;
@@ -1127,6 +1127,13 @@ class Handler {
   }
 
   rotationSpeed() {
+    //a speed still waiting out its debounce is what the slider shows: a read,
+    //a status or a revert in that window would otherwise put the old speed
+    //back before the new one has even been sent (issue #150)
+    if (this.pendingSpeed) {
+      return this.pendingSpeed.value;
+    }
+
     //in a confirmed Auto the slider shows the last manual step, whatever the
     //device chose for itself: a speed it reports there (the default map's
     //'om') is Auto's choice, not the user's, so it neither shows nor becomes
@@ -1366,20 +1373,54 @@ class Handler {
         this.pendingSpeed = null;
 
         //queues its write synchronously, so it is in the batch before the release
-        this.writeRotationSpeed(value).then(resolve, reject);
+        this.writeRotationSpeed(value).then(resolve, (err) => {
+          if (value == 0) {
+            this.restoreSpeedAfterFailedOff();
+          }
+          reject(err);
+        });
         this.releaseWriteBatch();
       };
       const timer = setTimeout(fire, this.speedDebounceWindow);
 
       this.pendingSpeed = {
+        value,
         timer,
         fire,
         supersede: () => {
           logger.debug(`Purifier Rotation Speed: ${value} replaced by a newer value`, this.accessory.displayName);
           resolve();
+          //HAP stores this setter's value once it returns, over the newer one
+          //already shown, so the newest still waiting is put back after
+          setImmediate(() => {
+            if (this.pendingSpeed) {
+              this.purifierService.updateCharacteristic(
+                this.api.hap.Characteristic.RotationSpeed,
+                this.pendingSpeed.value
+              );
+            }
+          });
         },
       };
     });
+  }
+
+  /**
+   * Puts the slider back to the last reading after a failed 0%. That write is
+   * a power-off, so giving it up reverts Active but not the 0% this setter
+   * showed; a failed speed above 0% is reverted with its own registers. Left
+   * alone when the device has never answered (no reading to go back to) or a
+   * newer speed write is pending, since the slider is that one's now. A newer
+   * speed still waiting needs no guard: `rotationSpeed()` shows it.
+   */
+  restoreSpeedAfterFailedOff() {
+    const newerSpeed = this.speeds.some((speed) => Object.keys(speed).some((key) => this.pendingWrites.has(key)));
+
+    if (!this.everAnswered() || newerSpeed) {
+      return;
+    }
+
+    this.purifierService.updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, this.rotationSpeed());
   }
 
   /**
