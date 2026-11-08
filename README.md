@@ -643,6 +643,38 @@ same one-time effects as
 may be removed and re-added in HomeKit once, and a polling process left behind
 by the original may need killing.
 
+### From `homebridge-philips-air`
+
+The older `homebridge-philips-air` plugin uses `philipsAir` as its platform
+identifier. Change the platform identifier to `PhilipsAirPlatform` as part of
+the migration:
+
+```diff
+- "platform": "philipsAir"
++ "platform": "PhilipsAirPlatform"
+```
+
+The device settings use a different schema. When moving a device entry, change
+`ip` to `host`, add its model ID (for example, `AC0951`), and rename any options
+you use:
+
+| Old setting          | New setting       |
+| -------------------- | ----------------- |
+| `light_control`      | `light`           |
+| `temperature_sensor` | `temperature`     |
+| `humidity_sensor`    | `humidity`        |
+| `sleep_speed`        | `sleepSpeed`      |
+| `allergic_func`      | `allergicFunc`    |
+| `polling`            | `refreshInterval` |
+
+`protocol` and `timeout_seconds` are not used by this plugin. Install
+[`aioairctrl`](#1-install-aioairctrl) for the Homebridge user before restarting.
+The plugins generate different accessory UUIDs (the old plugin uses the device
+IP, while this plugin uses the device name), so Apple Home treats the purifier
+as a new accessory. After restarting Homebridge, add the purifier to Apple Home
+again once, then assign its room and recreate any automations that use it. The
+Homebridge bridge itself does not need to be paired again.
+
 ## Upgrading from v1.1.0 or earlier
 
 <details>
