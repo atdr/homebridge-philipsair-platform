@@ -287,6 +287,37 @@ describe('processUpdate', () => {
     assert.deepEqual(updated(handler.hepaFilterService, 'FilterLifeLevel'), [['FilterLifeLevel', 50]]);
     assert.deepEqual(updated(handler.carbonFilterService, 'FilterLifeLevel'), [['FilterLifeLevel', 100]]);
   });
+
+  //issue #161: the replace prompt fires at 10% life left, not only once the
+  //filter is exhausted. Each case is [service, status key, hours at 10%, hours
+  //just above 10%], from the totals the handler falls back to
+  const filters = [
+    ['preFilterService', 'fltsts0', 36, 37],
+    ['carbonFilterService', 'fltsts2', 480, 528],
+    ['hepaFilterService', 'fltsts1', 480, 528],
+    ['wickFilterService', 'wicksts', 480, 528],
+  ];
+
+  for (const [serviceName, key, atThreshold, aboveThreshold] of filters) {
+    it(`asks for a ${key} filter change at 10% life left and not above it`, async () => {
+      const handler = makeHandler({});
+      handler.purifierService = makeService();
+      //the wick filter is only reported alongside the humidifier
+      handler.humidifierService = makeService();
+      handler[serviceName] = makeService();
+
+      const status = { pwr: '1', mode: 'P', cl: false, om: '2', func: 'P', wl: 100 };
+      for (const hours of [aboveThreshold, atThreshold, 0]) {
+        await handler.processUpdate(JSON.stringify({ ...status, [key]: hours }));
+      }
+
+      assert.deepEqual(updated(handler[serviceName], 'FilterChangeIndication'), [
+        ['FilterChangeIndication', false],
+        ['FilterChangeIndication', true],
+        ['FilterChangeIndication', true],
+      ]);
+    });
+  }
 });
 
 describe('adaptive refresh', () => {

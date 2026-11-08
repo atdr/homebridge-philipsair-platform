@@ -73,6 +73,11 @@ const HAP_WRITE_HARD_TIMEOUT = 9 * 1000;
 //which is correct, since the device really did not answer
 const SET_TIMEOUT = HAP_WRITE_HARD_TIMEOUT + 3 * 1000;
 
+//FilterLifeLevel (percent) at or below which HomeKit is asked for a filter
+//change, so the prompt comes before the filter is exhausted (issue #161). A
+//fallback until a device "replace soon" register is observed
+const FILTER_CHANGE_THRESHOLD = 10;
+
 //delay before respawning a stream that ended
 const RESTART_DELAY = 5 * 1000;
 
@@ -2734,8 +2739,8 @@ class Handler {
         }
 
         if (this.wickFilterService && this.obj.wicksts !== undefined) {
-          const fltwickchange = this.obj.wicksts == 0;
           const fltwicklife = hapNumber(Math.round((this.obj.wicksts / 4800) * 100), 0, 100);
+          const fltwickchange = fltwicklife <= FILTER_CHANGE_THRESHOLD;
 
           this.wickFilterService
             .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltwickchange)
@@ -2744,9 +2749,9 @@ class Handler {
       }
 
       if (this.preFilterService && this.obj.fltsts0 !== undefined) {
-        const fltsts0change = this.obj.fltsts0 == 0;
         const fltsts0maxlife = this.obj.flttotal0 ? this.obj.flttotal0 : 360;
         const fltsts0life = hapNumber((this.obj.fltsts0 / fltsts0maxlife) * 100, 0, 100);
+        const fltsts0change = fltsts0life <= FILTER_CHANGE_THRESHOLD;
 
         this.preFilterService
           .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts0change)
@@ -2754,9 +2759,9 @@ class Handler {
       }
 
       if (this.carbonFilterService && this.obj.fltsts2 !== undefined) {
-        const fltsts2change = this.obj.fltsts2 == 0;
         const fltsts2maxlife = this.obj.flttotal2 ? this.obj.flttotal2 : 4800;
         const fltsts2life = hapNumber((this.obj.fltsts2 / fltsts2maxlife) * 100, 0, 100);
+        const fltsts2change = fltsts2life <= FILTER_CHANGE_THRESHOLD;
 
         this.carbonFilterService
           .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts2change)
@@ -2764,9 +2769,9 @@ class Handler {
       }
 
       if (this.hepaFilterService && this.obj.fltsts1 !== undefined) {
-        const fltsts1change = this.obj.fltsts1 == 0;
         const fltsts1maxlife = this.obj.flttotal1 ? this.obj.flttotal1 : 4800;
         const fltsts1life = hapNumber((this.obj.fltsts1 / fltsts1maxlife) * 100, 0, 100);
+        const fltsts1change = fltsts1life <= FILTER_CHANGE_THRESHOLD;
 
         this.hepaFilterService
           .updateCharacteristic(this.api.hap.Characteristic.FilterChangeIndication, fltsts1change)
