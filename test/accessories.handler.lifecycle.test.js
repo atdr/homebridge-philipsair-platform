@@ -121,14 +121,24 @@ afterEach(async () => {
     //a `set` still running holds the event loop open, and can log into the
     //next test's capture when it settles. execFile caps it at sendTimeout, and
     //the cap is cleared once the queue drains so it holds nothing open itself
-    let cap;
-    await Promise.race([
-      handler.writeQueue,
-      new Promise((resolve) => {
-        cap = setTimeout(resolve, handler.sendTimeout + 1000);
-      }),
-    ]);
-    clearTimeout(cap);
+    //writeQueue is only the tail at the moment it is read: the flush kill()
+    //starts can enqueue the power-on after the rest has gone, so wait for the
+    //tail, let anything it schedules enqueue, and go again until it stops
+    //moving. The deadline covers a few sends, each capped at sendTimeout
+    const deadline = Date.now() + 3 * (handler.sendTimeout + 1000);
+    let tail;
+    do {
+      tail = handler.writeQueue;
+      let cap;
+      await Promise.race([
+        tail,
+        new Promise((resolve) => {
+          cap = setTimeout(resolve, Math.max(0, deadline - Date.now()));
+        }),
+      ]);
+      clearTimeout(cap);
+      await new Promise((resolve) => setImmediate(resolve));
+    } while (handler.writeQueue !== tail && Date.now() < deadline);
   }
 
   silenceLogger();
