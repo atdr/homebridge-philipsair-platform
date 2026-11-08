@@ -137,6 +137,16 @@ const WRITE_SETTLE = 3 * 1000;
 //exists to catch them before they are ever split into two commands
 const WRITE_COALESCE_WINDOW = 75;
 
+//how long a RotationSpeed write waits for the slider to settle. Dragging the
+//slider in the Home app sends the steps it passes through, then the last one,
+//and every write makes the purifier beep; on the AC0850 the lowest step is
+//Sleep, so a drag from Sleep to the Auto step sent Sleep, then Auto (issue
+//#150). A tap cannot be told from the start of a drag, so every speed waits
+//this long and only the last value goes out: a tap costs this much latency, a
+//drag one command. Only speeds wait, and while one does the coalescing batch
+//waits with it, so a scene's power-on still goes out with its speed (#82)
+const SPEED_DEBOUNCE_WINDOW = 350;
+
 //how readily a queued write gives way to another write in the same coalescing
 //window that sets one of its keys. A write is dropped when one on a lower
 //level claims a key it sets; writes on the same level are all kept. see
@@ -358,6 +368,14 @@ class Handler {
     this.writeBatch = [];
     this.writeBatchTimeout = null;
 
+    //how long a RotationSpeed write waits for a newer one. an instance field
+    //for the same reason: so a test can shorten it. see setPurifierRotationSpeed
+    this.speedDebounceWindow = SPEED_DEBOUNCE_WINDOW;
+    //the speed waiting out that window, if any: its timer, how to send it now,
+    //and how to settle its setter when a newer value replaces it
+    /** @type {{ timer: NodeJS.Timeout, fire: () => void, supersede: () => void } | null} */
+    this.pendingSpeed = null;
+
     this.binary = this.accessory.context.config.aioairctrlPath || DEFAULT_BINARY;
     this.args = [
       '-H',
@@ -555,6 +573,12 @@ class Handler {
    * `onYield`, when given, is told the YIELD level of the write that took a
    * dropped write's place, before the promise settles.
    *
+   * While a RotationSpeed write is waiting out its debounce
+   * (`setPurifierRotationSpeed`), the window ending does not flush: the batch
+   * is held until that speed joins it and is sent with it. Otherwise a scene's
+   * power-on would go out at 75ms and its speed at 350ms, split into two
+   * commands, which is the very drop this window exists to prevent (#82).
+   *
    * @param {string[]} cmds
    * @param {Record<string, unknown>} expectations
    * @param {string[]} [extraFlags]
@@ -566,9 +590,28 @@ class Handler {
       this.writeBatch.push({ cmds, expectations, extraFlags, yielding, onYield, resolve, reject });
 
       if (!this.writeBatchTimeout) {
-        this.writeBatchTimeout = setTimeout(() => this.flushWriteBatch(), this.writeCoalesceWindow);
+        this.writeBatchTimeout = setTimeout(() => {
+          //held: the waiting speed flushes the batch when it joins (releaseWriteBatch)
+          if (!this.pendingSpeed) {
+            this.flushWriteBatch();
+          }
+        }, this.writeCoalesceWindow);
       }
     });
+  }
+
+  /**
+   * Flushes the batch now, for a debounced speed that has just joined it. Its
+   * own window is not waited out again: the debounce already gave every
+   * companion write longer than that to arrive.
+   */
+  releaseWriteBatch() {
+    clearTimeout(this.writeBatchTimeout);
+    this.writeBatchTimeout = null;
+
+    if (this.writeBatch.length) {
+      this.flushWriteBatch();
+    }
   }
 
   /**
@@ -1291,7 +1334,58 @@ class Handler {
     return { registers: write, index: this.speeds.findIndex((speed) => this.sameRegisters(speed, write)) };
   }
 
-  async setPurifierRotationSpeed(value) {
+  /**
+   * RotationSpeed's onSet. A drag on the slider arrives as the steps it passes
+   * through and then the last one, so each value waits `speedDebounceWindow`
+   * and a newer value replaces it (issue #150). Only the last is written.
+   *
+   * A value a newer one replaced resolves: that is the user changing their
+   * mind, not a failure, and HAP then stores the newer value anyway. The last
+   * one settles as its write does, so a genuine failure still rejects (#86).
+   * The slider is shown the new value at once, since HAP stores it only when
+   * this returns and it would otherwise jump back while the write waits.
+   *
+   * The wait is for the slider alone. Every other write stays on the
+   * coalescing window, and a batch that window would flush is held until the
+   * waiting speed joins it (see queueWrite), so a scene still goes out
+   * together and the yielding rules see all of it.
+   *
+   * @returns {Promise<void>}
+   */
+  setPurifierRotationSpeed(value) {
+    this.purifierService.updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, value);
+
+    if (this.pendingSpeed) {
+      clearTimeout(this.pendingSpeed.timer);
+      this.pendingSpeed.supersede();
+    }
+
+    return new Promise((resolve, reject) => {
+      const fire = () => {
+        clearTimeout(timer);
+        this.pendingSpeed = null;
+
+        //queues its write synchronously, so it is in the batch before the release
+        this.writeRotationSpeed(value).then(resolve, reject);
+        this.releaseWriteBatch();
+      };
+      const timer = setTimeout(fire, this.speedDebounceWindow);
+
+      this.pendingSpeed = {
+        timer,
+        fire,
+        supersede: () => {
+          logger.debug(`Purifier Rotation Speed: ${value} replaced by a newer value`, this.accessory.displayName);
+          resolve();
+        },
+      };
+    });
+  }
+
+  /**
+   * Writes a RotationSpeed once `setPurifierRotationSpeed` has let it through.
+   */
+  async writeRotationSpeed(value) {
     try {
       //the next step up, into speeds
       let index = Math.ceil(value / this.speedsMinStep()) - 1;
@@ -2840,7 +2934,10 @@ class Handler {
     //a write still waiting out its coalescing window has already applied its
     //optimistic HomeKit update but has no pendingWrites entry yet to revert;
     //flushing now rather than leaving the cleared timer above to strand it
-    //sends it on its way, the same fate an already-in-flight write has today
+    //sends it on its way, the same fate an already-in-flight write has today.
+    //a speed still waiting out its debounce goes the same way, with the batch
+    this.pendingSpeed?.fire();
+
     if (this.writeBatch.length) {
       this.flushWriteBatch();
     }

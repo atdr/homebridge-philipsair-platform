@@ -713,8 +713,13 @@ it on is left out of the batch (`dropRedundantPowerOn`), and out of any resend
 power write is never merged: it goes as its own `set`, after the rest of the
 batch, because an AC0850 ignores every register merged with a power-on, whether
 it was off or already on (#117). Sent apart, it applied them in either order
-(live test 2026-10-24: Sleep written while off held through the power-on). The
-fields are listed in the header of `accessories.models.js`, and
+(live test 2026-10-24: Sleep written while off held through the power-on).
+RotationSpeed alone is also debounced (`SPEED_DEBOUNCE_WINDOW`, 350 ms, issue
+#150): a slider drag arrives as every step it passes, so each value waits and a
+newer one replaces it, the replaced setter resolving rather than failing. While
+a speed waits, the coalescing batch is held rather than flushed at 75 ms, and
+the speed releases it on joining, so a scene's power-on is never split from its
+speed (#82). The fields are listed in the header of `accessories.models.js`, and
 `test/docs.test.js` fails if a model uses one that header and this section do
 not name.
 

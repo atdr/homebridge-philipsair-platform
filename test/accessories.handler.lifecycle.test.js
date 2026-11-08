@@ -1475,8 +1475,10 @@ describe('write verification', { concurrency: 1 }, () => {
     //close enough together for one shared verify timer to catch both, as
     //they would have before #82 (that timer is armed once and not re-armed
     //for a later entry's earlier deadline, so a wide gap here would silently
-    //miss the second write's own blind resend)
+    //miss the second write's own blind resend). The slider's debounce
+    //(#150) is shortened for the same reason
     handler.writeCoalesceWindow = 1;
+    handler.speedDebounceWindow = 1;
 
     //the scene #77 was observed under: power and speed set together
     await handler.setPurifierActive(true);
@@ -1667,7 +1669,12 @@ describe('write verification', { concurrency: 1 }, () => {
     };
 
     const setting = Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(100)]);
-    await waitFor(() => handler.writeBatch.length === 2, { what: 'both writes to join the coalescing batch' });
+    //the speed waits out its debounce outside the batch, and kill() sends it
+    //with the batch, so both are queued once the power-on is batched and the
+    //speed is pending
+    await waitFor(() => handler.writeBatch.length === 1 && handler.pendingSpeed !== null, {
+      what: 'the power-on to join the batch and the speed to wait out its debounce',
+    });
 
     handler.kill(true);
     await setting;
@@ -2606,8 +2613,12 @@ describe('revertOptimisticUpdate', () => {
     };
     await assert.rejects(handler.setPurifierRotationSpeed(100), communicationFailure);
 
-    //setPurifierRotationSpeed never pushes RotationSpeed itself; only the revert does
-    assert.deepEqual(updated(handler.purifierService, 'RotationSpeed'), [['RotationSpeed', 100 / 3]]);
+    assert.deepEqual(updated(handler.purifierService, 'RotationSpeed'), [
+      //shown at once, so the slider holds while the write waits out its debounce (#150)
+      ['RotationSpeed', 100],
+      //the revert, back to the last known reading (om: '1')
+      ['RotationSpeed', 100 / 3],
+    ]);
 
     handler.kill(true);
   });

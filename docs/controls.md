@@ -22,6 +22,12 @@ whatever speed Auto itself has chosen, and switching to Manual goes back to that
 speed. Before the first status arrives the switch reads Auto and the slider the
 first step.
 
+The slider waits about a third of a second after it stops moving before it sends
+anything, and each new position restarts the wait. Dragging it therefore sends
+only where it ends up, as one command and one beep, rather than every step it
+passes on the way. A scene that sets the power and the speed together still
+sends them together.
+
 The dash-less AC0850 is the exception: it reports the fan's actual speed, so its
 slider shows that speed in every mode, Auto included. Auto runs the fan at one
 of four speeds, and the slider has a step for each. 25% and 100% are the manual
