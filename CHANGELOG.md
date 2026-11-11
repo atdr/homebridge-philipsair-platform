@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v2.0.2...v2.1.0) (2026-11-11)
+
+
+### Features
+
+* **accessories:** prompt for a filter change at 10% and remove the orphaned wick filter ([#166](https://github.com/atdr/homebridge-philipsair-platform/issues/166)) ([567058c](https://github.com/atdr/homebridge-philipsair-platform/commit/567058cd10ee2ad4e5df7e5c1fa92b2cf31273cd))
+
 ## [2.0.2](https://github.com/atdr/homebridge-philipsair-platform/compare/v2.0.1...v2.0.2) (2026-10-24)
 
 
