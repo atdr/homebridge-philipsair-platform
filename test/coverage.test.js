@@ -100,14 +100,20 @@ describe('coverage reporting config', () => {
     );
   });
 
-  it('leaves Codecov unable to block a merge', () => {
-    //Without this, Codecov adds two status checks it owns to every PR. CI is the gate.
+  it('lets the Codecov statuses report their real result', () => {
+    //An informational status always passes, which hid a 0% patch on #158. Neither status is in
+    //the main ruleset, so a red one warns without blocking; CI's three gates stay the merge gate.
     const codecov = read('codecov.yml');
-    const informational = [...codecov.matchAll(/informational: true/g)];
-    assert.equal(informational.length, 2, 'both the project and patch statuses must be informational');
+    assert.doesNotMatch(codecov, /informational:\s*true/, 'an informational status always reports success');
     for (const status of ['project:', 'patch:']) {
       assert.ok(codecov.includes(status), `codecov.yml must configure the ${status.slice(0, -1)} status`);
     }
+  });
+
+  it('gives the project status a threshold so a rounding drop stays green', () => {
+    //At ~99.7%, one uncovered line moves the total by ~0.02%. 0.1% tolerates that but not a lost test.
+    const project = read('codecov.yml').match(/project:[\s\S]*?(?=\n {4}\w|$)/)?.[0] ?? '';
+    assert.match(project, /threshold:\s*0\.1%/, 'the project status must allow a 0.1% drop');
   });
 
   it('is advertised in the README', () => {

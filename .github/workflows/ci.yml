@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   node:
-    uses: atdr/github-boilerplate/.github/workflows/node-ci.yml@v0.3.1
+    uses: atdr/github-boilerplate/.github/workflows/node-ci.yml@v0.4.0
     with:
       # Exactly the majors engines.node declares, not the LTS lines node-ci
       # picks by default: Homebridge plugin verification expects every

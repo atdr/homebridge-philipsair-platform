@@ -11,6 +11,5 @@
 module.exports = (homebridge) => {
   const { name: PLUGIN_NAME } = require('./package.json');
   const PhilipsAirPlatform = require('./src/platform');
-
   homebridge.registerPlatform(PLUGIN_NAME, 'PhilipsAirPlatform', PhilipsAirPlatform, true);
 };
