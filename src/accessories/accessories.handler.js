@@ -137,6 +137,16 @@ const WRITE_SETTLE = 3 * 1000;
 //exists to catch them before they are ever split into two commands
 const WRITE_COALESCE_WINDOW = 75;
 
+//how long a RotationSpeed write waits for the slider to settle. Dragging the
+//slider in the Home app sends the steps it passes through, then the last one,
+//and every write makes the purifier beep; on the AC0850 the lowest step is
+//Sleep, so a drag from Sleep to the Auto step sent Sleep, then Auto (issue
+//#150). A tap cannot be told from the start of a drag, so every speed waits
+//this long and only the last value goes out: a tap costs this much latency, a
+//drag one command. Only speeds wait, and while one does the coalescing batch
+//waits with it, so a scene's power-on still goes out with its speed (#82)
+const SPEED_DEBOUNCE_WINDOW = 350;
+
 //how readily a queued write gives way to another write in the same coalescing
 //window that sets one of its keys. A write is dropped when one on a lower
 //level claims a key it sets; writes on the same level are all kept. see
@@ -358,6 +368,18 @@ class Handler {
     this.writeBatch = [];
     this.writeBatchTimeout = null;
 
+    //how long a RotationSpeed write waits for a newer one. an instance field
+    //for the same reason: so a test can shorten it. see setPurifierRotationSpeed
+    this.speedDebounceWindow = SPEED_DEBOUNCE_WINDOW;
+    //the speed waiting out that window, if any: its value, its timer, and how
+    //to send it now
+    /** @type {{ value: number, timer: NodeJS.Timeout, fire: () => void } | null} */
+    this.pendingSpeed = null;
+    //the registers the last slider write that went out asked for. see
+    //speedAlreadyRequested
+    /** @type {Record<string, unknown> | undefined} */
+    this.lastSpeedTarget = undefined;
+
     this.binary = this.accessory.context.config.aioairctrlPath || DEFAULT_BINARY;
     this.args = [
       '-H',
@@ -555,6 +577,12 @@ class Handler {
    * `onYield`, when given, is told the YIELD level of the write that took a
    * dropped write's place, before the promise settles.
    *
+   * While a RotationSpeed write is waiting out its debounce
+   * (`setPurifierRotationSpeed`), the window ending does not flush: the batch
+   * is held until that speed joins it and is sent with it. Otherwise a scene's
+   * power-on would go out at 75ms and its speed at 350ms, split into two
+   * commands, which is the very drop this window exists to prevent (#82).
+   *
    * @param {string[]} cmds
    * @param {Record<string, unknown>} expectations
    * @param {string[]} [extraFlags]
@@ -566,9 +594,28 @@ class Handler {
       this.writeBatch.push({ cmds, expectations, extraFlags, yielding, onYield, resolve, reject });
 
       if (!this.writeBatchTimeout) {
-        this.writeBatchTimeout = setTimeout(() => this.flushWriteBatch(), this.writeCoalesceWindow);
+        this.writeBatchTimeout = setTimeout(() => {
+          //held: the waiting speed flushes the batch when it joins (releaseWriteBatch)
+          if (!this.pendingSpeed) {
+            this.flushWriteBatch();
+          }
+        }, this.writeCoalesceWindow);
       }
     });
+  }
+
+  /**
+   * Flushes the batch now, for a debounced speed that has just joined it. Its
+   * own window is not waited out again: the debounce already gave every
+   * companion write longer than that to arrive.
+   */
+  releaseWriteBatch() {
+    clearTimeout(this.writeBatchTimeout);
+    this.writeBatchTimeout = null;
+
+    if (this.writeBatch.length) {
+      this.flushWriteBatch();
+    }
   }
 
   /**
@@ -1084,6 +1131,13 @@ class Handler {
   }
 
   rotationSpeed() {
+    //a speed still waiting out its debounce is what the slider shows: a read,
+    //a status or a revert in that window would otherwise put the old speed
+    //back before the new one has even been sent (issue #150)
+    if (this.pendingSpeed) {
+      return this.pendingSpeed.value;
+    }
+
     //in a confirmed Auto the slider shows the last manual step, whatever the
     //device chose for itself: a speed it reports there (the default map's
     //'om') is Auto's choice, not the user's, so it neither shows nor becomes
@@ -1291,7 +1345,146 @@ class Handler {
     return { registers: write, index: this.speeds.findIndex((speed) => this.sameRegisters(speed, write)) };
   }
 
+  /**
+   * RotationSpeed's onSet. A drag on the slider arrives as the steps it passes
+   * through and then the last one, so each value waits `speedDebounceWindow`
+   * and a newer value replaces it (issue #150). Only the last is written.
+   *
+   * It resolves at once rather than with its write. HomeKit sends the next
+   * value of a drag only once the previous onSet has resolved (seen on an
+   * AC0850: every value of a drag became its own `set`, about a second apart),
+   * so a setter that waited for its write could never be replaced. The value
+   * is shown on the slider straight away, and HAP stores each one in order.
+   *
+   * With no onSet left to reject, a write that fails is logged as before and
+   * the slider goes back to the device's last reading (`abandonWrite`, and
+   * `restoreSpeedAfterFailedOff` for 0%), rather than HomeKit showing No Response
+   * as it does for the other controls (#86).
+   *
+   * The wait is for the slider alone. Every other write stays on the
+   * coalescing window, and a batch that window would flush is held until the
+   * waiting speed joins it (see queueWrite), so a scene still goes out
+   * together and the yielding rules see all of it.
+   *
+   * @returns {Promise<void>}
+   */
   async setPurifierRotationSpeed(value) {
+    this.purifierService.updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, value);
+
+    if (this.pendingSpeed) {
+      clearTimeout(this.pendingSpeed.timer);
+      logger.debug(
+        `Purifier Rotation Speed: ${this.pendingSpeed.value} replaced by a newer value`,
+        this.accessory.displayName
+      );
+      this.pendingSpeed = null;
+    }
+
+    const target = this.speedTarget(value);
+
+    if (target && this.speedAlreadyRequested(target)) {
+      logger.debug(
+        `Purifier Rotation Speed: ${value} asks for what was already sent, not sending it again`,
+        this.accessory.displayName
+      );
+      return;
+    }
+
+    const fire = () => {
+      clearTimeout(timer);
+      this.pendingSpeed = null;
+      this.lastSpeedTarget = target;
+
+      //queues its write synchronously, so it is in the batch before the release.
+      //writeRotationSpeed has logged a failure, and a failed speed above 0% has
+      //had its registers put back (abandonWrite); a 0% needs the slider too
+      this.writeRotationSpeed(value).catch(() => {
+        if (value == 0) {
+          this.restoreSpeedAfterFailedOff();
+        }
+      });
+      this.releaseWriteBatch();
+    };
+    const timer = setTimeout(fire, this.speedDebounceWindow);
+
+    this.pendingSpeed = { value, timer, fire };
+  }
+
+  /**
+   * The registers a slider value writes, in generic key space, as
+   * `writeRotationSpeed` resolves it: a speed step, Auto for a fan level Auto
+   * step, or the power-off for 0%. Undefined where it writes nothing.
+   *
+   * @returns {Record<string, unknown> | undefined}
+   */
+  speedTarget(value) {
+    if (!(value > 0)) {
+      return { pwr: 0 };
+    }
+
+    if (this.fanLevel) {
+      const write = this.fanLevelWrite(value);
+      return write === 'auto' ? this.autoWrite : write.registers;
+    }
+
+    return this.speeds[Math.ceil(value / this.speedsMinStep()) - 1];
+  }
+
+  /**
+   * Whether a slider value's registers are already asked for, so sending them
+   * again would only make the purifier beep: a slow drag repeats one value, and
+   * on the AC0850 50% and 75% are one Auto step (seen on 2.1.0-beta.1, 50 five
+   * times in three seconds, each an identical `set`).
+   *
+   * Either every register is pending with that value and it is still too early
+   * for the device to have answered (not yet sent, or inside `writeSettle` of
+   * the send), or the last slider write asked for exactly these and the
+   * device's last reading agrees. A reading that differs, a write that failed
+   * (its pending entries are gone), or one the device has had time to confirm
+   * and has not, lets the value through, so a genuinely needed write is never
+   * held back. The last case was seen on 2.1.0-beta.2: a Turbo write the
+   * AC0850 never applied or answered, and the user's second ask for 100%
+   * dropped as a repeat, leaving the slider on Turbo over Sleep.
+   *
+   * @param {Record<string, unknown>} target
+   */
+  speedAlreadyRequested(target) {
+    const entries = Object.entries(target);
+    const now = Date.now();
+    const pending = entries.every(([key, value]) => {
+      const write = this.pendingWrites.get(key);
+      return !!write && String(write.expected) === String(value) && now < write.since;
+    });
+    const confirmed =
+      !!this.lastSpeedTarget &&
+      this.sameRegisters(this.lastSpeedTarget, target) &&
+      entries.every(([key, value]) => key in this.obj && String(this.obj[key]) === String(value));
+
+    return pending || confirmed;
+  }
+
+  /**
+   * Puts the slider back to the last reading after a failed 0%. That write is
+   * a power-off, so giving it up reverts Active but not the 0% this setter
+   * showed; a failed speed above 0% is reverted with its own registers. Left
+   * alone when the device has never answered (no reading to go back to) or a
+   * newer speed write is pending, since the slider is that one's now. A newer
+   * speed still waiting needs no guard: `rotationSpeed()` shows it.
+   */
+  restoreSpeedAfterFailedOff() {
+    const newerSpeed = this.speeds.some((speed) => Object.keys(speed).some((key) => this.pendingWrites.has(key)));
+
+    if (!this.everAnswered() || newerSpeed) {
+      return;
+    }
+
+    this.purifierService.updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, this.rotationSpeed());
+  }
+
+  /**
+   * Writes a RotationSpeed once `setPurifierRotationSpeed` has let it through.
+   */
+  async writeRotationSpeed(value) {
     try {
       //the next step up, into speeds
       let index = Math.ceil(value / this.speedsMinStep()) - 1;
@@ -2840,7 +3033,10 @@ class Handler {
     //a write still waiting out its coalescing window has already applied its
     //optimistic HomeKit update but has no pendingWrites entry yet to revert;
     //flushing now rather than leaving the cleared timer above to strand it
-    //sends it on its way, the same fate an already-in-flight write has today
+    //sends it on its way, the same fate an already-in-flight write has today.
+    //a speed still waiting out its debounce goes the same way, with the batch
+    this.pendingSpeed?.fire();
+
     if (this.writeBatch.length) {
       this.flushWriteBatch();
     }
