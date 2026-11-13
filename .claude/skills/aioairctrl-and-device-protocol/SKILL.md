@@ -773,6 +773,11 @@ Two behaviours worth memorising:
   `updateCharacteristic` before sending the device command, but not all:
   `setPurifierLockPhysicalControls`, `setLightOn`, and `setLightBrightness` just
   send and let the next poll confirm.
+- A failed write rejects the `onSet` with HAP's `SERVICE_COMMUNICATION_FAILURE`
+  (`Handler.writeFailed`), after any revert the failure triggered has been
+  published, so HomeKit never commits a write the device did not take (issue
+  #86). A write that gave way to another in the same scene (`queueWrite`
+  resolving false) is not a failure and does not reject.
 - The `FilterMaintenance` subtypes are addressed by the quoted display names
   above (`accessory.getService('Pre Filter')` etc.); renaming them orphans the
   existing service instance on users' accessories.
