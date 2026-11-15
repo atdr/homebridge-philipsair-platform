@@ -1,5 +1,7 @@
 'use strict';
 
+const util = require('util');
+
 class Logger {
   constructor() {
     this.log = console;
@@ -28,7 +30,12 @@ class Logger {
 
     if (message instanceof Error) {
       if (this.extendedErrorMode) {
-        return message;
+        //with nothing to prefix, hand Homebridge the error itself as before.
+        //otherwise inspect it here, which is what Homebridge's util.format
+        //would do, so the stack and own properties (code, stderr) survive
+        //alongside the name. one string rather than (prefix, err) so a `%`
+        //in a device name is never read as a format specifier
+        return formatted ? formatted + util.inspect(message) : message;
       }
       formatted += message.message;
     } else if (typeof message === 'object') {
