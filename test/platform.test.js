@@ -345,6 +345,34 @@ describe('PhilipsAirPlatform', () => {
       assert.ok(warnings.some((m) => m.includes('devices setting should be a list of devices')));
     });
 
+    //a value someone wrote is not a missing setting: defaulting it to an empty
+    //list on the way in would start the plugin with no devices and no word why
+    for (const devices of [null, false, 0, '']) {
+      it(`says so when devices is ${JSON.stringify(devices)} rather than a list`, async () => {
+        const platform = new PhilipsAirPlatform(silentLog, { aioairctrlPath: HAPPY_SHIM, devices }, makeFakeApi());
+
+        const warnings = [];
+        logger.configure({ info: noop, warn: (m) => warnings.push(m), error: noop }, {});
+        await assert.doesNotReject(platform.didFinishLaunching());
+        logger.configure(silentLog, {});
+
+        assert.equal(platform.devices.size, 0);
+        assert.ok(warnings.some((m) => m.includes('devices setting should be a list of devices')));
+      });
+    }
+
+    it('stays quiet when devices is not set at all', async () => {
+      const platform = new PhilipsAirPlatform(silentLog, { aioairctrlPath: HAPPY_SHIM }, makeFakeApi());
+
+      const warnings = [];
+      logger.configure({ info: noop, warn: (m) => warnings.push(m), error: noop }, {});
+      await assert.doesNotReject(platform.didFinishLaunching());
+      logger.configure(silentLog, {});
+
+      assert.equal(platform.devices.size, 0);
+      assert.deepEqual(warnings, []);
+    });
+
     //anything Setup can still throw has to reach the catch in didFinishLaunching
     it('catches a throw from inside the device setup', async () => {
       const api = makeFakeApi();
