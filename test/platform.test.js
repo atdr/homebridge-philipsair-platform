@@ -308,6 +308,75 @@ describe('PhilipsAirPlatform', () => {
       assert.deepEqual(api.unregistered, [stale]);
     });
 
+    //the reported failure: a stray entry or an object where the list belongs
+    //rejected inside Setup, out of reach of the try/catch, and took the bridge
+    //down with an unhandled rejection
+    it('sets up the valid devices when the devices list holds a stray entry', async () => {
+      const api = makeFakeApi();
+      const platform = new PhilipsAirPlatform(
+        silentLog,
+        { aioairctrlPath: HAPPY_SHIM, devices: [null, { active: true, name: 'Purifier', host: '192.168.1.142' }] },
+        api
+      );
+
+      const warnings = [];
+      logger.configure({ info: noop, warn: (m) => warnings.push(m), error: noop }, {});
+      await assert.doesNotReject(platform.didFinishLaunching());
+      logger.configure(silentLog, {});
+
+      assert.equal(platform.devices.size, 1);
+      assert.equal(api.registered.length, 1);
+      assert.ok(warnings.some((m) => m.includes('Entry 1 in devices is not a device')));
+    });
+
+    it('treats a devices object as no devices rather than rejecting', async () => {
+      const platform = new PhilipsAirPlatform(
+        silentLog,
+        { aioairctrlPath: HAPPY_SHIM, devices: { name: 'Purifier', host: '192.168.1.142' } },
+        makeFakeApi()
+      );
+
+      const warnings = [];
+      logger.configure({ info: noop, warn: (m) => warnings.push(m), error: noop }, {});
+      await assert.doesNotReject(platform.didFinishLaunching());
+      logger.configure(silentLog, {});
+
+      assert.equal(platform.devices.size, 0);
+      assert.ok(warnings.some((m) => m.includes('devices setting should be a list of devices')));
+    });
+
+    //anything Setup can still throw has to reach the catch in didFinishLaunching
+    it('catches a throw from inside the device setup', async () => {
+      const api = makeFakeApi();
+      const platform = new PhilipsAirPlatform(
+        silentLog,
+        { aioairctrlPath: HAPPY_SHIM, devices: [{ active: true, name: 'Purifier', host: '192.168.1.142' }] },
+        api
+      );
+      api.hap = {
+        ...hap,
+        uuid: {
+          ...hap.uuid,
+          generate: () => {
+            throw new Error('setup boom');
+          },
+        },
+      };
+
+      const errors = [];
+      const rejections = [];
+      const onRejection = (err) => rejections.push(err);
+      process.on('unhandledRejection', onRejection);
+      logger.configure({ info: noop, warn: noop, error: (m) => errors.push(String(m)) }, {});
+      await assert.doesNotReject(platform.didFinishLaunching());
+      await new Promise((resolve) => setImmediate(resolve));
+      logger.configure(silentLog, {});
+      process.off('unhandledRejection', onRejection);
+
+      assert.deepEqual(rejections, []);
+      assert.ok(errors.some((m) => m.includes('setup boom')));
+    });
+
     it('logs a failure instead of leaving it as an unhandled rejection', async () => {
       const platform = new PhilipsAirPlatform(
         silentLog,
