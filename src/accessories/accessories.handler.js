@@ -1076,6 +1076,19 @@ class Handler {
   }
 
   /**
+   * The index into `speeds` a slider value above 0% selects: the nearest step,
+   * and never below the first. HAP hands `onSet` the client's value without
+   * snapping it to `minStep`, so a scene's 67% on three steps, or the float32
+   * form of an exact step (83.33333587646484 on six), sits a hair above the
+   * step it means; rounding up there selected the next speed (#170).
+   *
+   * @param {number} value
+   */
+  speedIndex(value) {
+    return Math.min(this.speeds.length, Math.max(1, Math.round(value / this.speedsMinStep()))) - 1;
+  }
+
+  /**
    * Where one of the `speeds` sits on the slider. Without a fan level that is
    * its own position; with one, the position of the fan level step that
    * writes it (Sleep 25%, Turbo 100% on the AC0850).
@@ -1443,7 +1456,7 @@ class Handler {
       return write === 'auto' ? this.autoWrite : write.registers;
     }
 
-    return this.speeds[Math.ceil(value / this.speedsMinStep()) - 1];
+    return this.speeds[this.speedIndex(value)];
   }
 
   /**
@@ -1502,8 +1515,7 @@ class Handler {
    */
   async writeRotationSpeed(value) {
     try {
-      //the next step up, into speeds
-      let index = Math.ceil(value / this.speedsMinStep()) - 1;
+      let index = this.speedIndex(value);
       let registers = this.speeds[index];
 
       if (this.fanLevel && value > 0) {

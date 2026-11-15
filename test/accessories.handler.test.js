@@ -1761,3 +1761,38 @@ describe('every mapped model round-trips its speeds and Auto', () => {
     });
   }
 });
+
+//#170: HAP hands onSet the client's value without snapping it to minStep, so a
+//whole number scene value (67% on three steps) or the float32 form of an exact
+//step (83.33333587646484 on six) sits a hair above the step it means. Rounding
+//to the nearest step, as fanLevelWrite does, lands it where it was aimed
+describe('a slider value between steps', () => {
+  for (const [model, steps, value, index] of /** @type {[string | undefined, number, number, number][]} */ ([
+    [undefined, 3, 67, 1],
+    [undefined, 3, 66.67, 1],
+    [undefined, 3, 34, 0],
+    [undefined, 3, 100, 2],
+    ['AC4220', 6, 17, 0],
+    ['AC4220', 6, 83.33333587646484, 4],
+    ['AC2210', 7, 43, 2],
+    ['AC3210', 7, 42.85714340209961, 2],
+    ['AC3210', 7, 71.42857360839844, 4],
+    ['AMF765', 12, 42, 4],
+    ['AMF765', 12, 41.66666793823242, 4],
+    //a value no step produces still selects the first, never off
+    [undefined, 3, 5, 0],
+  ])) {
+    it(`selects speed ${index + 1} of ${steps} for ${value}%${model ? ` on the ${model}` : ''}`, async (t) => {
+      const { handler, sent } = recordingWrites(model ? { model } : {});
+      t.after(() => handler.kill(true));
+      assert.equal(handler.speeds.length, steps);
+
+      assert.deepEqual(handler.speedTarget(value), handler.speeds[index]);
+
+      await handler.setPurifierRotationSpeed(value);
+
+      assert.equal(sent.length, 1);
+      assert.equal(handler.lastManualSpeed, index);
+    });
+  }
+});
