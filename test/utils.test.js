@@ -185,6 +185,17 @@ describe('validPort', () => {
     assert.equal(warnings.length, 1);
     assert.match(warnings[0], /Invalid port '65536'/);
   });
+
+  //some editors write null, or an empty string, for a number field that was
+  //cleared. Both mean the port was left unset, not that it was mistyped
+  it('treats a null or empty port as unset, silently', () => {
+    warnings.length = 0;
+
+    assert.equal(validPort(null), 5683);
+    assert.equal(validPort(''), 5683);
+    assert.equal(validPort('  '), 5683);
+    assert.deepEqual(warnings, []);
+  });
 });
 
 describe('hapNumber', () => {
