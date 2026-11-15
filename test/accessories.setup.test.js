@@ -130,6 +130,26 @@ describe('accessories.setup', () => {
     );
   });
 
+  //the map is the caller's, so a device it already holds counts as holding its
+  //host just as one set up earlier in the same call does
+  it('skips a device that shares a host with one already in the map', () => {
+    Setup(deviceMap, [{ active: true, name: 'Bedroom', host: '10.0.1.16' }], uuid.generate);
+
+    const { warn, restore } = capture();
+
+    Setup(deviceMap, [{ active: true, name: 'Bedroom again', host: '10.0.1.16' }], uuid.generate);
+    restore();
+
+    assert.deepEqual(
+      [...deviceMap.values()].map((device) => device.name),
+      ['Bedroom']
+    );
+    assert.equal(warn.length, 1);
+    assert.ok(
+      warn[0].includes('Bedroom again: This device has the same ip/host and port (10.0.1.16:5683) as "Bedroom"')
+    );
+  });
+
   it('sets up two devices on the same host when their ports differ', () => {
     Setup(
       deviceMap,
