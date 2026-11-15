@@ -2313,6 +2313,13 @@ class Handler {
         this.purifierService
           .updateCharacteristic(Characteristic.Active, on ? 1 : 0)
           .updateCharacteristic(Characteristic.CurrentAirPurifierState, on ? 2 : 0);
+        //a 0% from the slider gives way to the power-off beside it, so when
+        //that is the write that failed the slider has nothing else to put it
+        //back (seen on 2.1.0-beta.3: the tile back on, the slider left at 0%).
+        //Still on means the write given up was an off
+        if (on) {
+          this.restoreSpeedAfterFailedOff();
+        }
       }
 
       if (this.modeKeys().includes(key)) {

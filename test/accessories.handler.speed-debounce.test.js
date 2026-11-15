@@ -433,6 +433,26 @@ describe('a failed slider write', () => {
     });
   }
 
+  //dragging to 0% in the Home app sends Active 0 beside RotationSpeed 0. The
+  //0% gives way to the power write (it is the same off), so when that write
+  //fails the slider has no write of its own to put it back: seen on 2.1.0-beta.3,
+  //the tile back on but the slider left at 0%
+  for (const order of ['Active first', 'speed first']) {
+    it(`snaps the slider back when the power-off it gave way to fails (${order})`, async (t) => {
+      const { handler, shown, settled } = recording({ fail: true });
+      t.after(() => handler.kill(true));
+      handler.handleResponse({ ...RUNNING });
+
+      const active = () => handler.setPurifierActive(0).catch(() => {});
+      const speed = () => handler.setPurifierRotationSpeed(0);
+      await Promise.all(order === 'Active first' ? [active(), speed()] : [speed(), active()]);
+      await settled();
+
+      assert.equal(shown.RotationSpeed, 100);
+      assert.equal(shown.Active, 1);
+    });
+  }
+
   it('leaves a newer request on the slider when an earlier 0% write fails', async (t) => {
     const { handler, shown, settled } = recording();
     t.after(() => handler.kill(true));
