@@ -174,12 +174,12 @@ describe('fan speed slider debounce', () => {
     assert.deepEqual(sent, [AUTO]);
   });
 
-  it('restarts the wait on every new value', async (t) => {
+  it('restarts the wait on every value on a new step', async (t) => {
     const { handler, sent, settled } = recording();
     t.after(() => handler.kill(true));
     handler.handleResponse({ ...ON });
 
-    for (const value of [25, 50, 75, 100, 25, 100]) {
+    for (const value of [25, 50, 100, 25, 75, 100]) {
       await handler.setPurifierRotationSpeed(value);
       await delay(DEBOUNCE / 2);
     }
@@ -188,6 +188,42 @@ describe('fan speed slider debounce', () => {
 
     await settled();
     assert.deepEqual(sent, [TURBO]);
+  });
+
+  it('sends a step held while HomeKit keeps repeating it, before the finger lifts', async (t) => {
+    //HomeKit resends the slider's position about four times a second while a
+    //finger is on it, even held still (seen on 2.1.0-beta.2: 50 sent 21 times
+    //in five seconds). A repeat of the step already waiting must not restart
+    //the wait, or a step held for any length of time is never sent
+    const { handler, sent, settled } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON, D0310C: 17 });
+
+    for (let i = 0; i < 8; i++) {
+      await handler.setPurifierRotationSpeed(50);
+      await delay(DEBOUNCE / 4);
+    }
+    assert.deepEqual(sent, [AUTO]);
+
+    await handler.setPurifierRotationSpeed(100);
+    await settled();
+    assert.deepEqual(sent, [AUTO, TURBO]);
+  });
+
+  it('treats another value on the waiting step as a repeat, and keeps the newer value', async (t) => {
+    const { handler, sent, settled } = recording();
+    t.after(() => handler.kill(true));
+    handler.handleResponse({ ...ON, D0310C: 17 });
+
+    await handler.setPurifierRotationSpeed(50);
+    await delay(DEBOUNCE * 0.6);
+    await handler.setPurifierRotationSpeed(75);
+    assert.equal(handler.rotationSpeed(), 75);
+    await delay(DEBOUNCE * 0.6);
+    assert.deepEqual(sent, [AUTO]);
+
+    await settled();
+    assert.deepEqual(sent, [AUTO]);
   });
 
   it('resolves at once and sends a lone tap once the window has passed', async (t) => {

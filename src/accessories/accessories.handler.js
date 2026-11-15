@@ -371,9 +371,9 @@ class Handler {
     //how long a RotationSpeed write waits for a newer one. an instance field
     //for the same reason: so a test can shorten it. see setPurifierRotationSpeed
     this.speedDebounceWindow = SPEED_DEBOUNCE_WINDOW;
-    //the speed waiting out that window, if any: its value, its timer, and how
-    //to send it now
-    /** @type {{ value: number, timer: NodeJS.Timeout, fire: () => void } | null} */
+    //the speed waiting out that window, if any: its value, the registers it
+    //writes, its timer, and how to send it now
+    /** @type {{ value: number, target: Record<string, unknown> | undefined, timer: NodeJS.Timeout, fire: () => void } | null} */
     this.pendingSpeed = null;
     //the registers the last slider write that went out asked for. see
     //speedAlreadyRequested
@@ -1371,6 +1371,23 @@ class Handler {
   async setPurifierRotationSpeed(value) {
     this.purifierService.updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, value);
 
+    const target = this.speedTarget(value);
+
+    //HomeKit resends the slider's position about four times a second while a
+    //finger is on it, held still or not (2.1.0-beta.2: 50 sent 21 times in five
+    //seconds). Restarting the wait on those repeats meant a held step was
+    //never sent until release, so a value on the step already waiting keeps
+    //its timer and only replaces the value shown
+    if (
+      this.pendingSpeed &&
+      target &&
+      this.pendingSpeed.target &&
+      this.sameRegisters(this.pendingSpeed.target, target)
+    ) {
+      this.pendingSpeed.value = value;
+      return;
+    }
+
     if (this.pendingSpeed) {
       clearTimeout(this.pendingSpeed.timer);
       logger.debug(
@@ -1379,8 +1396,6 @@ class Handler {
       );
       this.pendingSpeed = null;
     }
-
-    const target = this.speedTarget(value);
 
     if (target && this.speedAlreadyRequested(target)) {
       logger.debug(
@@ -1391,9 +1406,10 @@ class Handler {
     }
 
     const fire = () => {
-      clearTimeout(timer);
+      clearTimeout(pending.timer);
       this.pendingSpeed = null;
       this.lastSpeedTarget = target;
+      const { value } = pending;
 
       //queues its write synchronously, so it is in the batch before the release.
       //writeRotationSpeed has logged a failure, and a failed speed above 0% has
@@ -1405,9 +1421,9 @@ class Handler {
       });
       this.releaseWriteBatch();
     };
-    const timer = setTimeout(fire, this.speedDebounceWindow);
+    const pending = { value, target, fire, timer: setTimeout(fire, this.speedDebounceWindow) };
 
-    this.pendingSpeed = { value, timer, fire };
+    this.pendingSpeed = pending;
   }
 
   /**
