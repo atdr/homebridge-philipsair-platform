@@ -154,6 +154,15 @@ const Setup = (deviceMap, devices, generateUUID) => {
     } else if (!device.name) {
       logger.warn('One of the devices has no name configured. This device will be skipped.');
       error = true;
+    } else if (typeof device.name !== 'string') {
+      //the accessory's identity is derived from the name, which only takes
+      //text. a name written without quotes would throw there, and one throw
+      //ends the setup of every device listed after it
+      logger.warn(
+        `The name of entry ${index + 1} in devices is not text (it is ${describeEntry(device.name)}). ` +
+          'Put the name in quotes. This device will be skipped.'
+      );
+      error = true;
     } else if (!device.host) {
       if (deviceConfig.host) {
         logger.warn('The configured ip/host for this device is invalid. This device will be skipped.', device.name);

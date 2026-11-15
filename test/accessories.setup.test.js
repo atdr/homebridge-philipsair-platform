@@ -340,6 +340,34 @@ describe('accessories.setup', () => {
     assert.ok(warn.some((message) => message.includes('Entry 4 in devices is not a device (it is a list)')));
   });
 
+  //the accessory's identity is derived from the name, and that only takes text:
+  //a name written without quotes used to throw there and stop the whole setup
+  it('skips a device whose name is not text, and still sets up the others', () => {
+    const { warn, restore } = capture();
+
+    Setup(
+      deviceMap,
+      [
+        { active: true, name: 123, host: '10.0.1.16' },
+        { active: true, name: true, host: '10.0.1.17' },
+        { active: true, name: ['Bedroom'], host: '10.0.1.18' },
+        { active: true, name: 'Study', host: '10.0.1.19' },
+      ],
+      uuid.generate
+    );
+    restore();
+
+    assert.deepEqual(
+      [...deviceMap.values()].map((device) => device.name),
+      ['Study']
+    );
+    assert.equal(warn.length, 3);
+    assert.ok(warn[0].includes('The name of entry 1 in devices is not text (it is a number)'));
+    assert.ok(warn[0].includes('Put the name in quotes. This device will be skipped.'));
+    assert.ok(warn[1].includes('The name of entry 2 in devices is not text (it is a boolean)'));
+    assert.ok(warn[2].includes('The name of entry 3 in devices is not text (it is a list)'));
+  });
+
   it('treats a devices value that is not a list as no devices, and says what it expected', () => {
     for (const devices of [{ a: 1 }, 'Purifier', 42, null, undefined]) {
       const { warn, restore } = capture();
