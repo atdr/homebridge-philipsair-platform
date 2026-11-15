@@ -867,6 +867,41 @@ modelConfig.hasAllergenMode = (key) => Boolean((modeMapsFor(key) || {}).allergen
 //the humidifier option can do anything for it
 modelConfig.hasHumidifier = (key) => !(key && models[key] && (models[key].unsupported || []).includes('func'));
 
+//the generic key each sensor, light and filter option reads its HomeKit state
+//from in processUpdate. The light writes uil too, but its state is aqil
+modelConfig.optionKeys = Object.freeze({
+  light: 'aqil',
+  temperature: 'temp',
+  humidity: 'rh',
+  preFilter: 'fltsts0',
+  hepaFilter: 'fltsts1',
+  carbonFilter: 'fltsts2',
+});
+
+//a mapping whose registers all have the dash-less shape. Such a device reports
+//dash-less registers and no generic keys, and handleResponse only turns a
+//register into a generic key through keyMaps
+const isDashless = (entry) => {
+  const registers = Object.values(entry.keyMaps || {});
+
+  return registers.length > 0 && registers.every((register) => DIALECT_KEYS.dashless.test(register));
+};
+
+//whether the model data proves a model can never report a generic key: every
+//mapping it has is dash-less and none maps the key. Nothing is known about
+//what a legacy, dashed or unmapped device leaves out, so they never qualify
+modelConfig.neverReports = (key, generic) => {
+  const model = key && models[key];
+
+  if (!model) {
+    return false;
+  }
+
+  return [model, ...Object.values(model.dialects || {})].every(
+    (entry) => isDashless(entry) && !(entry.keyMaps || {})[generic]
+  );
+};
+
 //every field a model entry uses, for the drift guard in test/docs.test.js
 modelConfig.modelFields = [
   ...new Set(

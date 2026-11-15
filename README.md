@@ -185,14 +185,14 @@ Each entry in the `devices` array is one purifier. Three fields are required:
 | `manufacturer`    | Shown in the Home app. Cosmetic only.                                                                                                                                                  | `"Philips"` |
 | `serialNumber`    | Shown in the Home app. Cosmetic only.                                                                                                                                                  | `"000000"`  |
 | `humidifier`      | Expose a separate humidifier accessory to HomeKit.                                                                                                                                     | `false`     |
-| `light`           | Expose device lights as lightbulbs to HomeKit.                                                                                                                                         | `false`     |
-| `temperature`     | Expose device temperature as a temperature sensor to HomeKit.                                                                                                                          | `false`     |
-| `humidity`        | Expose device humidity as a humidity sensor to HomeKit.                                                                                                                                | `false`     |
+| `light`           | Expose device lights as lightbulbs to HomeKit.[^model-option]                                                                                                                          | `false`     |
+| `temperature`     | Expose device temperature as a temperature sensor to HomeKit.[^model-option]                                                                                                           | `false`     |
+| `humidity`        | Expose device humidity as a humidity sensor to HomeKit.[^model-option]                                                                                                                 | `false`     |
 | `sleepSpeed`      | Adds a 'sleep' step below the lowest fan speed.[^sleep-speed]                                                                                                                          | `false`     |
 | `allergicFunc`    | Makes Auto in the Home app start the allergen mode instead of the general Auto mode.[^allergic]                                                                                        | `false`     |
-| `preFilter`       | Expose pre-filter status to HomeKit.                                                                                                                                                   | `false`     |
-| `carbonFilter`    | Expose active carbon filter status to HomeKit.                                                                                                                                         | `false`     |
-| `hepaFilter`      | Expose HEPA/NanoProtect filter status to HomeKit.                                                                                                                                      | `false`     |
+| `preFilter`       | Expose pre-filter status to HomeKit.[^model-option]                                                                                                                                    | `false`     |
+| `carbonFilter`    | Expose active carbon filter status to HomeKit.[^model-option]                                                                                                                          | `false`     |
+| `hepaFilter`      | Expose HEPA/NanoProtect filter status to HomeKit.[^model-option]                                                                                                                       | `false`     |
 
 </details>
 
@@ -753,6 +753,12 @@ endorsement by them.
 [^always-reported]: Faults that stop the plugin working at all, such as an
     `aioairctrl` it cannot run, are always reported, whatever
     this is set to.
+
+[^model-option]: Some models have no register for this, and the plugin warns at
+    startup when the option cannot do anything for the configured
+    model.
+    [Other controls](https://github.com/atdr/homebridge-philipsair-platform/blob/main/docs/controls.md#other-controls)
+    names them.
 
 [^sleep-speed]: Ignored for models that have their own speed mapping. Those use
     the right speeds automatically, and the plugin warns when the

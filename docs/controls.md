@@ -93,10 +93,17 @@ Some controls depend on what a model's registers can do:
   - The **light** is on or off, and any brightness switches it on. On most of
     them it is the lamp (`D03135`), because the display backlight register only
     reports there. The AC0950, AC0951 and AC3737 have no light the plugin can
-    switch.
-  - The **temperature** sensor reads 0: these models report tenths of a degree,
-    which the plugin does not convert.
+    switch, and the light option says so in the log at startup.
+  - The **temperature** sensor reads 0, and the temperature option says so in
+    the log at startup: these models report tenths of a degree, which the plugin
+    does not convert yet
+    ([#186](https://github.com/atdr/homebridge-philipsair-platform/issues/186)).
+  - The **carbon filter** option does nothing, and says so in the log at
+    startup: none of these models has a carbon filter register the plugin maps.
   - The **humidifier** option does nothing on the AC3420, AC3421 and AC3737, and
     says so in the log at startup. These models report no humidifier on/off the
     plugin can read or switch, so it offers no humidifier control rather than
     one that cannot work.
+- On the AC0651 the light, temperature, humidity and carbon filter options do
+  nothing, and each says so in the log at startup: its mapping has no register
+  for any of them.

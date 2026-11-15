@@ -223,6 +223,91 @@ describe('accessories.setup', () => {
     assert.ok(warn[1].includes('Study: The humidifier option does nothing for the AC3737'));
   });
 
+  //a sensor, light or filter whose key the model can never report shows a
+  //constant reading in HomeKit, 0°C for a temperature, so it has to be said
+  const everyOption = {
+    light: true,
+    temperature: true,
+    humidity: true,
+    preFilter: true,
+    hepaFilter: true,
+    carbonFilter: true,
+  };
+
+  it('says when a sensor, light or filter option cannot do anything for the model', async () => {
+    const { warn, restore } = capture();
+
+    await Setup(
+      deviceMap,
+      [
+        { active: true, name: 'Bedroom', model: 'AC0950', host: '10.0.1.16', ...everyOption },
+        { active: true, name: 'Study', model: 'AC0651', host: '10.0.1.17', humidity: true },
+        { active: true, name: 'Hall', model: 'AC2210', host: '10.0.1.18', light: true, preFilter: true },
+      ],
+      uuid.generate
+    );
+    restore();
+
+    assert.deepEqual(warn, [
+      'Bedroom: The light option does nothing for the AC0950, which has no light this plugin can switch.',
+      'Bedroom: The temperature option does nothing for the AC0950, ' +
+        'whose dash-less registers carry no temperature this plugin can read yet (issue #186).',
+      'Bedroom: The carbon filter option does nothing for the AC0950, ' +
+        'which reports no carbon filter status this plugin can read.',
+      'Study: The humidity option does nothing for the AC0651, which reports no humidity this plugin can read.',
+    ]);
+  });
+
+  it('claims nothing about the options where the model data cannot prove them dead', async () => {
+    const { warn, restore } = capture();
+
+    await Setup(
+      deviceMap,
+      [
+        { active: true, name: 'Bedroom', host: '10.0.1.16', ...everyOption },
+        { active: true, name: 'Study', model: 'AC0820', host: '10.0.1.17', ...everyOption },
+        { active: true, name: 'Lounge', model: 'AC3829', host: '10.0.1.18', ...everyOption },
+        { active: true, name: 'Hall', model: 'AC0850', host: '10.0.1.19', ...everyOption },
+        { active: true, name: 'Office', model: 'AC1715', host: '10.0.1.20', ...everyOption },
+        { active: true, name: 'Den', model: 'AC0650', host: '10.0.1.21', ...everyOption },
+      ],
+      uuid.generate
+    );
+    restore();
+
+    assert.deepEqual(warn, []);
+  });
+
+  it('keeps the existing option warnings ahead of the new ones', async () => {
+    const { warn, restore } = capture();
+
+    await Setup(
+      deviceMap,
+      [
+        {
+          active: true,
+          name: 'Bedroom',
+          model: 'AC3737',
+          host: '10.0.1.16',
+          sleepSpeed: true,
+          allergicFunc: true,
+          humidifier: true,
+          temperature: true,
+        },
+      ],
+      uuid.generate
+    );
+    restore();
+
+    assert.deepEqual(warn, [
+      'Bedroom: The sleep speed option does nothing for the AC3737, which brings its own speed table.',
+      'Bedroom: The allergic mode option does nothing for the AC3737, which has no plain allergen mode.',
+      'Bedroom: The humidifier option does nothing for the AC3737, which has no humidifier on/off this plugin can drive.',
+      'Bedroom: The temperature option does nothing for the AC3737, ' +
+        'whose dash-less registers carry no temperature this plugin can read yet (issue #186).',
+    ]);
+  });
+
   it('leaves a trace when a device is skipped for being inactive', async () => {
     const { info, restore } = capture();
 

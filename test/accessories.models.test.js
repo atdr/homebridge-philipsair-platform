@@ -649,3 +649,64 @@ describe('imported models', () => {
     }
   });
 });
+
+//a dash-less device reports only dash-less registers, and handleResponse only
+//turns a register into a generic key through keyMaps, so a generic key that
+//every one of a model's dash-less mappings leaves out can never be read
+describe('keys a model can never report', () => {
+  const sensorKeys = ['aqil', 'temp', 'rh', 'fltsts0', 'fltsts1', 'fltsts2'];
+
+  it('names the key each sensor, light and filter option reads', () => {
+    assert.deepEqual(modelConfig.optionKeys, {
+      light: 'aqil',
+      temperature: 'temp',
+      humidity: 'rh',
+      preFilter: 'fltsts0',
+      hepaFilter: 'fltsts1',
+      carbonFilter: 'fltsts2',
+    });
+  });
+
+  //DASHLESS_KEYS leaves temperature out, since D03224 reports tenths of a degree
+  it('never reads a temperature or a carbon filter on the dash-less models', () => {
+    for (const model of ['AC0651', 'AC0950', 'AC2210', 'AC3420', 'AC3737', 'AC4221', 'AMF765']) {
+      assert.equal(modelConfig.neverReports(model, 'temp'), true, model);
+      assert.equal(modelConfig.neverReports(model, 'fltsts2'), true, model);
+      assert.equal(modelConfig.neverReports(model, 'fltsts1'), false, model);
+    }
+  });
+
+  it('never reads a light on the dash-less models that map none', () => {
+    for (const model of ['AC0651', 'AC0950', 'AC0951', 'AC3737']) {
+      assert.equal(modelConfig.neverReports(model, 'aqil'), true, model);
+    }
+    for (const model of ['AC2210', 'AC3221', 'AC4220', 'AMF765']) {
+      assert.equal(modelConfig.neverReports(model, 'aqil'), false, model);
+    }
+  });
+
+  it('reads the dash-less humidity and pre-filter where the shared registers carry them', () => {
+    assert.equal(modelConfig.neverReports('AC0950', 'rh'), false);
+    assert.equal(modelConfig.neverReports('AC0950', 'fltsts0'), false);
+    assert.equal(modelConfig.neverReports('AC0651', 'rh'), true);
+    assert.equal(modelConfig.neverReports('AC0651', 'fltsts0'), false);
+  });
+
+  //the dashed AC0850 and the dashed AC1715 are not dash-less, so nothing
+  //proves what they leave unmapped is absent from their status
+  it('claims nothing for a model with a dialect that is not dash-less', () => {
+    for (const model of ['AC0850', 'AC1715', 'AC0650']) {
+      for (const key of sensorKeys) {
+        assert.equal(modelConfig.neverReports(model, key), false, `${model} ${key}`);
+      }
+    }
+  });
+
+  it('claims nothing for the legacy models or the default mapping', () => {
+    for (const model of ['AC3829', 'AC3036', 'AC2729', 'AC4558', undefined, 'AC0820']) {
+      for (const key of sensorKeys) {
+        assert.equal(modelConfig.neverReports(model, key), false, `${model} ${key}`);
+      }
+    }
+  });
+});
