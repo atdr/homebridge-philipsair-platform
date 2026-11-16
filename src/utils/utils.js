@@ -69,8 +69,10 @@ exports.validHost = (host) => {
   return trimmed;
 };
 
+//null and an empty string are what some editors write for a number field that
+//was cleared, so they mean unset just as a missing key does, and say nothing
 exports.validPort = (port) => {
-  if (port === undefined) {
+  if (port === undefined || port === null || (typeof port === 'string' && !port.trim())) {
     return 5683;
   }
 

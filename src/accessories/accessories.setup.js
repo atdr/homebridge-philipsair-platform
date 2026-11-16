@@ -134,6 +134,16 @@ const Setup = (deviceMap, devices, generateUUID) => {
     return;
   }
 
+  //which device already holds each host and port. these purifiers serve one
+  //connection at a time, so a second accessory on the same device would fight
+  //the first for it and leave both stalling. hostnames are case insensitive
+  const hosts = new Map();
+  const hostKey = (device) => `${device.host.toLowerCase()}:${device.port}`;
+
+  for (const device of deviceMap.values()) {
+    hosts.set(hostKey(device), device.name);
+  }
+
   for (const [index, deviceConfig] of devices.entries()) {
     if (typeof deviceConfig !== 'object' || deviceConfig === null || Array.isArray(deviceConfig)) {
       logger.warn(
@@ -177,10 +187,18 @@ const Setup = (deviceMap, devices, generateUUID) => {
 
       if (deviceMap.has(uuid)) {
         logger.warn('Multiple devices are configured with this name. Duplicate devices will be skipped.', device.name);
+      } else if (hosts.has(hostKey(device))) {
+        logger.warn(
+          `This device has the same ip/host and port (${device.host}:${device.port}) as ` +
+            `"${hosts.get(hostKey(device))}". The device accepts one connection at a time, ` +
+            'so this device will be skipped.',
+          device.name
+        );
       } else {
         logger.info('Initializing device...', device.name);
         device.modelKey = announceModel(device);
         deviceMap.set(uuid, device);
+        hosts.set(hostKey(device), device.name);
       }
     }
   }

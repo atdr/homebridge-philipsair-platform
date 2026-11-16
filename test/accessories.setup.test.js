@@ -99,6 +99,87 @@ describe('accessories.setup', () => {
     assert.equal(device.host, '192.168.1.142');
   });
 
+  //these purifiers serve one connection at a time, so two accessories on the
+  //same device fight over it and both stall, with nothing in the log saying why
+  it('skips a later device that shares a host and port with an earlier one, naming both', () => {
+    const { warn, restore } = capture();
+
+    Setup(
+      deviceMap,
+      [
+        { active: true, name: 'Bedroom', host: '10.0.1.16' },
+        { active: true, name: 'Bedroom copy', host: ' 10.0.1.16 ', port: 5683 },
+        { active: true, name: 'Study', host: 'Purifier.local' },
+        { active: true, name: 'Study copy', host: 'purifier.LOCAL' },
+      ],
+      uuid.generate
+    );
+    restore();
+
+    assert.deepEqual(
+      [...deviceMap.values()].map((device) => device.name),
+      ['Bedroom', 'Study']
+    );
+    assert.equal(warn.length, 2);
+    assert.ok(
+      warn[0].includes('Bedroom copy: This device has the same ip/host and port (10.0.1.16:5683) as "Bedroom"')
+    );
+    assert.ok(warn[0].includes('accepts one connection at a time, so this device will be skipped.'));
+    assert.ok(
+      warn[1].includes('Study copy: This device has the same ip/host and port (purifier.LOCAL:5683) as "Study"')
+    );
+  });
+
+  //the map is the caller's, so a device it already holds counts as holding its
+  //host just as one set up earlier in the same call does
+  it('skips a device that shares a host with one already in the map', () => {
+    Setup(deviceMap, [{ active: true, name: 'Bedroom', host: '10.0.1.16' }], uuid.generate);
+
+    const { warn, restore } = capture();
+
+    Setup(deviceMap, [{ active: true, name: 'Bedroom again', host: '10.0.1.16' }], uuid.generate);
+    restore();
+
+    assert.deepEqual(
+      [...deviceMap.values()].map((device) => device.name),
+      ['Bedroom']
+    );
+    assert.equal(warn.length, 1);
+    assert.ok(
+      warn[0].includes('Bedroom again: This device has the same ip/host and port (10.0.1.16:5683) as "Bedroom"')
+    );
+  });
+
+  it('sets up two devices on the same host when their ports differ', () => {
+    Setup(
+      deviceMap,
+      [
+        { active: true, name: 'Bedroom', host: '10.0.1.16' },
+        { active: true, name: 'Study', host: '10.0.1.16', port: 5684 },
+      ],
+      uuid.generate
+    );
+
+    assert.equal(deviceMap.size, 2);
+  });
+
+  //an inactive device is not exposed, so it holds no connection to fight over
+  it('does not count an inactive device as holding its host', () => {
+    Setup(
+      deviceMap,
+      [
+        { active: false, name: 'Old', host: '10.0.1.16' },
+        { active: true, name: 'Bedroom', host: '10.0.1.16' },
+      ],
+      uuid.generate
+    );
+
+    assert.deepEqual(
+      [...deviceMap.values()].map((device) => device.name),
+      ['Bedroom']
+    );
+  });
+
   //a device quietly running on the default mapping is a device whose controls
   //may do nothing, so which command set is in force has to be in the log
   it('names the command set each device runs on', async () => {
