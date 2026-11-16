@@ -177,7 +177,7 @@ describe('validFilterChangeThreshold', () => {
   });
 
   it('warns and falls back to the default on nonsense, null included', () => {
-    for (const value of [-1, 101, 'soon', null, NaN, Infinity, '', true, []]) {
+    for (const value of [-1, 101, 20.5, '20.5', 'soon', null, NaN, Infinity, '', true, []]) {
       warnings.length = 0;
 
       assert.equal(validFilterChangeThreshold(value), 10, `${String(value)} did not fall back`);

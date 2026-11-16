@@ -121,7 +121,7 @@ exports.validFilterChangeThreshold = (threshold) => {
   const isNumeric = typeof threshold === 'number' || (typeof threshold === 'string' && threshold.trim() !== '');
   const number = isNumeric ? Number(threshold) : NaN;
 
-  if (!Number.isFinite(number) || number < 0 || number > 100) {
+  if (!Number.isInteger(number) || number < 0 || number > 100) {
     logger.warn(
       `Invalid filter change threshold '${threshold}' configured, using default ${DEFAULT_FILTER_CHANGE_THRESHOLD}% instead.`
     );
