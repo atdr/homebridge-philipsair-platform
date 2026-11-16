@@ -254,6 +254,9 @@ class Handler {
     //whether an unapplied write has already been warned about, so an automation
     //that keeps failing reports once rather than on every cycle
     this.loggedWriteFailure = false;
+    //whether HomeKit is being told the device cannot be reached. Set when a poll
+    //failure escalates and cleared by the next parsed status. see markUnreachable
+    this.unreachable = false;
     this.obj = {};
 
     //instance fields rather than bare constants so tests can shorten the waits
@@ -2600,6 +2603,12 @@ class Handler {
     const escalate = (this.stalled && !this.everAnswered()) || this.pollFailures >= FAILURE_ESCALATION_THRESHOLD;
     const kind = this.stalled ? 'stall' : 'exit';
 
+    //HomeKit is told on every escalated failure, not only the first one logged,
+    //so a characteristic a setter has since written to is marked again
+    if (escalate) {
+      this.markUnreachable();
+    }
+
     const summary = this.stalled
       ? `No status received from the device within ${Math.round(this.stallTimeout / 1000)}s. Check that the purifier is powered on and that 'host' and 'port' are correct.`
       : `The polling process exited with code ${code} without returning any status (attempt ${this.pollFailures}). Check that '${this.binary}' runs as the Homebridge user (see README Troubleshooting).`;
@@ -2619,6 +2628,80 @@ class Handler {
     if (stderr) {
       logger.error(new Error(`${this.binary} wrote: ${stderr}`), this.accessory.displayName);
     }
+  }
+
+  /**
+   * The error HomeKit shows as No Response.
+   *
+   * @returns {Error}
+   */
+  communicationFailure() {
+    const { HapStatusError, HAPStatus } = this.api.hap;
+
+    return new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+  }
+
+  /**
+   * Shows the accessory as No Response once a poll failure has escalated
+   * (issue #178). Without this every read answered from the last reading,
+   * however old, and a device that never answered read as one switched off.
+   *
+   * The read handlers throw (see `read`), and the error is also pushed onto the
+   * characteristics that have no read handler of their own, which HAP otherwise
+   * answers from their cached value. HAP does not notify on a pushed error, so
+   * it is what the next read sees rather than an event.
+   *
+   * Only characteristics that `processUpdate` writes back on every status get
+   * the error: a pushed value is what clears it, and the filter levels are only
+   * pushed when the device reports that filter, so an error there could outlast
+   * the outage. Those still read as their last value.
+   *
+   * A device that has reported itself switched off is exempt. These purifiers
+   * answer only now and then while off, which is why the off state has its own
+   * stall timeout and no failure report, and No Response would flap every
+   * night. A device that has never answered is not known to be off, which is
+   * exactly the case this exists for.
+   */
+  markUnreachable() {
+    if (this.deviceKnownOff()) {
+      return;
+    }
+
+    this.unreachable = true;
+
+    const { Characteristic } = this.api.hap;
+    const error = this.communicationFailure();
+    /** @type {[any, string[]][]} */
+    const pushed = [
+      [this.purifierService, ['Active', 'CurrentAirPurifierState', 'RotationSpeed']],
+      [this.airQualityService, ['AirQuality', 'PM2_5Density']],
+      [this.temperatureService, ['CurrentTemperature']],
+      [this.humidityService, ['CurrentRelativeHumidity']],
+      [this.lightService, ['On']],
+      [this.humidifierService, ['Active']],
+    ];
+
+    for (const [service, names] of pushed) {
+      for (const name of service ? names : []) {
+        service.updateCharacteristic(Characteristic[name], error);
+      }
+    }
+  }
+
+  /**
+   * Answers a HomeKit read: from the last reading, or with No Response while
+   * the device cannot be reached (see `markUnreachable`).
+   *
+   * @template T
+   * @param {() => T} get
+   * @returns {T}
+   */
+  read(get) {
+    if (this.unreachable) {
+      throw this.communicationFailure();
+    }
+
+    return get();
   }
 
   /**
@@ -2883,6 +2966,9 @@ class Handler {
       this.receivedData = true;
       this.pollFailures = 0;
       this.loggedParseFailure = false;
+      //the characteristics marked unreachable are cleared by the values pushed
+      //below, and the read handlers by this
+      this.unreachable = false;
 
       if (this.loggedFailureKind) {
         this.loggedFailureKind = null;

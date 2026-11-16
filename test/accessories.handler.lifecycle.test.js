@@ -1081,6 +1081,168 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     assert.deepEqual(logs.warn, []);
   });
 
+  //issue #178: once the plugin warns that the device is not answering, HomeKit
+  //is told too, rather than left showing the last reading as if it were fresh
+  describe('No Response in HomeKit', () => {
+    const errored = (service) => service.updates.filter(([, value]) => communicationFailure(value));
+
+    const withServices = (handler) => {
+      handler.purifierService = makeService();
+      handler.airQualityService = makeService();
+      handler.temperatureService = makeService();
+      handler.humidityService = makeService();
+      handler.lightService = makeService();
+      handler.humidifierService = makeService();
+      handler.preFilterService = makeService();
+      return handler;
+    };
+
+    it('marks a device that never answered unreachable on its first stall', () => {
+      const handler = withServices(makeHandler({}));
+
+      handler.stalled = true;
+      handler.pollFailures = 1;
+      handler.reportPollFailure(null);
+
+      assert.equal(handler.unreachable, true);
+      assert.deepEqual(
+        errored(handler.purifierService).map(([name]) => name),
+        ['Active', 'CurrentAirPurifierState', 'RotationSpeed'],
+        'the purifier was not told it is unreachable'
+      );
+      assert.deepEqual(
+        errored(handler.airQualityService).map(([name]) => name),
+        ['AirQuality', 'PM2_5Density']
+      );
+      assert.deepEqual(
+        errored(handler.temperatureService).map(([name]) => name),
+        ['CurrentTemperature']
+      );
+      assert.deepEqual(
+        errored(handler.humidityService).map(([name]) => name),
+        ['CurrentRelativeHumidity']
+      );
+      assert.deepEqual(
+        errored(handler.lightService).map(([name]) => name),
+        ['On']
+      );
+      assert.deepEqual(
+        errored(handler.humidifierService).map(([name]) => name),
+        ['Active']
+      );
+    });
+
+    //a filter's level is pushed back only when the device reports that filter,
+    //so an error pushed onto one could outlive the outage it reported
+    it('leaves the filter services alone', () => {
+      const handler = withServices(makeHandler({}));
+
+      handler.stalled = true;
+      handler.reportPollFailure(null);
+
+      assert.deepEqual(handler.preFilterService.updates, []);
+    });
+
+    it('waits for the threshold when a device that has answered goes quiet', async () => {
+      const handler = withServices(makeHandler({}));
+      await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2' }));
+      handler.purifierService.updates.length = 0;
+
+      //the self-recovering stalls of #62 must not flash No Response every night
+      handler.stalled = true;
+      handler.pollFailures = 1;
+      handler.reportPollFailure(null);
+
+      assert.equal(handler.unreachable, false);
+      assert.deepEqual(errored(handler.purifierService), []);
+
+      handler.pollFailures = 3;
+      handler.reportPollFailure(null);
+
+      assert.equal(handler.unreachable, true);
+      assert.ok(errored(handler.purifierService).length > 0, 'a stall that kept repeating stayed silent in HomeKit');
+    });
+
+    it('marks a polling process that keeps exiting without status unreachable', () => {
+      const handler = withServices(makeHandler({}));
+
+      handler.pollFailures = 3;
+      handler.reportPollFailure(1);
+
+      assert.equal(handler.unreachable, true);
+    });
+
+    //these purifiers answer only now and then while off, so a device that has
+    //reported itself off keeps reading as off rather than as unreachable
+    it('never marks a device that reports itself switched off unreachable', async () => {
+      const handler = withServices(makeHandler({}));
+      await handler.processUpdate(JSON.stringify({ pwr: '0', mode: 'P', cl: false, om: '2' }));
+      handler.purifierService.updates.length = 0;
+
+      handler.pollFailures = 5;
+      handler.reportPollFailure(1);
+
+      assert.equal(handler.unreachable, false);
+      assert.deepEqual(errored(handler.purifierService), []);
+    });
+
+    it('answers HomeKit reads with No Response only while unreachable', () => {
+      const handler = withServices(makeHandler({}));
+      const read = () => handler.read(() => 'reading');
+
+      assert.equal(read(), 'reading');
+
+      handler.stalled = true;
+      handler.reportPollFailure(null);
+
+      assert.throws(read, communicationFailure);
+    });
+
+    it('clears on the next parsed status and pushes real values back', async () => {
+      const handler = withServices(makeHandler({}));
+
+      handler.stalled = true;
+      handler.reportPollFailure(null);
+      handler.purifierService.updates.length = 0;
+
+      await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2' }));
+
+      assert.equal(handler.unreachable, false);
+      assert.equal(
+        handler.read(() => 'reading'),
+        'reading'
+      );
+      assert.deepEqual(updated(handler.purifierService, 'Active'), [['Active', 1]]);
+    });
+
+    it('stays unreachable through an unparseable line', async () => {
+      const handler = withServices(makeHandler({}));
+
+      handler.stalled = true;
+      handler.reportPollFailure(null);
+      await handler.processUpdate("ModuleNotFoundError: No module named 'aioairctrl'");
+
+      assert.equal(handler.unreachable, true);
+    });
+
+    it('reports a device that never answers end to end', async () => {
+      const handler = makeHandler({ aioairctrlPath: SILENT_SHIM });
+      const purifier = makeService();
+      handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+      handler.stallTimeout = 60;
+      handler.restartDelay = 5000;
+
+      handler.longPoll();
+      await waitFor(() => handler.unreachable, { what: 'the silent device to be marked unreachable' });
+      handler.kill(true);
+
+      assert.ok(
+        errored(purifier).some(([name]) => name === 'Active'),
+        'the purifier tile was never told the device is unreachable'
+      );
+    });
+  });
+
   it('keeps the tail of stderr so a trailing traceback survives the cap', async () => {
     const handler = makeHandler({});
 
