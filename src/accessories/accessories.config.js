@@ -19,6 +19,12 @@ const Config = (deviceConfig) => {
     manufacturer: deviceConfig.manufacturer || 'Philips',
     model: deviceConfig.model || DEFAULT_MODEL,
     serialNumber: deviceConfig.serialNumber || '000000',
+    //whether the user typed the two values above or the defaults were applied.
+    //The device's own model and serial number fill in only the defaults, and the
+    //shaped values alone cannot say which they are: typing the placeholder text
+    //is still choosing it
+    modelSet: Boolean(deviceConfig.model),
+    serialNumberSet: Boolean(deviceConfig.serialNumber),
     host: validHost(deviceConfig.host),
     port: validPort(deviceConfig.port),
     refreshInterval: validRefreshInterval(deviceConfig.refreshInterval),

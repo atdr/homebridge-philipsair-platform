@@ -18,7 +18,7 @@ logger.configure({ info: noop, warn: noop, error: noop }, {});
 //survives a restart that is not a clean shutdown
 const persisted = [];
 const fakeApi = {
-  hap: { Service: {}, Characteristic: {} },
+  hap: { Service: {}, Characteristic: new Proxy({}, { get: (target, prop) => prop }) },
   updatePlatformAccessories: (accessories) => persisted.push(...accessories),
 };
 
@@ -40,6 +40,89 @@ const makeHandler = (config, context = {}) =>
       ...context,
     },
   });
+
+describe('accessory information from the device', () => {
+  const DEVICE_ID = '0123456789abcdef0123456789abcdef';
+  const status = () => ({
+    D01S05: 'AC0850/31',
+    D01S12: '0.1.3',
+    DeviceId: DEVICE_ID,
+    WifiVersion: 'AWS_Philips_AIR_Combo@86',
+    D03102: 1,
+    D0310C: 0,
+  });
+
+  //a handler whose AccessoryInformation service records what it is told
+  const withInfo = (config) => {
+    const handler = makeHandler({ model: 'AC0850', ...config });
+    const updates = [];
+    const service = {
+      updateCharacteristic: (name, value) => {
+        updates.push([name, value]);
+        return service;
+      },
+    };
+    handler.accessory.getService = () => service;
+    return { handler, updates };
+  };
+
+  it('fills model, firmware and serial number where the config only has defaults', () => {
+    const { handler, updates } = withInfo({ modelSet: false, serialNumberSet: false });
+
+    handler.handleResponse(status());
+
+    assert.deepEqual(updates, [
+      ['Model', 'AC0850/31'],
+      ['FirmwareRevision', '0.1.3'],
+      ['SerialNumber', DEVICE_ID],
+    ]);
+  });
+
+  it('never replaces a model or serial number the user typed', () => {
+    const { handler, updates } = withInfo({ modelSet: true, serialNumberSet: true });
+
+    handler.handleResponse(status());
+
+    assert.deepEqual(updates, [['FirmwareRevision', '0.1.3']]);
+  });
+
+  it("keeps today's values when the status lacks or mangles the fields", () => {
+    const { handler, updates } = withInfo({});
+
+    handler.handleResponse({ D01S12: 'AWS_Philips_AIR_Combo@86', DeviceId: 'nope', D03102: 1, D0310C: 0 });
+
+    assert.deepEqual(updates, []);
+  });
+
+  it('writes each value once, and again only when the device changes it', () => {
+    const { handler, updates } = withInfo({});
+
+    handler.handleResponse(status());
+    handler.handleResponse(status());
+    assert.equal(updates.length, 3);
+
+    handler.handleResponse({ ...status(), D01S12: '0.2.0' });
+    assert.deepEqual(updates[3], ['FirmwareRevision', '0.2.0']);
+    assert.equal(updates.length, 4);
+  });
+
+  it('picks up a field a later status carries when the first did not', () => {
+    const { handler, updates } = withInfo({});
+
+    handler.handleResponse({ D03102: 1, D0310C: 0, D03120: 1 });
+    assert.deepEqual(updates, []);
+
+    handler.handleResponse(status());
+    assert.equal(updates.length, 3);
+  });
+
+  it('does nothing when the accessory has no information service', () => {
+    const handler = makeHandler({});
+    handler.accessory.getService = () => null;
+
+    assert.doesNotThrow(() => handler.handleResponse(status()));
+  });
+});
 
 describe('speeds per model', () => {
   it('uses three speeds by default', () => {

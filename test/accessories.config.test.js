@@ -15,6 +15,8 @@ describe('accessories.config', () => {
       manufacturer: 'Philips',
       model: 'Air Purifier',
       serialNumber: '000000',
+      modelSet: false,
+      serialNumberSet: false,
       host: '192.168.1.142',
       port: 5683,
       refreshInterval: 60,
@@ -29,6 +31,18 @@ describe('accessories.config', () => {
       carbonFilter: false,
       hepaFilter: false,
     });
+  });
+
+  //the shaped value cannot say whether it was typed or defaulted, and the
+  //device's own model and serial number may fill in only the defaulted ones
+  it('records whether the model and serial number were set or defaulted', () => {
+    const typed = Config({ name: 'Purifier', host: '10.0.0.2', model: 'AC0850', serialNumber: '000000' });
+
+    assert.equal(typed.modelSet, true);
+    assert.equal(typed.serialNumberSet, true);
+    //typing the placeholder text is still typing it
+    assert.equal(Config({ name: 'P', host: '10.0.0.2', model: 'Air Purifier' }).modelSet, true);
+    assert.equal(Config({ name: 'P', host: '10.0.0.2', model: '', serialNumber: '' }).modelSet, false);
   });
 
   //a device is opted out, not opted in: the config UI writes the key on every
