@@ -286,7 +286,39 @@ class Accessory {
    * @param {string} subtype
    */
   ensureService(type, name, subtype) {
-    return this.findService(type, subtype) || this.accessory.addService(type, name, subtype);
+    const service = this.findService(type, subtype) || this.accessory.addService(type, name, subtype);
+
+    this.nameService(service);
+
+    return service;
+  }
+
+  /**
+   * Gives a service the ConfiguredName the Home app labels its tile with
+   * (issue #179). Without one the Home app tends to fall back to the accessory
+   * name for every service, so the purifier, its sensors and its filters show
+   * tiles that cannot be told apart.
+   *
+   * Set once, to the name the service was created with, and never again: once
+   * it exists it is the user's, since a rename in the Home app is written
+   * there. A service restored from cache without one gets it the same way.
+   * A rename is saved to the accessory cache straight away rather than at
+   * shutdown, so it survives a Homebridge that does not stop cleanly.
+   *
+   * @param {any} service a HAP Service
+   */
+  nameService(service) {
+    const { Characteristic, ChangeReason } = this.api.hap;
+
+    if (!service.testCharacteristic(Characteristic.ConfiguredName)) {
+      service.addCharacteristic(Characteristic.ConfiguredName).updateValue(service.displayName);
+    }
+
+    service.getCharacteristic(Characteristic.ConfiguredName).on('change', ({ reason }) => {
+      if (reason === ChangeReason.WRITE) {
+        this.api.updatePlatformAccessories([this.accessory]);
+      }
+    });
   }
 
   /**

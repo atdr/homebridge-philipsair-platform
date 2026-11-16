@@ -201,62 +201,63 @@ describe('accessories.service while the device is unreachable', () => {
   });
 });
 
+//every optional service on
+const allOptions = {
+  preFilter: true,
+  carbonFilter: true,
+  hepaFilter: true,
+  humidifier: true,
+  temperature: true,
+  humidity: true,
+  light: true,
+};
+
+//every service the plugin creates: the handler field it is handed to, its
+//type, its subtype, and the option that adds it
+const SERVICES = [
+  ['purifierService', 'AirPurifier', 'purifier', null],
+  ['airQualityService', 'AirQualitySensor', 'Air Quality', null],
+  ['preFilterService', 'FilterMaintenance', 'Pre Filter', 'preFilter'],
+  ['carbonFilterService', 'FilterMaintenance', 'Active carbon filter', 'carbonFilter'],
+  ['hepaFilterService', 'FilterMaintenance', 'HEPA filter', 'hepaFilter'],
+  ['humidifierService', 'HumidifierDehumidifier', 'Humidifier', 'humidifier'],
+  ['wickFilterService', 'FilterMaintenance', 'Wick filter', 'humidifier'],
+  ['temperatureService', 'TemperatureSensor', 'Temperature Sensor', 'temperature'],
+  ['humidityService', 'HumiditySensor', 'Humidity Sensor', 'humidity'],
+  ['lightService', 'Lightbulb', 'Light', 'light'],
+];
+
+//a model with a humidifier on/off register, so the humidifier option applies
+const MODEL = 'AC3829';
+
+const newAccessory = (name, key, config) =>
+  Object.assign(new hap.Accessory(name, hap.uuid.generate(`service-test-${key}`)), {
+    context: { config: { host: '192.168.1.142', port: 5683, model: MODEL, ...config } },
+  });
+
+//the shape every release so far has cached: each service added with its
+//display name and a subtype equal to the literal, the purifier under its own
+//subtype and named after the accessory
+const oldShape = (accessory, rename = (name) => name) => {
+  for (const [, type, subtype] of SERVICES) {
+    const name = subtype === 'purifier' ? accessory.displayName : subtype;
+    accessory.addService(hap.Service[type], rename(name), subtype);
+  }
+  return accessory;
+};
+
+//what Homebridge does across a restart: the accessory is written to its
+//cache and read back as new objects
+const restore = (accessory) => {
+  const restored = hap.Accessory.deserialize(JSON.parse(JSON.stringify(hap.Accessory.serialize(accessory))));
+  return Object.assign(restored, { context: accessory.context });
+};
+
+const identities = (accessory) => accessory.services.map((service) => `${service.UUID}/${service.subtype}`).sort();
+
 //issue #183: services are found by type and subtype, the identifier they were
 //created with, never by display name, and handed to the handler once
 describe('accessories.service lookup by subtype', () => {
-  const allOptions = {
-    preFilter: true,
-    carbonFilter: true,
-    hepaFilter: true,
-    humidifier: true,
-    temperature: true,
-    humidity: true,
-    light: true,
-  };
-
-  //every service the plugin creates: the handler field it is handed to, its
-  //type, its subtype, and the option that adds it
-  const SERVICES = [
-    ['purifierService', 'AirPurifier', 'purifier', null],
-    ['airQualityService', 'AirQualitySensor', 'Air Quality', null],
-    ['preFilterService', 'FilterMaintenance', 'Pre Filter', 'preFilter'],
-    ['carbonFilterService', 'FilterMaintenance', 'Active carbon filter', 'carbonFilter'],
-    ['hepaFilterService', 'FilterMaintenance', 'HEPA filter', 'hepaFilter'],
-    ['humidifierService', 'HumidifierDehumidifier', 'Humidifier', 'humidifier'],
-    ['wickFilterService', 'FilterMaintenance', 'Wick filter', 'humidifier'],
-    ['temperatureService', 'TemperatureSensor', 'Temperature Sensor', 'temperature'],
-    ['humidityService', 'HumiditySensor', 'Humidity Sensor', 'humidity'],
-    ['lightService', 'Lightbulb', 'Light', 'light'],
-  ];
-
-  //a model with a humidifier on/off register, so the humidifier option applies
-  const MODEL = 'AC3829';
-
-  const newAccessory = (name, key, config) =>
-    Object.assign(new hap.Accessory(name, hap.uuid.generate(`service-test-${key}`)), {
-      context: { config: { host: '192.168.1.142', port: 5683, model: MODEL, ...config } },
-    });
-
-  //the shape every release so far has cached: each service added with its
-  //display name and a subtype equal to the literal, the purifier under its own
-  //subtype and named after the accessory
-  const oldShape = (accessory, rename = (name) => name) => {
-    for (const [, type, subtype] of SERVICES) {
-      const name = subtype === 'purifier' ? accessory.displayName : subtype;
-      accessory.addService(hap.Service[type], rename(name), subtype);
-    }
-    return accessory;
-  };
-
-  //what Homebridge does across a restart: the accessory is written to its
-  //cache and read back as new objects
-  const restore = (accessory) => {
-    const restored = hap.Accessory.deserialize(JSON.parse(JSON.stringify(hap.Accessory.serialize(accessory))));
-    return Object.assign(restored, { context: accessory.context });
-  };
-
-  const identities = (accessory) => accessory.services.map((service) => `${service.UUID}/${service.subtype}`).sort();
-
   it('checks the setup this suite relies on', () => {
     assert.ok(new Handler(fakeApi, newAccessory('Probe', 'probe', {})).supports('func'), `${MODEL} has no func`);
   });
@@ -371,6 +372,98 @@ describe('accessories.service lookup by subtype', () => {
     assert.equal(cached.services.filter((service) => service.UUID === hap.Service.AirPurifier.UUID).length, 1);
     assert.equal(cached.services.filter((service) => service.UUID === hap.Service.Lightbulb.UUID).length, 1);
     assert.equal(handler.lightService.subtype, 'Lamp');
+  });
+});
+
+//issue #179: each service carries a ConfiguredName, which the Home app labels
+//its tile with, set once and then left to the user
+describe('accessories.service ConfiguredName', () => {
+  const { ConfiguredName } = hap.Characteristic;
+
+  const configuredNames = (accessory) =>
+    Object.fromEntries(
+      SERVICES.map(([, type, subtype]) => {
+        const service = accessory.getServiceById(hap.Service[type], subtype);
+        return [
+          subtype,
+          service.testCharacteristic(ConfiguredName) ? service.getCharacteristic(ConfiguredName).value : null,
+        ];
+      })
+    );
+
+  const expectedNames = (accessory) =>
+    Object.fromEntries(
+      SERVICES.map(([, , subtype]) => [subtype, subtype === 'purifier' ? accessory.displayName : subtype])
+    );
+
+  it('names every service it creates after the name it is created with', () => {
+    const { accessory } = wireAccessory({ ...allOptions, model: MODEL }, 'configured-new');
+
+    assert.deepEqual(configuredNames(accessory), expectedNames(accessory));
+  });
+
+  it('names the services of an accessory restored from cache without one, adding or losing nothing', () => {
+    const cached = restore(oldShape(newAccessory('Cached Purifier', 'configured-cached', allOptions)));
+    const before = identities(cached);
+
+    wireAccessory({}, 'configured-cached', cached);
+
+    assert.deepEqual(identities(cached), before);
+    assert.deepEqual(configuredNames(cached), expectedNames(cached));
+  });
+
+  it('keeps a name given in the Home app across a restart', async () => {
+    const saved = [];
+    const api = { ...fakeApi, updatePlatformAccessories: (accessories) => saved.push(...accessories) };
+    const accessory = newAccessory('Bedroom Purifier', 'configured-renamed', allOptions);
+    let handler = new Handler(api, accessory);
+    handler.longPoll = noop;
+    new Accessory(api, accessory, handler);
+
+    //what HAP does with a write from the Home app
+    await accessory
+      .getServiceById(hap.Service.FilterMaintenance, 'Pre Filter')
+      .getCharacteristic(ConfiguredName)
+      .handleSetRequest('Bedroom pre filter', undefined);
+
+    assert.deepEqual(saved, [accessory], 'the rename was not saved to the accessory cache');
+
+    const restored = restore(accessory);
+    handler = new Handler(api, restored);
+    handler.longPoll = noop;
+    new Accessory(api, restored, handler);
+
+    assert.equal(configuredNames(restored)['Pre Filter'], 'Bedroom pre filter');
+    assert.equal(configuredNames(restored)['HEPA filter'], 'HEPA filter');
+  });
+
+  it('saves nothing for a name it sets itself', () => {
+    const saved = [];
+    const api = { ...fakeApi, updatePlatformAccessories: (accessories) => saved.push(...accessories) };
+    const accessory = newAccessory('Quiet Purifier', 'configured-quiet', allOptions);
+    const handler = new Handler(api, accessory);
+    handler.longPoll = noop;
+    new Accessory(api, accessory, handler);
+
+    assert.deepEqual(saved, []);
+  });
+
+  it('never overwrites a name that is already there, even one that looks stale', () => {
+    const cached = oldShape(newAccessory('Cached Purifier', 'configured-kept', allOptions));
+    for (const service of cached.services) {
+      if (service.subtype) {
+        service.addCharacteristic(ConfiguredName).updateValue(`Mine ${service.subtype}`);
+      }
+    }
+
+    wireAccessory({}, 'configured-kept', restore(cached));
+    const rewired = restore(cached);
+    wireAccessory({}, 'configured-kept', rewired);
+
+    assert.deepEqual(
+      configuredNames(rewired),
+      Object.fromEntries(SERVICES.map(([, , subtype]) => [subtype, `Mine ${subtype}`]))
+    );
   });
 });
 
