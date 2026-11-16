@@ -464,6 +464,9 @@ Homebridge user:
 sudo -u homebridge aioairctrl -H <device-ip> -P 5683 status-observe -J
 ```
 
+From this warning until status arrives again, the Home app shows the accessory
+as No Response, as it does for the warning below.
+
 </details>
 
 #### No status received from the device
@@ -483,6 +486,12 @@ problem rather than a device having a quiet moment.
 This only appears for a purifier that is switched on, or one that has never
 answered at all. A purifier that has reported itself switched off is expected to
 go quiet, and the plugin waits for it without complaining.
+
+From this warning until the purifier answers again, the Home app shows the
+accessory as No Response rather than the last state it reported, so a purifier
+unplugged at the mains no longer looks healthy until someone taps it. A purifier
+that has reported itself switched off keeps showing as off. The filter levels
+keep their last reading.
 
 Check that `host` and `port` are right, that the purifier is powered on and on
 the same network, and that nothing else is already talking to it. An address

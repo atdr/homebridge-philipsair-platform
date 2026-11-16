@@ -13,6 +13,13 @@ field (see [Device support](../README.md#device-support)).
 what Auto sends, and [Other controls](#other-controls) the controls that depend
 on a model's registers.
 
+Every control shows the purifier's last reported state. Once the plugin warns
+that the purifier is not answering (see
+[Log messages](../README.md#no-status-received-from-the-device)), the controls
+and sensors show No Response instead, until it answers again. The filter levels
+keep their last reading, and a purifier that has reported itself switched off
+keeps showing as off, since one that is off answers only now and then.
+
 ## Fan speed and Auto
 
 Auto is on the Home app's auto/manual switch, and on most models the slider has
