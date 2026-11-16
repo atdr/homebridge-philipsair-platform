@@ -600,6 +600,10 @@ such a command itself, so if you see this, the model mapping is sending a word
 where your device's register expects a number, so please open an issue with the
 logged `CMD:` line.
 
+The Home app is told the change failed, rather than left showing a state the
+purifier never took. Any other command that fails is reported to HomeKit the
+same way.
+
 </details>
 
 ### Reporting a problem

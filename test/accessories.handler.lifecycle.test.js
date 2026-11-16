@@ -61,9 +61,27 @@ const waitFor = async (condition, { timeout = 10000, interval = 10, what = 'the 
 //its startup is slower than the timers these tests shorten
 const answered = (handler) => waitFor(() => handler.obj.pwr !== undefined, { what: 'the shim to answer' });
 
+//the shape hap-nodejs gives a failed write: an Error carrying a HAPStatus code
+class HapStatusError extends Error {
+  constructor(status) {
+    super(`HAP Status Error: ${status}`);
+    this.hapStatus = status;
+  }
+}
+const HAPStatus = { SERVICE_COMMUNICATION_FAILURE: -70402 };
+
+//a setter's rejection when its write failed (issue #86)
+const communicationFailure = (err) =>
+  err instanceof HapStatusError && err.hapStatus === HAPStatus.SERVICE_COMMUNICATION_FAILURE;
+
 //characteristics resolve to their own names so updates can be asserted by name
 const fakeApi = {
-  hap: { Service: { AirPurifier: 'AirPurifier' }, Characteristic: new Proxy({}, { get: (target, prop) => prop }) },
+  hap: {
+    Service: { AirPurifier: 'AirPurifier' },
+    Characteristic: new Proxy({}, { get: (target, prop) => prop }),
+    HapStatusError,
+    HAPStatus,
+  },
   updatePlatformAccessories: () => {},
 };
 
@@ -1151,7 +1169,7 @@ describe('write verification', { concurrency: 1 }, () => {
     const handler = makeHandler({ aioairctrlPath: CLI_ERROR_SHIM });
     handler.purifierService = makeService();
 
-    await handler.setPurifierActive(true);
+    await assert.rejects(handler.setPurifierActive(true), communicationFailure);
 
     assert.equal(handler.pendingWrites.size, 0, 'a command that never went out was registered as pending');
     assert.ok(
@@ -1673,7 +1691,7 @@ describe('write verification', { concurrency: 1 }, () => {
       throw new Error('nope');
     };
 
-    await handler.setPurifierActive(true);
+    await assert.rejects(handler.setPurifierActive(true), communicationFailure);
 
     assert.equal(handler.pendingWrites.size, 0);
     assert.deepEqual(updated(handler.purifierService, 'Active').at(-1), ['Active', 0]);
@@ -1694,7 +1712,8 @@ describe('write verification', { concurrency: 1 }, () => {
     handler.purifierService = makeService();
     handler.sendTimeout = 150;
 
-    await handler.setPurifierActive(true);
+    //HomeKit has timed out a write this slow already, and ignores the rejection
+    await assert.rejects(handler.setPurifierActive(true), communicationFailure);
 
     //without the cap this never returns at all, and the child outlives the run
     assert.equal(handler.pendingWrites.size, 0);
@@ -2560,7 +2579,7 @@ describe('revertOptimisticUpdate', () => {
     handler.sendCMD = async () => {
       throw new Error('device unreachable');
     };
-    await handler.setPurifierTargetState(1);
+    await assert.rejects(handler.setPurifierTargetState(1), communicationFailure);
 
     assert.deepEqual(updated(handler.purifierService, 'TargetAirPurifierState'), [
       //the optimistic push, made before the write failed
@@ -2585,7 +2604,7 @@ describe('revertOptimisticUpdate', () => {
     handler.sendCMD = async () => {
       throw new Error('device unreachable');
     };
-    await handler.setPurifierRotationSpeed(100);
+    await assert.rejects(handler.setPurifierRotationSpeed(100), communicationFailure);
 
     //setPurifierRotationSpeed never pushes RotationSpeed itself; only the revert does
     assert.deepEqual(updated(handler.purifierService, 'RotationSpeed'), [['RotationSpeed', 100 / 3]]);
@@ -2610,7 +2629,7 @@ describe('revertOptimisticUpdate', () => {
     handler.sendCMD = async () => {
       throw new Error('device unreachable');
     };
-    await handler.setHumidifierActive(true);
+    await assert.rejects(handler.setHumidifierActive(true), communicationFailure);
 
     assert.deepEqual(updated(handler.humidifierService, 'Active'), [
       //the optimistic push
@@ -2651,7 +2670,7 @@ describe('repeated spawn/stop failures', () => {
 });
 
 describe('setter error handling', () => {
-  it('logs, rather than throws, when the lock command fails to send', async (t) => {
+  it('logs and reports to HomeKit when the lock command fails to send', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
 
@@ -2661,13 +2680,13 @@ describe('setter error handling', () => {
       throw new Error('device unreachable');
     };
 
-    await assert.doesNotReject(() => handler.setPurifierLockPhysicalControls(1));
+    await assert.rejects(() => handler.setPurifierLockPhysicalControls(1), communicationFailure);
     assert.ok(logs.warn.some((line) => line.includes('An error occured during changing lock state!')));
 
     handler.kill(true);
   });
 
-  it('logs, rather than throws, when the humidifier target-state command fails to send', async (t) => {
+  it('logs and reports to HomeKit when the humidifier target-state command fails to send', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
 
@@ -2678,13 +2697,13 @@ describe('setter error handling', () => {
       throw new Error('device unreachable');
     };
 
-    await assert.doesNotReject(() => handler.setHumidifierTargetState(60));
+    await assert.rejects(() => handler.setHumidifierTargetState(60), communicationFailure);
     assert.ok(logs.warn.some((line) => line.includes('An error occured during changing target humidifer state!')));
 
     handler.kill(true);
   });
 
-  it('logs, rather than throws, when turning the light on fails to send', async (t) => {
+  it('logs and reports to HomeKit when turning the light on fails to send', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
 
@@ -2693,12 +2712,12 @@ describe('setter error handling', () => {
       throw new Error('device unreachable');
     };
 
-    await assert.doesNotReject(() => handler.setLightOn(true));
+    await assert.rejects(() => handler.setLightOn(true), communicationFailure);
     assert.ok(logs.warn.some((line) => line.includes('An error occured during changing light state!')));
     assert.equal(handler.settingLightState, false, 'the in-flight flag was left set after the failure');
   });
 
-  it('logs, rather than throws, when changing brightness fails to send', async (t) => {
+  it('logs and reports to HomeKit when changing brightness fails to send', async (t) => {
     t.after(silenceLogger);
     const logs = captureLogs();
 
@@ -2707,7 +2726,7 @@ describe('setter error handling', () => {
       throw new Error('device unreachable');
     };
 
-    await assert.doesNotReject(() => handler.setLightBrightness(50));
+    await assert.rejects(() => handler.setLightBrightness(50), communicationFailure);
     assert.ok(logs.warn.some((line) => line.includes('An error occured during changing light brightness!')));
     assert.equal(handler.settingBrightness, false, 'the in-flight flag was left set after the failure');
   });

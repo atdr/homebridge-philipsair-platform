@@ -624,23 +624,33 @@ class Handler {
 
     //after the yielding pass, so a 0% still gives way to the power-on it came
     //with even when that power-on is then left out as redundant
-    /** @type {Set<string>} */
-    const seen = new Set();
+    /** @type {Map<string, { resolve: (sent: boolean) => void, reject: (err: unknown) => void }>} */
+    const seen = new Map();
     const batch = this.writeBatch
       .filter((entry) => !dropped.has(entry))
       .filter((entry) => this.dropRedundantPowerOn(entry))
       .filter((entry) => {
-        //the same write twice is sent once, and both setters have what they
-        //asked for: Auto on the switch beside a fan-level Auto step on the
-        //slider (fanLevel) is one scene asking for Auto in two ways
+        //the same write twice is sent once, and both setters get its outcome:
+        //Auto on the switch beside a fan-level Auto step on the slider
+        //(fanLevel) is one scene asking for Auto in two ways, so if that one
+        //send fails, both asked for it (issue #86)
         const command = [...entry.extraFlags, ...entry.cmds].join(' ');
+        const first = seen.get(command);
 
-        if (!seen.has(command)) {
-          seen.add(command);
+        if (!first) {
+          seen.set(command, entry);
           return true;
         }
 
-        entry.resolve(true);
+        const { resolve, reject } = first;
+        first.resolve = (sent) => {
+          resolve(sent);
+          entry.resolve(sent);
+        };
+        first.reject = (err) => {
+          reject(err);
+          entry.reject(err);
+        };
         return false;
       });
     dropped.forEach((entry) => entry.resolve(false));
@@ -1104,6 +1114,41 @@ class Handler {
     return percent;
   }
 
+  /**
+   * Ends a setter whose write failed: logs it in the setter's own words, then
+   * tells HomeKit. Swallowing the error made HAP commit the write as a success,
+   * so a send that failed inside HAP's own write window (a refused `set`, an
+   * unrunnable binary) left the tile showing a state the device never took
+   * (issue #86). HAP ignores a rejection that arrives after it has already
+   * timed out the write, so a send that only failed at SET_TIMEOUT behaves as
+   * before.
+   *
+   * Called from a setter's catch, so anything the failed write reverted
+   * (`sendTracked` -> `abandonWrite`) has already been published. A write that
+   * gave way to another in the same scene is not a failure and never gets
+   * here: `queueWrite` resolves it with false rather than rejecting.
+   *
+   * An error that is already a HapStatusError came from a setter this one
+   * called (the slider's Auto step goes through `setPurifierTargetState`),
+   * which has logged it, so it passes through unlogged.
+   *
+   * @param {unknown} err
+   * @param {string} message
+   * @returns {never}
+   */
+  writeFailed(err, message) {
+    const { HapStatusError, HAPStatus } = this.api.hap;
+
+    if (err instanceof HapStatusError) {
+      throw err;
+    }
+
+    logger.warn(message, this.accessory.displayName);
+    logger.error(err, this.accessory.displayName);
+
+    throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+  }
+
   //Air Purifier
   async setPurifierActive(state) {
     try {
@@ -1114,8 +1159,7 @@ class Handler {
       logger.info(`Purifier Active: ${state}`, this.accessory.displayName);
       await this.queueWrite([this.handleCommand('pwr', stateNumber)], { pwr: stateNumber });
     } catch (err) {
-      logger.warn('An error occured during changing purifier state!', this.accessory.displayName);
-      logger.error(err, this.accessory.displayName);
+      this.writeFailed(err, 'An error occured during changing purifier state!');
     }
   }
 
@@ -1204,8 +1248,7 @@ class Handler {
         this.purifierService.updateCharacteristic(this.api.hap.Characteristic.RotationSpeed, manualStep);
       }
     } catch (err) {
-      logger.warn('An error occured during changing target purifier state!', this.accessory.displayName);
-      logger.error(err, this.accessory.displayName);
+      this.writeFailed(err, 'An error occured during changing target purifier state!');
     }
   }
 
@@ -1224,8 +1267,7 @@ class Handler {
 
       await this.queueWrite([this.handleCommand('cl', values.cl)], { cl: values.cl });
     } catch (err) {
-      logger.warn('An error occured during changing lock state!', this.accessory.displayName);
-      logger.error(err, this.accessory.displayName);
+      this.writeFailed(err, 'An error occured during changing lock state!');
     }
   }
 
@@ -1319,8 +1361,7 @@ class Handler {
         }
       }
     } catch (err) {
-      logger.warn('An error occured during changing purifier rotation speed!', this.accessory.displayName);
-      logger.error(err, this.accessory.displayName);
+      this.writeFailed(err, 'An error occured during changing purifier rotation speed!');
     }
   }
 
@@ -1369,8 +1410,7 @@ class Handler {
 
       await this.queueWrite([this.handleCommand('func', values.func)], { func: values.func });
     } catch (err) {
-      logger.warn('An error occured during changing humidifier state!', this.accessory.displayName);
-      logger.error(err, this.accessory.displayName);
+      this.writeFailed(err, 'An error occured during changing humidifier state!');
     }
   }
 
@@ -1431,8 +1471,7 @@ class Handler {
       await this.queueWrite([this.handleCommand('func', values.func)], { func: values.func });
       await this.queueWrite([this.handleCommand('rhset', values.rhset)], { rhset: values.rhset }, ['-I']);
     } catch (err) {
-      logger.warn('An error occured during changing target humidifer state!', this.accessory.displayName);
-      logger.error(err, this.accessory.displayName);
+      this.writeFailed(err, 'An error occured during changing target humidifer state!');
     }
   }
 
@@ -1476,11 +1515,10 @@ class Handler {
       await this.sendCMD(args1);
       await this.sendCMD(args2);
     } catch (err) {
-      logger.warn('An error occured during changing light state!', this.accessory.displayName);
-      logger.error(err, this.accessory.displayName);
+      this.writeFailed(err, 'An error occured during changing light state!');
+    } finally {
+      this.settingLightState = false;
     }
-
-    this.settingLightState = false;
   }
 
   async setLightBrightness(value) {
@@ -1505,11 +1543,10 @@ class Handler {
       await this.sendCMD(args1);
       await this.sendCMD(args2);
     } catch (err) {
-      logger.warn('An error occured during changing light brightness!', this.accessory.displayName);
-      logger.error(err, this.accessory.displayName);
+      this.writeFailed(err, 'An error occured during changing light brightness!');
+    } finally {
+      this.settingBrightness = false;
     }
-
-    this.settingBrightness = false;
   }
 
   /**
@@ -2729,7 +2766,9 @@ class Handler {
 
         if (water_level == 0) {
           if (this.obj.func != 'P') {
-            await this.setPurifierTargetState(true);
+            //no HomeKit write to report a failure to here, and the setter has
+            //already logged it, so it must not cut this update short
+            await this.setPurifierTargetState(true).catch(() => {});
           }
 
           this.humidifierService
