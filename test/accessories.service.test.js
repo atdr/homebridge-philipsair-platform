@@ -316,7 +316,7 @@ describe('accessories.service lookup by subtype', () => {
   //changes the display name; the subtype is what stays
   it('finds cached services whose display names no longer match', () => {
     const cached = restore(
-      oldShape(newAccessory('Cached Purifier', 'renamed', allOptions), (name) => `${name} (renamed)`)
+      oldShape(newAccessory('Cached Purifier', 'renamed', allOptions), (name) => `Renamed ${name}`)
     );
     const before = identities(cached);
 
@@ -329,7 +329,7 @@ describe('accessories.service lookup by subtype', () => {
   });
 
   it('removes cached services whose display names no longer match when their option is off', () => {
-    const cached = restore(oldShape(newAccessory('Cached Purifier', 'renamed-off', {}), (name) => `${name} (renamed)`));
+    const cached = restore(oldShape(newAccessory('Cached Purifier', 'renamed-off', {}), (name) => `Renamed ${name}`));
 
     wireAccessory({}, 'renamed-off', cached);
 
