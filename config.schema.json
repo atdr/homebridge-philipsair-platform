@@ -89,8 +89,7 @@
               "title": "Serial Number",
               "type": "string",
               "placeholder": "000000",
-              "default": "000000",
-              "description": "Shown in the Home app. Cosmetic only. Leave it empty and the plugin shows the device's own ID once the device reports it, which tells two purifiers apart. A value you type here is always kept."
+              "description": "Shown in the Home app. Cosmetic only. Leave it empty and the plugin shows the device's own ID once the device reports it, which tells two purifiers apart. A value you type here is kept, except 000000, which older versions filled in by themselves."
             },
             "host": {
               "title": "Host Address",

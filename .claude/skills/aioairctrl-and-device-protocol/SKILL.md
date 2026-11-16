@@ -671,7 +671,8 @@ accessory information (issue #180): `Model` from the reported model, unless the
 user typed one (`modelSet`); `FirmwareRevision` from `D01S12` when it matches
 `x.y.z` (`WifiVersion` is `AWS_Philips_AIR_Combo@86`, not that form);
 `SerialNumber` from `DeviceId` when it is 32 hex characters, unless the user
-typed one (`serialNumberSet`). `D01S12` and `DeviceId` are seen only on the
+typed one (`serialNumberSet`; `000000` counts as not typed, since the settings
+panel used to pre-fill it). `D01S12` and `DeviceId` are seen only on the
 dash-less dialect; a status without them leaves today's values in place.
 
 The two variants, both **unvalidated**:

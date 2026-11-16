@@ -764,7 +764,9 @@ endorsement by them.
 [^accessory-info]: The Home app also shows the device's software version as the
     firmware revision, and its reported model (such as
     `AC0850/31`) when `model` is empty. A `model` or
-    `serialNumber` you set is never replaced. A field the device
+    `serialNumber` you set is never replaced, except a
+    `serialNumber` of `000000`, which older versions of the
+    settings panel filled in by themselves. A field the device
     does not report keeps its usual value.
 
 [^model-option]: Some models have no register for this. For those the plugin
