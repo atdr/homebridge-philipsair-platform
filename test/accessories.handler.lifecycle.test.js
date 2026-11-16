@@ -111,6 +111,23 @@ const makeHandler = (config = {}) => {
   return handler;
 };
 
+//the slider's onSet resolves before its write goes out (#150). Tests that mean
+//"once it is written" wrap the setter to wait for the write itself
+const awaitingSpeedWrites = (handler) => {
+  let lastWrite = Promise.resolve();
+  const write = handler.writeRotationSpeed.bind(handler);
+  const set = handler.setPurifierRotationSpeed.bind(handler);
+  handler.writeRotationSpeed = (value) => (lastWrite = write(value));
+  handler.setPurifierRotationSpeed = async (value) => {
+    await set(value);
+    while (handler.pendingSpeed) {
+      await delay(1);
+    }
+    await lastWrite.catch(() => {});
+  };
+  return handler;
+};
+
 const exited = (child) => child.exitCode !== null || child.signalCode !== null;
 
 //stops every handler the test made and waits until its polling child is really
@@ -1450,7 +1467,7 @@ describe('write verification', { concurrency: 1 }, () => {
     t.after(silenceLogger);
     captureLogs();
 
-    const handler = makeHandler({ model: 'AC0850' });
+    const handler = awaitingSpeedWrites(makeHandler({ model: 'AC0850' }));
     handler.purifierService = makeService();
     /** @type {string[]} */
     const sent = [];
@@ -1475,8 +1492,10 @@ describe('write verification', { concurrency: 1 }, () => {
     //close enough together for one shared verify timer to catch both, as
     //they would have before #82 (that timer is armed once and not re-armed
     //for a later entry's earlier deadline, so a wide gap here would silently
-    //miss the second write's own blind resend)
+    //miss the second write's own blind resend). The slider's debounce
+    //(#150) is shortened for the same reason
     handler.writeCoalesceWindow = 1;
+    handler.speedDebounceWindow = 1;
 
     //the scene #77 was observed under: power and speed set together
     await handler.setPurifierActive(true);
@@ -1667,7 +1686,12 @@ describe('write verification', { concurrency: 1 }, () => {
     };
 
     const setting = Promise.all([handler.setPurifierActive(true), handler.setPurifierRotationSpeed(100)]);
-    await waitFor(() => handler.writeBatch.length === 2, { what: 'both writes to join the coalescing batch' });
+    //the speed waits out its debounce outside the batch, and kill() sends it
+    //with the batch, so both are queued once the power-on is batched and the
+    //speed is pending
+    await waitFor(() => handler.writeBatch.length === 1 && handler.pendingSpeed !== null, {
+      what: 'the power-on to join the batch and the speed to wait out its debounce',
+    });
 
     handler.kill(true);
     await setting;
@@ -1933,7 +1957,7 @@ describe('write verification', { concurrency: 1 }, () => {
     t.after(silenceLogger);
     captureLogs();
 
-    const handler = makeHandler({ model: 'AC0850' });
+    const handler = awaitingSpeedWrites(makeHandler({ model: 'AC0850' }));
     handler.purifierService = makeService();
     //no real time passes between the setters and the status below
     handler.writeSettle = 0;
@@ -2524,7 +2548,7 @@ describe('setPurifierRotationSpeed mode reset', () => {
     t.after(silenceLogger);
     captureLogs();
 
-    const handler = makeHandler({});
+    const handler = awaitingSpeedWrites(makeHandler({}));
     handler.purifierService = makeService();
     handler.sendCMD = async () => {};
 
@@ -2541,7 +2565,7 @@ describe('resendInTurn ordering', () => {
     t.after(silenceLogger);
     captureLogs();
 
-    const handler = makeHandler({});
+    const handler = awaitingSpeedWrites(makeHandler({}));
     handler.purifierService = makeService();
     handler.writeSettle = 0;
     /** @type {string[]} */
@@ -2595,7 +2619,7 @@ describe('revertOptimisticUpdate', () => {
     t.after(silenceLogger);
     captureLogs();
 
-    const handler = makeHandler({});
+    const handler = awaitingSpeedWrites(makeHandler({}));
     handler.purifierService = makeService();
 
     await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '1' }));
@@ -2604,10 +2628,15 @@ describe('revertOptimisticUpdate', () => {
     handler.sendCMD = async () => {
       throw new Error('device unreachable');
     };
-    await assert.rejects(handler.setPurifierRotationSpeed(100), communicationFailure);
+    //the slider's onSet resolved before the write went out, so it is not told (#150)
+    await handler.setPurifierRotationSpeed(100);
 
-    //setPurifierRotationSpeed never pushes RotationSpeed itself; only the revert does
-    assert.deepEqual(updated(handler.purifierService, 'RotationSpeed'), [['RotationSpeed', 100 / 3]]);
+    assert.deepEqual(updated(handler.purifierService, 'RotationSpeed'), [
+      //shown at once, so the slider holds while the write waits out its debounce (#150)
+      ['RotationSpeed', 100],
+      //the revert, back to the last known reading (om: '1')
+      ['RotationSpeed', 100 / 3],
+    ]);
 
     handler.kill(true);
   });

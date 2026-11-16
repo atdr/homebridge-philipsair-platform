@@ -602,7 +602,9 @@ logged `CMD:` line.
 
 The Home app is told the change failed, rather than left showing a state the
 purifier never took. Any other command that fails is reported to HomeKit the
-same way.
+same way, except the fan speed slider: it has already accepted the new position
+by the time its command goes out, so a failed slider command puts the slider
+back to the purifier's last reading instead.
 
 </details>
 
