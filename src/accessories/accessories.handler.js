@@ -3,7 +3,7 @@
 const { execFile, spawn } = require('child_process');
 
 const logger = require('../utils/logger');
-const { hapNumber } = require('../utils/utils');
+const { hapNumber, airQualityLevel } = require('../utils/utils');
 const { DEFAULT_BINARY } = require('../utils/preflight');
 const modelConfig = require('./accessories.models');
 const { resolveModel, identifyModel, readsStatus, looksLikeRegisters, detectDialect, deviceDetails } = modelConfig;
@@ -2671,11 +2671,8 @@ class Handler {
       }
 
       if (this.airQualityService) {
-        //HomeKit AirQuality only accepts 0 (unknown) to 5 (poor)
-        const airQuality = Math.min(Math.max(Math.ceil(this.obj.iaql / 3) || 0, 0), 5);
-
         this.airQualityService
-          .updateCharacteristic(this.api.hap.Characteristic.AirQuality, airQuality)
+          .updateCharacteristic(this.api.hap.Characteristic.AirQuality, airQualityLevel(this.obj.iaql))
           .updateCharacteristic(this.api.hap.Characteristic.PM2_5Density, hapNumber(this.obj.pm25, 0, 1000));
       }
 

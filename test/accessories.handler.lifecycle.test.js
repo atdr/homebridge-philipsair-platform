@@ -167,6 +167,24 @@ describe('processUpdate', () => {
     assert.equal(handler.purifierService.updates.length, 0);
   });
 
+  //issue #176: the top of the device's 1 to 12 index used to stop at Inferior
+  it('reports the worst band of the air quality index as Poor', async () => {
+    const handler = makeHandler({});
+    handler.purifierService = makeService();
+
+    const level = async (iaql) => {
+      handler.airQualityService = makeService();
+      await handler.processUpdate(JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2', iaql, pm25: 4 }));
+      return updated(handler.airQualityService, 'AirQuality')[0][1];
+    };
+
+    assert.equal(await level(1), 1);
+    assert.equal(await level(3), 2);
+    assert.equal(await level(6), 3);
+    assert.equal(await level(9), 4);
+    assert.equal(await level(12), 5);
+  });
+
   it('clamps the air quality value to the valid HomeKit range', async () => {
     const handler = makeHandler({});
     handler.purifierService = makeService();

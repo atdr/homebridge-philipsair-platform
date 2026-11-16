@@ -78,6 +78,26 @@ and leaves the speed to the purifier rather than restoring the last one, because
 the plugin has no confirmed way to set both at once on hardware it does not
 know.
 
+## Air quality
+
+The air quality level in the Home app follows the index the purifier reports,
+from 1 (cleanest) to 12, the same index Philips groups into four bands. HomeKit
+has five levels, so the bands keep their edges and only the cleanest reading
+counts as Excellent:
+
+| Device index | Home app level |
+| ------------ | -------------- |
+| 1            | Excellent      |
+| 2 to 3       | Good           |
+| 4 to 6       | Fair           |
+| 7 to 9       | Inferior       |
+| 10 to 12     | Poor           |
+
+Up to version 2.0 the index was divided by three, so every reading above 1
+showed one level better than this and Poor was never reached. An automation that
+triggers on a level fires at a lower index than it did then. The PM2.5 reading
+is shown beside the level and is not part of it.
+
 ## Other controls
 
 Some controls depend on what a model's registers can do:
