@@ -2,7 +2,32 @@
 
 const logger = require('../utils/logger');
 const Config = require('./accessories.config');
-const { resolveModel, hasOwnSpeeds, hasAllergenMode, hasHumidifier } = require('./accessories.models');
+const {
+  resolveModel,
+  hasOwnSpeeds,
+  hasAllergenMode,
+  hasHumidifier,
+  optionKeys,
+  neverReports,
+} = require('./accessories.models');
+
+//what the warning says about an option whose key the model never reports, in
+//the order the warnings are logged. Only dash-less models qualify (see
+//neverReports), which is why the temperature reason can name their registers
+const DEAD_OPTIONS = {
+  light: (model) => `The light option does nothing for the ${model}, which has no light this plugin can switch.`,
+  temperature: (model) =>
+    `The temperature option does nothing for the ${model}, ` +
+    `whose dash-less registers carry no temperature this plugin can read yet (issue #186).`,
+  humidity: (model) =>
+    `The humidity option does nothing for the ${model}, which reports no humidity this plugin can read.`,
+  preFilter: (model) =>
+    `The pre-filter option does nothing for the ${model}, which reports no pre-filter status this plugin can read.`,
+  hepaFilter: (model) =>
+    `The HEPA filter option does nothing for the ${model}, which reports no HEPA filter status this plugin can read.`,
+  carbonFilter: (model) =>
+    `The carbon filter option does nothing for the ${model}, which reports no carbon filter status this plugin can read.`,
+};
 
 /**
  * Resolves which command set a device runs on, and says so in the log.
@@ -13,7 +38,9 @@ const { resolveModel, hasOwnSpeeds, hasAllergenMode, hasHumidifier } = require('
  * and where the model can be recovered from the device name it is better to
  * drive the device correctly and say why than to be right about the config.
  *
- * @param {{ name: string, model: string, sleepSpeed?: boolean, allergicFunc?: boolean, humidifier?: boolean }} device
+ * @param {{ name: string, model: string, sleepSpeed?: boolean, allergicFunc?: boolean, humidifier?: boolean,
+ *   light?: boolean, temperature?: boolean, humidity?: boolean, preFilter?: boolean, hepaFilter?: boolean,
+ *   carbonFilter?: boolean }} device
  * @returns {string | undefined} the mapped model, or undefined for the default mapping
  */
 const announceModel = (device) => {
@@ -45,6 +72,14 @@ const announceModel = (device) => {
       `The humidifier option does nothing for the ${key}, which has no humidifier on/off this plugin can drive.`,
       device.name
     );
+  }
+
+  //the service is still built, so HomeKit shows a constant reading, 0°C for a
+  //temperature, which reads as real unless the log says otherwise
+  for (const [option, reason] of Object.entries(DEAD_OPTIONS)) {
+    if (device[option] && neverReports(key, optionKeys[option])) {
+      logger.warn(reason(key), device.name);
+    }
   }
 
   if (key) {
