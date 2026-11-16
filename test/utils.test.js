@@ -11,6 +11,7 @@ const {
   validPort,
   validRefreshInterval,
   hapNumber,
+  airQualityLevel,
 } = require('../src/utils/utils');
 
 //capture warnings so the silent-fallback behavior can be asserted
@@ -226,5 +227,31 @@ describe('hapNumber', () => {
     assert.equal(hapNumber(NaN, 0, 100), 0);
     assert.equal(hapNumber('not a number', 0, 100), 0);
     assert.equal(hapNumber(Infinity, 0, 100), 0);
+  });
+});
+
+describe('airQualityLevel', () => {
+  //the device's own bands (1-3, 4-6, 7-9, 10-12) keep their edges, and the
+  //worst of them has to reach HomeKit's worst level
+  it('maps the 1 to 12 index onto HomeKit levels, the top band reading Poor', () => {
+    const levels = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((index) => airQualityLevel(index));
+
+    assert.deepEqual(levels, [1, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5]);
+  });
+
+  it('coerces numeric strings', () => {
+    assert.equal(airQualityLevel('2'), 2);
+    assert.equal(airQualityLevel('10'), 5);
+  });
+
+  it('reads an index above the scale as Poor', () => {
+    assert.equal(airQualityLevel(13), 5);
+    assert.equal(airQualityLevel(100), 5);
+  });
+
+  it('reports unknown for a missing, zero or unreadable index', () => {
+    for (const value of [undefined, null, '', 'abc', NaN, 0, -3]) {
+      assert.equal(airQualityLevel(value), 0);
+    }
   });
 });

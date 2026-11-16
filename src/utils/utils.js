@@ -114,3 +114,31 @@ exports.hapNumber = (value, min, max) => {
   const number = Number(value);
   return Number.isFinite(number) ? Math.min(Math.max(number, min), max) : 0;
 };
+
+//the device's air quality index, 1 (best) to 12 (worst), as a HomeKit
+//AirQuality level: 1 Excellent, 2 Good, 3 Fair, 4 Inferior, 5 Poor, and 0 for
+//unknown. Philips groups the index into four bands, 1-3, 4-6, 7-9 and 10-12,
+//and HomeKit has five levels, so the bands keep their edges and the cleanest
+//reading of the first one is Excellent. Dividing by three, as this once did,
+//stopped the worst band at Inferior and left Poor out of reach (issue #176)
+exports.airQualityLevel = (index) => {
+  const number = Number(index);
+
+  if (!Number.isFinite(number) || number < 1) {
+    return 0;
+  }
+
+  if (number <= 1) {
+    return 1;
+  }
+
+  if (number <= 3) {
+    return 2;
+  }
+
+  if (number <= 6) {
+    return 3;
+  }
+
+  return number <= 9 ? 4 : 5;
+};
