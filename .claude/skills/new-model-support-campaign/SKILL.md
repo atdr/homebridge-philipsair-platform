@@ -158,8 +158,10 @@ Each option carries an evidence obligation from Gates 3–4:
    `architecture-and-invariants`.
 
 Encode in `src/accessories/accessories.models.js` with a comment naming the
-evidence source (issue/PR number). The sync tests will force the typeahead and
-README updates — see `change-control-and-docs`; write unit tests per
+evidence source (issue/PR number), and give the model an entry in the capability
+table there (`CAPABILITIES`), listing the device options its mapping proves it
+lacks. The sync tests will force the capability entry, the typeahead and README
+updates — see `change-control-and-docs`; write unit tests per
 `testing-and-validation` (copy `test/accessories.models.test.js` and the
 `handleCommand`/`handleResponse` cases in `test/accessories.handler.test.js`).
 

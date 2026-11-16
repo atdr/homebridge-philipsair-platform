@@ -297,6 +297,37 @@ describe('docs', () => {
       }
     }
   });
+
+  //the capability table is per model data too, so it has to cover the same
+  //models the Supported tiers promise, no more and no fewer
+  it('gives every model in the Supported tiers a capability table entry, and no other model', () => {
+    const { capabilities } = require('../src/accessories/accessories.models');
+
+    assert.deepEqual(
+      Object.keys(capabilities).sort(),
+      [...supportedModels].sort(),
+      'the capability table in accessories.models.js and the README Supported tiers name different models'
+    );
+  });
+
+  //an option that builds a HomeKit service and does nothing for a model is
+  //something a user notices, so docs/controls.md has to name that model where
+  //it explains what the model's registers can do. The speed and allergen
+  //options are covered by their README footnotes instead
+  it('names in docs/controls.md every model that lacks an option with a HomeKit service', () => {
+    const { capabilities } = require('../src/accessories/accessories.models');
+    const otherControls = headed(controls, 'docs/controls.md', 2, 'Other controls');
+    const withService = ['humidifier', 'light', 'temperature', 'humidity', 'preFilter', 'hepaFilter', 'carbonFilter'];
+
+    for (const [model, { lacks }] of Object.entries(capabilities)) {
+      if (lacks.some((option) => withService.includes(option))) {
+        assert.ok(
+          otherControls.includes(model),
+          `${model} lacks ${lacks.join(', ')}, but the docs/controls.md 'Other controls' section never names it`
+        );
+      }
+    }
+  });
 });
 
 //The model format is documented in two places: the header comment of
