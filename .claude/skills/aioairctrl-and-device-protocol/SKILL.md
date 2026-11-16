@@ -665,8 +665,14 @@ first, then applies the recorded dialect only if its `model` is the model now in
 force, so a dialect never follows a config edit or a later detection onto a
 different model. The debug log carries what the status says about the device
 (`deviceDetails`: model as printed from `D01S05` or the dashed `D01-05`, its
-regional suffix, and `WifiVersion`), for diagnostics only: none of it touches an
-accessory's UUID or the meaning of the config.
+regional suffix, and `WifiVersion`). None of it touches an accessory's UUID or
+the meaning of the config. `accessoryInformation` also feeds the Home app's
+accessory information (issue #180): `Model` from the reported model, unless the
+user typed one (`modelSet`); `FirmwareRevision` from `D01S12` when it matches
+`x.y.z` (`WifiVersion` is `AWS_Philips_AIR_Combo@86`, not that form);
+`SerialNumber` from `DeviceId` when it is 32 hex characters, unless the user
+typed one (`serialNumberSet`). `D01S12` and `DeviceId` are seen only on the
+dash-less dialect; a status without them leaves today's values in place.
 
 The two variants, both **unvalidated**:
 
