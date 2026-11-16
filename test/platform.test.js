@@ -308,6 +308,76 @@ describe('PhilipsAirPlatform', () => {
       assert.deepEqual(api.unregistered, [stale]);
     });
 
+    //issue #174: before the capability table gated them, a sensor, light or
+    //filter option built its service from the config flag alone, so a user who
+    //had one on for a model that cannot report it has the dead service cached.
+    //It has to come off the restored accessory, and only where the table says
+    //the model lacks it
+    it('takes the services a model lacks off a restored accessory, and keeps the rest', async () => {
+      const allOn = {
+        light: true,
+        temperature: true,
+        humidity: true,
+        preFilter: true,
+        hepaFilter: true,
+        carbonFilter: true,
+      };
+      const devices = [
+        { active: true, name: 'Bedroom', model: 'AC0950', host: '10.0.3.1', ...allOn },
+        { active: true, name: 'Hall', model: 'AC2210', host: '10.0.3.2', ...allOn },
+        { active: true, name: 'Study', host: '10.0.3.3', ...allOn },
+      ];
+      const api = makeFakeApi();
+      const platform = new PhilipsAirPlatform(silentLog, { aioairctrlPath: HAPPY_SHIM, devices }, api);
+
+      //what the cache holds after a run on the previous release
+      const restored = devices.map(({ name }) => {
+        const accessory = new FakePlatformAccessory(name, hap.uuid.generate(name));
+        accessory.context.config = { ...devices.find((device) => device.name === name) };
+        accessory.addService(hap.Service.AirPurifier, name, 'purifier');
+        accessory.addService(hap.Service.Lightbulb, 'Light', 'Light');
+        accessory.addService(hap.Service.TemperatureSensor, 'Temperature Sensor', 'Temperature Sensor');
+        accessory.addService(hap.Service.HumiditySensor, 'Humidity Sensor', 'Humidity Sensor');
+        for (const filter of ['Pre Filter', 'HEPA filter', 'Active carbon filter']) {
+          accessory.addService(hap.Service.FilterMaintenance, filter, filter);
+        }
+        platform.configureAccessory(accessory);
+        return accessory;
+      });
+
+      await platform.didFinishLaunching();
+
+      const services = (accessory) =>
+        accessory.services
+          .filter((service) => service.UUID !== hap.Service.AccessoryInformation.UUID)
+          .map((service) => service.subtype || service.displayName)
+          .sort();
+      const [bedroom, hall, study] = restored;
+      const everything = [
+        'Active carbon filter',
+        'Air Quality',
+        'HEPA filter',
+        'Humidity Sensor',
+        'Light',
+        'Pre Filter',
+        'Temperature Sensor',
+        'purifier',
+      ];
+
+      assert.deepEqual(api.registered, [], 'a restored accessory was registered again');
+      assert.deepEqual(api.unregistered, [], 'a restored accessory was removed');
+      assert.deepEqual(services(bedroom), ['Air Quality', 'HEPA filter', 'Humidity Sensor', 'Pre Filter', 'purifier']);
+      assert.deepEqual(services(hall), [
+        'Air Quality',
+        'HEPA filter',
+        'Humidity Sensor',
+        'Light',
+        'Pre Filter',
+        'purifier',
+      ]);
+      assert.deepEqual(services(study), everything);
+    });
+
     //the reported failure: a stray entry or an object where the list belongs
     //rejected inside Setup, out of reach of the try/catch, and took the bridge
     //down with an unhandled rejection
