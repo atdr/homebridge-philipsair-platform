@@ -10,6 +10,7 @@ const {
   validHost,
   validPort,
   validRefreshInterval,
+  validFilterChangeThreshold,
   hapNumber,
   airQualityLevel,
 } = require('../src/utils/utils');
@@ -157,6 +158,31 @@ describe('validRefreshInterval', () => {
     assert.equal(validRefreshInterval('soon'), 60);
     assert.equal(validRefreshInterval(-1), 60);
     assert.equal(warnings.length, 2);
+  });
+});
+
+describe('validFilterChangeThreshold', () => {
+  it('defaults to 10 percent when unset', () => {
+    warnings.length = 0;
+
+    assert.equal(validFilterChangeThreshold(undefined), 10);
+    assert.deepEqual(warnings, []);
+  });
+
+  it('accepts any percentage from 0 to 100', () => {
+    assert.equal(validFilterChangeThreshold(0), 0);
+    assert.equal(validFilterChangeThreshold(25), 25);
+    assert.equal(validFilterChangeThreshold(100), 100);
+    assert.equal(validFilterChangeThreshold('20'), 20);
+  });
+
+  it('warns and falls back to the default on nonsense, null included', () => {
+    for (const value of [-1, 101, 'soon', null, NaN, Infinity, '', true, []]) {
+      warnings.length = 0;
+
+      assert.equal(validFilterChangeThreshold(value), 10, `${String(value)} did not fall back`);
+      assert.equal(warnings.length, 1, `${String(value)} did not warn`);
+    }
   });
 });
 

@@ -351,6 +351,31 @@ describe('processUpdate', () => {
     ['wickFilterService', 'wicksts', 480, 528],
   ];
 
+  //a configured threshold moves the prompt: 20% of the 360 hour pre filter is
+  //72 hours, and 0 asks only once the filter is exhausted, as before #166
+  it('asks for a filter change at the configured filterChangeThreshold', async () => {
+    for (const [threshold, hours, expected] of [
+      [20, 73, false],
+      [20, 72, true],
+      [0, 1, false],
+      [0, 0, true],
+    ]) {
+      const handler = makeHandler({ filterChangeThreshold: threshold });
+      handler.purifierService = makeService();
+      handler.preFilterService = makeService();
+
+      await handler.processUpdate(
+        JSON.stringify({ pwr: '1', mode: 'P', cl: false, om: '2', func: 'P', wl: 100, fltsts0: hours })
+      );
+
+      assert.deepEqual(
+        updated(handler.preFilterService, 'FilterChangeIndication'),
+        [['FilterChangeIndication', expected]],
+        `${hours}h at a ${threshold}% threshold`
+      );
+    }
+  });
+
   for (const [serviceName, key, atThreshold, aboveThreshold] of filters) {
     it(`asks for a ${key} filter change at 10% life left and not above it`, async () => {
       const handler = makeHandler({});

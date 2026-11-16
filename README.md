@@ -177,22 +177,23 @@ Each entry in the `devices` array is one purifier. Three fields are required:
 <details>
 <summary>Optional device options</summary>
 
-| Option            | Description                                                                                                                                                                            | Default     |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| `active`          | Set `false` to skip this device without deleting its configuration.                                                                                                                    | `true`      |
-| `port`            | Port of your device.                                                                                                                                                                   | `5683`      |
-| `refreshInterval` | Shortest wait after a reading before asking for another. `0` disables the refresh entirely. See [The state in the Home app is out of date](#the-state-in-the-home-app-is-out-of-date). | `60`        |
-| `manufacturer`    | Shown in the Home app. Cosmetic only.                                                                                                                                                  | `"Philips"` |
-| `serialNumber`    | Shown in the Home app. Cosmetic only.                                                                                                                                                  | `"000000"`  |
-| `humidifier`      | Expose a separate humidifier accessory to HomeKit.                                                                                                                                     | `false`     |
-| `light`           | Expose device lights as lightbulbs to HomeKit.[^model-option]                                                                                                                          | `false`     |
-| `temperature`     | Expose device temperature as a temperature sensor to HomeKit.[^model-option]                                                                                                           | `false`     |
-| `humidity`        | Expose device humidity as a humidity sensor to HomeKit.[^model-option]                                                                                                                 | `false`     |
-| `sleepSpeed`      | Adds a 'sleep' step below the lowest fan speed.[^sleep-speed]                                                                                                                          | `false`     |
-| `allergicFunc`    | Makes Auto in the Home app start the allergen mode instead of the general Auto mode.[^allergic]                                                                                        | `false`     |
-| `preFilter`       | Expose pre-filter status to HomeKit.[^model-option]                                                                                                                                    | `false`     |
-| `carbonFilter`    | Expose active carbon filter status to HomeKit.[^model-option]                                                                                                                          | `false`     |
-| `hepaFilter`      | Expose HEPA/NanoProtect filter status to HomeKit.[^model-option]                                                                                                                       | `false`     |
+| Option                  | Description                                                                                                                                                                            | Default     |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `active`                | Set `false` to skip this device without deleting its configuration.                                                                                                                    | `true`      |
+| `port`                  | Port of your device.                                                                                                                                                                   | `5683`      |
+| `refreshInterval`       | Shortest wait after a reading before asking for another. `0` disables the refresh entirely. See [The state in the Home app is out of date](#the-state-in-the-home-app-is-out-of-date). | `60`        |
+| `manufacturer`          | Shown in the Home app. Cosmetic only.                                                                                                                                                  | `"Philips"` |
+| `serialNumber`          | Shown in the Home app. Cosmetic only.                                                                                                                                                  | `"000000"`  |
+| `humidifier`            | Expose a separate humidifier accessory to HomeKit.                                                                                                                                     | `false`     |
+| `light`                 | Expose device lights as lightbulbs to HomeKit.[^model-option]                                                                                                                          | `false`     |
+| `temperature`           | Expose device temperature as a temperature sensor to HomeKit.[^model-option]                                                                                                           | `false`     |
+| `humidity`              | Expose device humidity as a humidity sensor to HomeKit.[^model-option]                                                                                                                 | `false`     |
+| `sleepSpeed`            | Adds a 'sleep' step below the lowest fan speed.[^sleep-speed]                                                                                                                          | `false`     |
+| `allergicFunc`          | Makes Auto in the Home app start the allergen mode instead of the general Auto mode.[^allergic]                                                                                        | `false`     |
+| `preFilter`             | Expose pre-filter status to HomeKit.[^model-option]                                                                                                                                    | `false`     |
+| `carbonFilter`          | Expose active carbon filter status to HomeKit.[^model-option]                                                                                                                          | `false`     |
+| `hepaFilter`            | Expose HEPA/NanoProtect filter status to HomeKit.[^model-option]                                                                                                                       | `false`     |
+| `filterChangeThreshold` | Remaining filter life, in percent, at or below which the Home app asks for a filter change. `0` asks only once a filter is used up.                                                    | `10`        |
 
 </details>
 

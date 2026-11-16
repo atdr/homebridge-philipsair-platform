@@ -1,6 +1,6 @@
 'use strict';
 
-const { validHost, validPort, validRefreshInterval } = require('../utils/utils');
+const { validHost, validPort, validRefreshInterval, validFilterChangeThreshold } = require('../utils/utils');
 
 //what HomeKit shows as the model when the field is empty. It is a placeholder,
 //not a model ID, so anything that reads `model` to decide something has to be
@@ -22,6 +22,7 @@ const Config = (deviceConfig) => {
     host: validHost(deviceConfig.host),
     port: validPort(deviceConfig.port),
     refreshInterval: validRefreshInterval(deviceConfig.refreshInterval),
+    filterChangeThreshold: validFilterChangeThreshold(deviceConfig.filterChangeThreshold),
     light: deviceConfig.light || false,
     temperature: deviceConfig.temperature || false,
     humidity: deviceConfig.humidity || false,
