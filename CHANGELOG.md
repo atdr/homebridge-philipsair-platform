@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.1.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v2.0.2...v2.1.0) (2026-11-16)
+
+
+### Features
+
+* **accessories:** prompt for a filter change at 10% and remove the orphaned wick filter ([#166](https://github.com/atdr/homebridge-philipsair-platform/issues/166)) ([567058c](https://github.com/atdr/homebridge-philipsair-platform/commit/567058cd10ee2ad4e5df7e5c1fa92b2cf31273cd))
+
+
+### Bug Fixes
+
+* **accessories:** warn when an option cannot work on the model ([#188](https://github.com/atdr/homebridge-philipsair-platform/issues/188)) ([5f6070a](https://github.com/atdr/homebridge-philipsair-platform/commit/5f6070a6c3d4a45dc37e0b55c30cd67901e0d242)), closes [#174](https://github.com/atdr/homebridge-philipsair-platform/issues/174)
+* **config:** accept a null port and skip a device sharing a host ([#190](https://github.com/atdr/homebridge-philipsair-platform/issues/190)) ([f45c173](https://github.com/atdr/homebridge-philipsair-platform/commit/f45c17313df352147801ab3dcc42a1a47e5db29e))
+* **handler:** debounce fan speed slider writes ([#164](https://github.com/atdr/homebridge-philipsair-platform/issues/164)) ([8ffbfb2](https://github.com/atdr/homebridge-philipsair-platform/commit/8ffbfb20d7b0e702e421a48fae602c0988665502))
+* **handler:** report a failed write to HomeKit ([#163](https://github.com/atdr/homebridge-philipsair-platform/issues/163)) ([e03d1d3](https://github.com/atdr/homebridge-philipsair-platform/commit/e03d1d354cdaa06e39c92642411b51bf151efdef))
+* **handler:** report the worst air quality band as Poor ([#194](https://github.com/atdr/homebridge-philipsair-platform/issues/194)) ([bf3abbd](https://github.com/atdr/homebridge-philipsair-platform/commit/bf3abbdb2bbaf5d56215f63ba6ec8313bbc67375)), closes [#176](https://github.com/atdr/homebridge-philipsair-platform/issues/176)
+* **logger:** keep the device name on extended errors ([#187](https://github.com/atdr/homebridge-philipsair-platform/issues/187)) ([5d74817](https://github.com/atdr/homebridge-philipsair-platform/commit/5d748170eb521b6eb39fe7ed2b3798d727c11118)), closes [#173](https://github.com/atdr/homebridge-philipsair-platform/issues/173)
+* **platform:** skip malformed devices entries instead of rejecting ([#189](https://github.com/atdr/homebridge-philipsair-platform/issues/189)) ([34ad2bb](https://github.com/atdr/homebridge-philipsair-platform/commit/34ad2bb812b531517b4661712db189b70b64efba))
+
 ## [2.0.2](https://github.com/atdr/homebridge-philipsair-platform/compare/v2.0.1...v2.0.2) (2026-10-24)
 
 
