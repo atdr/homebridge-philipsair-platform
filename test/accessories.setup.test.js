@@ -9,6 +9,7 @@ const { uuid } = require('@homebridge/hap-nodejs');
 
 const logger = require('../src/utils/logger');
 const Setup = require('../src/accessories/accessories.setup');
+const { deviceOptions, lackedOptions, mappedModels } = require('../src/accessories/accessories.models');
 
 // silence the singleton logger for the whole test process
 const noop = () => {};
@@ -387,6 +388,29 @@ describe('accessories.setup', () => {
       'Bedroom: The temperature option does nothing for the AC3737, ' +
         'whose dash-less registers carry no temperature this plugin can read yet (issue #186).',
     ]);
+  });
+
+  //the warnings read the capability table, so every option it lists for a
+  //model has a warning, and nothing else does
+  it('warns once for each option the capability table says the model lacks', () => {
+    const allOn = Object.fromEntries(deviceOptions.map((option) => [option, true]));
+
+    for (const [index, model] of mappedModels.entries()) {
+      const { warn, restore } = capture();
+
+      Setup(
+        new Map(),
+        [{ active: true, name: 'Purifier', model, host: `10.0.2.${index + 1}`, ...allOn }],
+        uuid.generate
+      );
+      restore();
+
+      assert.equal(warn.length, lackedOptions(model).length, model);
+      assert.ok(
+        warn.every((message) => message.includes(`for the ${model},`)),
+        model
+      );
+    }
   });
 
   //Homebridge does not await didFinishLaunching, and nor does it await Setup,
