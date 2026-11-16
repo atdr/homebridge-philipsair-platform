@@ -197,6 +197,11 @@ Each entry in the `devices` array is one purifier. Three fields are required:
 
 </details>
 
+Each service the plugin adds carries its own name, the device `name` for the
+purifier and a fixed label for the rest, such as `Air Quality`, `Pre Filter` or
+`Light`, so the Home app can label their tiles apart. The plugin sets that name
+once. A tile renamed in the Home app keeps its new name across restarts.
+
 For a complete `config.json`, see
 [`example-config.json`](https://github.com/atdr/homebridge-philipsair-platform/blob/main/example-config.json)
 in the repository.

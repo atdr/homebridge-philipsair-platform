@@ -5,7 +5,9 @@ selects Auto, and its fan speed slider sets the manual speed, where 0% switches
 the purifier off, as everywhere in the Home app. The child lock is a setting on
 the same accessory. The light, the temperature and humidity sensors, the
 humidifier and the filter status are separate accessories or services, offered
-when their option is on in the [config](../README.md#device-options).
+when their option is on in the [config](../README.md#device-options). Each one
+is named, `Air Quality`, `Pre Filter`, `Light` and so on, so their tiles can be
+told apart, and a name changed in the Home app is kept.
 
 How each control maps to the device depends on the model set in the `model`
 field (see [Device support](../README.md#device-support)).
