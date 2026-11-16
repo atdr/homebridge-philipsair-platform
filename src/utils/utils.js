@@ -11,7 +11,10 @@ exports.generateConfig = (config) => {
     warn: config.warn !== false,
     error: config.error !== false,
     extendedError: config.extendedError !== false,
-    devices: config.devices || [],
+    //only a missing setting defaults. anything written there, a null or a
+    //false included, goes on to the device setup, which says what is wrong
+    //with it rather than starting with no devices and no word why
+    devices: config.devices === undefined ? [] : config.devices,
   };
 };
 

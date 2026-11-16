@@ -105,8 +105,44 @@ const announceModel = (device) => {
   return key;
 };
 
-const Setup = async (deviceMap, devices, generateUUID) => {
-  for (const deviceConfig of devices) {
+//what a devices entry that is not a device actually is, in words a user can
+//match against their config.json
+const describeEntry = (entry) => {
+  if (entry === null) {
+    return 'null';
+  }
+
+  if (entry === undefined) {
+    return 'empty';
+  }
+
+  if (Array.isArray(entry)) {
+    return 'a list';
+  }
+
+  return typeof entry === 'object' ? 'a single object' : `a ${typeof entry}`;
+};
+
+//not async on purpose. didFinishLaunching does not await this, so a throw from
+//an async function would escape its try/catch as an unhandled rejection
+const Setup = (deviceMap, devices, generateUUID) => {
+  if (!Array.isArray(devices)) {
+    logger.warn(
+      `The devices setting should be a list of devices, but it is ${describeEntry(devices)}. ` +
+        'No devices will be set up.'
+    );
+    return;
+  }
+
+  for (const [index, deviceConfig] of devices.entries()) {
+    if (typeof deviceConfig !== 'object' || deviceConfig === null || Array.isArray(deviceConfig)) {
+      logger.warn(
+        `Entry ${index + 1} in devices is not a device (it is ${describeEntry(deviceConfig)}). ` +
+          'This entry will be skipped.'
+      );
+      continue;
+    }
+
     let error = false;
     const device = Config(deviceConfig);
 
@@ -117,6 +153,15 @@ const Setup = async (deviceMap, devices, generateUUID) => {
       error = true;
     } else if (!device.name) {
       logger.warn('One of the devices has no name configured. This device will be skipped.');
+      error = true;
+    } else if (typeof device.name !== 'string') {
+      //the accessory's identity is derived from the name, which only takes
+      //text. a name written without quotes would throw there, and one throw
+      //ends the setup of every device listed after it
+      logger.warn(
+        `The name of entry ${index + 1} in devices is not text (it is ${describeEntry(device.name)}). ` +
+          'Put the name in quotes. This device will be skipped.'
+      );
       error = true;
     } else if (!device.host) {
       if (deviceConfig.host) {

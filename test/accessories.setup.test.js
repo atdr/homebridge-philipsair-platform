@@ -308,6 +308,84 @@ describe('accessories.setup', () => {
     ]);
   });
 
+  //Homebridge does not await didFinishLaunching, and nor does it await Setup,
+  //so Setup has to finish (or throw) synchronously for the try/catch around it
+  //to see a failure at all
+  it('runs synchronously rather than returning a promise', () => {
+    const result = Setup(deviceMap, [{ active: true, name: 'Purifier', host: '192.168.1.142' }], uuid.generate);
+
+    assert.equal(result, undefined);
+    assert.equal(deviceMap.size, 1);
+  });
+
+  //a hand edit that leaves a stray entry must not take the other devices with it
+  it('skips an entry that is not a device, and still sets up the others', () => {
+    const { warn, restore } = capture();
+
+    Setup(
+      deviceMap,
+      [null, 'Purifier', 42, [{ name: 'Nested' }], { active: true, name: 'Bedroom', host: '10.0.1.16' }],
+      uuid.generate
+    );
+    restore();
+
+    assert.deepEqual(
+      [...deviceMap.values()].map((device) => device.name),
+      ['Bedroom']
+    );
+    assert.equal(warn.filter((message) => message.includes('is not a device')).length, 4);
+    assert.ok(warn.some((message) => message.includes('Entry 1 in devices is not a device (it is null)')));
+    assert.ok(warn.some((message) => message.includes('Entry 2 in devices is not a device (it is a string)')));
+    assert.ok(warn.some((message) => message.includes('Entry 3 in devices is not a device (it is a number)')));
+    assert.ok(warn.some((message) => message.includes('Entry 4 in devices is not a device (it is a list)')));
+  });
+
+  //the accessory's identity is derived from the name, and that only takes text:
+  //a name written without quotes used to throw there and stop the whole setup
+  it('skips a device whose name is not text, and still sets up the others', () => {
+    const { warn, restore } = capture();
+
+    Setup(
+      deviceMap,
+      [
+        { active: true, name: 123, host: '10.0.1.16' },
+        { active: true, name: true, host: '10.0.1.17' },
+        { active: true, name: ['Bedroom'], host: '10.0.1.18' },
+        { active: true, name: 'Study', host: '10.0.1.19' },
+      ],
+      uuid.generate
+    );
+    restore();
+
+    assert.deepEqual(
+      [...deviceMap.values()].map((device) => device.name),
+      ['Study']
+    );
+    assert.equal(warn.length, 3);
+    assert.ok(warn[0].includes('The name of entry 1 in devices is not text (it is a number)'));
+    assert.ok(warn[0].includes('Put the name in quotes. This device will be skipped.'));
+    assert.ok(warn[1].includes('The name of entry 2 in devices is not text (it is a boolean)'));
+    assert.ok(warn[2].includes('The name of entry 3 in devices is not text (it is a list)'));
+  });
+
+  it('treats a devices value that is not a list as no devices, and says what it expected', () => {
+    for (const devices of [{ a: 1 }, 'Purifier', 42, null, undefined]) {
+      const { warn, restore } = capture();
+
+      assert.doesNotThrow(() => Setup(deviceMap, devices, uuid.generate));
+      restore();
+
+      assert.equal(deviceMap.size, 0);
+      assert.equal(warn.length, 1, `one warning for ${devices}`);
+      assert.match(warn[0], /devices setting should be a list of devices/);
+    }
+
+    const { warn, restore } = capture();
+    Setup(deviceMap, { a: 1 }, uuid.generate);
+    restore();
+    assert.match(warn[0], /but it is a single object\. No devices will be set up\./);
+  });
+
   it('leaves a trace when a device is skipped for being inactive', async () => {
     const { info, restore } = capture();
 
