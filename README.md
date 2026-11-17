@@ -488,10 +488,12 @@ answered at all. A purifier that has reported itself switched off is expected to
 go quiet, and the plugin waits for it without complaining.
 
 From this warning until the purifier answers again, the Home app shows the
-accessory as No Response rather than the last state it reported, so a purifier
-unplugged at the mains no longer looks healthy until someone taps it. A purifier
-that has reported itself switched off keeps showing as off. The filter levels
-keep their last reading.
+accessory as No Response rather than the last state it reported, the next time
+it reads the accessory: when you open the Home app or the accessory, or tap a
+control. HomeKit is not told of the change by itself, so a view that is already
+open keeps the last state until it reads again, and may need closing and
+reopening. A purifier that has reported itself switched off keeps showing as
+off. The filter levels keep their last reading.
 
 Check that `host` and `port` are right, that the purifier is powered on and on
 the same network, and that nothing else is already talking to it. An address
