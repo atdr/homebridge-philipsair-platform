@@ -492,6 +492,51 @@ describe('accessories.service optional services', () => {
 
         assert.ok(!accessory.getService(serviceName));
       });
+
+      //issue #210: the Home app shows a purifier's filter life and replace
+      //prompt only for a filter service linked to the purifier
+      it(`links the ${serviceName} service to the purifier`, () => {
+        const { accessory } = wireAccessory({ [flag]: true }, `${flag}-linked`);
+
+        const purifier = accessory.getService(hap.Service.AirPurifier);
+        assert.ok(
+          purifier.linkedServices.includes(accessory.getService(serviceName)),
+          `${serviceName} is not linked to the purifier, so the Home app never shows it`
+        );
+      });
+
+      //links are cached with the accessory, and hap-nodejs announces a
+      //configuration change on every addLinkedService call, even for a link it
+      //already has, so a restart must leave the restored link alone
+      it(`keeps the restored ${serviceName} link without linking it again`, () => {
+        const { accessory } = wireAccessory({ [flag]: true }, `${flag}-relinked`);
+        const cached = restore(accessory);
+
+        const calls = [];
+        for (const service of cached.services) {
+          const link = service.addLinkedService.bind(service);
+          service.addLinkedService = (linked) => {
+            calls.push(linked.subtype);
+            return link(linked);
+          };
+        }
+
+        wireAccessory({}, `${flag}-relinked`, cached);
+
+        const purifier = cached.getService(hap.Service.AirPurifier);
+        assert.ok(purifier.linkedServices.includes(cached.getService(serviceName)), 'the restored link was lost');
+        assert.deepEqual(calls, [], 'a restored link was linked again, announcing a needless configuration change');
+      });
+
+      it(`unlinks the ${serviceName} service when ${flag} is turned off`, () => {
+        const { accessory } = wireAccessory({ [flag]: true }, `${flag}-unlinked`);
+
+        accessory.context.config = { ...accessory.context.config, [flag]: false };
+        wireAccessory({}, `${flag}-unlinked`, accessory);
+
+        const purifier = accessory.getService(hap.Service.AirPurifier);
+        assert.deepEqual(purifier.linkedServices, [], 'the purifier still links a filter it no longer has');
+      });
     }
   });
 
@@ -521,6 +566,15 @@ describe('accessories.service optional services', () => {
       assert.equal(threshold.props.minValue, 0);
       assert.equal(threshold.props.maxValue, 100);
       assert.equal(threshold.props.minStep, 25);
+    });
+
+    //issue #210: the wick filter belongs to the humidifier, as the others
+    //belong to the purifier
+    it('links the wick filter to the humidifier', () => {
+      const { accessory } = wireAccessory({ humidifier: true }, 'humidifier-linked');
+
+      const humidifier = accessory.getService(hap.Service.HumidifierDehumidifier);
+      assert.ok(humidifier.linkedServices.includes(accessory.getService('Wick filter')));
     });
 
     //issue #115: the 'Wick filter' is added alongside the humidifier, so it
