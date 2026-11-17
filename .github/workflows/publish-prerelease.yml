@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Prerelease version to publish, e.g. X.Y.Z-beta.N'
+        description: 'Prerelease version to publish, e.g. 1.2.0-beta.1'
         required: true
       dist_tag:
         description: "npm dist-tag to publish under (never 'latest')"
@@ -23,10 +23,13 @@ concurrency:
 jobs:
   publish-prerelease:
     name: publish prerelease to npm
-    if: github.event_name == 'workflow_dispatch'
     timeout-minutes: 10
     runs-on: ubuntu-latest
-    environment: npm-prerelease # scopes the OIDC token so npm's trusted publisher can require it
+    # Scopes the OIDC token so npm's trusted publisher can require it. The url
+    # puts a link to the published version on the deployment.
+    environment:
+      name: npm-prerelease
+      url: ${{ steps.publish.outputs.url }}
     permissions:
       contents: read
       id-token: write # OIDC for npm trusted publishing; provenance is automatic
@@ -40,7 +43,7 @@ jobs:
         run: |
           case "$VERSION" in
             *-*) ;;
-            *) echo "::error::'$VERSION' is not a prerelease version (expected a suffix, e.g. X.Y.Z-beta.N)"; exit 1 ;;
+            *) echo "::error::'$VERSION' is not a prerelease version (expected a suffix, e.g. 1.2.0-beta.1)"; exit 1 ;;
           esac
           if [ "$DIST_TAG" = latest ]; then
             echo "::error::refusing to move the latest dist-tag"
@@ -57,7 +60,13 @@ jobs:
       # Runner-local bump, never committed: main keeps its released version and
       # the pending release-please PR keeps proposing a clean next version.
       - run: npm version "$VERSION" --no-git-tag-version
-      - run: npm publish --tag "$DIST_TAG"
+      - name: Publish
+        id: publish
+        run: |
+          npm publish --tag "$DIST_TAG"
+          # After the publish, so a failed one links nowhere.
+          name=$(node -p 'require("./package.json").name')
+          echo "url=https://www.npmjs.com/package/$name/v/$VERSION" >> "$GITHUB_OUTPUT"
 
   tag-prerelease:
     # Records which commit a beta was built from, so a report against
@@ -74,7 +83,6 @@ jobs:
       - name: Tag the published commit
         env:
           VERSION: ${{ inputs.version }}
-          DIST_TAG: ${{ inputs.dist_tag }}
           GH_TOKEN: ${{ github.token }}
         # A plain ref, never a GitHub Release: release-please reads the
         # Releases API to find the last release and does not filter out
@@ -85,4 +93,4 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/git/refs" \
             -f "ref=refs/tags/prerelease/$VERSION" \
             -f "sha=$GITHUB_SHA" >/dev/null
-          echo "tagged $GITHUB_SHA as prerelease/$VERSION (npm dist-tag: $DIST_TAG)"
+          echo "tagged $GITHUB_SHA as prerelease/$VERSION"
