@@ -223,6 +223,49 @@ describe('PhilipsAirPlatform', () => {
       assert.ok(accessory.getService(hap.Service.AirPurifier));
     });
 
+    //issue #209: a restart while the device is offline serves what it reported
+    //last, since the Home app may load the accessory before it answers
+    const REMEMBERED = { model: 'AC0850/31', firmwareRevision: '0.1.3', serialNumber: '0123456789abcdef' };
+    const information = (accessory) => {
+      const info = accessory.getService(hap.Service.AccessoryInformation);
+      return ['Model', 'SerialNumber', 'FirmwareRevision'].map(
+        (name) => info.getCharacteristic(hap.Characteristic[name]).value
+      );
+    };
+
+    it('serves the information the device reported on an earlier run in place of the defaults', () => {
+      const platform = new PhilipsAirPlatform(silentLog, { aioairctrlPath: HAPPY_SHIM }, makeFakeApi());
+      const device = makeDevice({ serialNumber: '000000', modelSet: false, serialNumberSet: false });
+      const accessory = new FakePlatformAccessory(device.name, hap.uuid.generate('platform-test-remembered'));
+      accessory.context.deviceInformation = { ...REMEMBERED };
+
+      platform.setupAccessory(accessory, device);
+
+      assert.deepEqual(information(accessory), ['AC0850/31', '0123456789abcdef', '0.1.3']);
+    });
+
+    it('still prefers a model and serial number the user typed', () => {
+      const platform = new PhilipsAirPlatform(silentLog, { aioairctrlPath: HAPPY_SHIM }, makeFakeApi());
+      const device = makeDevice({ model: 'AC0850', serialNumber: 'SN123', modelSet: true, serialNumberSet: true });
+      const accessory = new FakePlatformAccessory(device.name, hap.uuid.generate('platform-test-typed'));
+      accessory.context.deviceInformation = { ...REMEMBERED };
+
+      platform.setupAccessory(accessory, device);
+
+      assert.deepEqual(information(accessory), ['AC0850', 'SN123', '0.1.3']);
+    });
+
+    it('ignores remembered information that is not usable', () => {
+      const platform = new PhilipsAirPlatform(silentLog, { aioairctrlPath: HAPPY_SHIM }, makeFakeApi());
+      const device = makeDevice({ serialNumber: '000000', modelSet: false, serialNumberSet: false });
+      const accessory = new FakePlatformAccessory(device.name, hap.uuid.generate('platform-test-garbage'));
+      accessory.context.deviceInformation = { model: 42, serialNumber: '', firmwareRevision: null };
+
+      platform.setupAccessory(accessory, device);
+
+      assert.deepEqual(information(accessory).slice(0, 2), ['AC0850', '000000']);
+    });
+
     it('kills the handler when Homebridge shuts down', () => {
       const api = makeFakeApi();
       const platform = new PhilipsAirPlatform(silentLog, { aioairctrlPath: HAPPY_SHIM }, api);

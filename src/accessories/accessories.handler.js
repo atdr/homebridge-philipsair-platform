@@ -1100,8 +1100,40 @@ class Handler {
       show('model', Characteristic.Model, config.modelSet ? undefined : info.model);
       show('firmwareRevision', Characteristic.FirmwareRevision, info.firmwareRevision);
       show('serialNumber', Characteristic.SerialNumber, config.serialNumberSet ? undefined : info.serialNumber);
+
+      this.rememberInformation(info);
     } catch (err) {
       logger.debug(err, this.accessory.displayName);
+    }
+  }
+
+  /**
+   * Keeps what the device reported in the cached accessory, for
+   * `setupAccessory` to serve on the next start (issue #209). The Home app
+   * reads model, firmware and serial number only when it loads the accessory
+   * list, which after a restart is usually before the device has answered, so
+   * without this a restart while the device is offline shows the defaults
+   * until the one after it. The cache is written only when a value is new.
+   *
+   * @param {{ model?: string, firmwareRevision?: string, serialNumber?: string }} info
+   */
+  rememberInformation(info) {
+    const context = this.accessory.context;
+    const remembered = { ...context.deviceInformation };
+    let changed = false;
+
+    for (const [field, value] of Object.entries(info)) {
+      if (value && remembered[field] !== value) {
+        remembered[field] = value;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      context.deviceInformation = remembered;
+      //accessory.context is otherwise only written out when Homebridge shuts
+      //down cleanly
+      this.api.updatePlatformAccessories([this.accessory]);
     }
   }
 

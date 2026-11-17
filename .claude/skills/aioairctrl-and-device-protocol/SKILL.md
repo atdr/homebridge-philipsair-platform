@@ -673,7 +673,13 @@ user typed one (`modelSet`); `FirmwareRevision` from `D01S12` when it matches
 `SerialNumber` from `DeviceId` when it is 32 hex characters, unless the user
 typed one (`serialNumberSet`; `000000` counts as not typed, since the settings
 panel used to pre-fill it). `D01S12` and `DeviceId` are seen only on the
-dash-less dialect; a status without them leaves today's values in place.
+dash-less dialect; a status without them leaves today's values in place. The
+Home app reads these only when it loads the accessory list, not on change, so
+the handler keeps the reported values in `accessory.context.deviceInformation`
+(`rememberInformation`, cache written only when a value is new) and
+`setupAccessory` serves them at the next start in place of the defaults (issue
+#209). Without that, a restart while the device is offline showed `000000` until
+the restart after it.
 
 The two variants, both **unvalidated**:
 
@@ -778,7 +784,7 @@ nothing.
 
 | Service                                      | Condition         | Key characteristics (source key → HAP)                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | -------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AccessoryInformation`                       | always            | Manufacturer/Model/SerialNumber from config; FirmwareRevision = package version (`src/platform.js`)                                                                                                                                                                                                                                                                                                                                                           |
+| `AccessoryInformation`                       | always            | Manufacturer from config; Model/SerialNumber/FirmwareRevision from config or package version, else as the device last reported them (`src/platform.js`, #180, #209)                                                                                                                                                                                                                                                                                           |
 | `AirPurifier`                                | always            | `Active` (`pwr`), `CurrentAirPurifierState` (`pwr`→0/2), `TargetAirPurifierState` (`Handler.inAutoMode()`: the `modeMaps.auto` or `modeMaps.allergen` registers, AUTO while no mode is reported; pinned to `validValues: [AUTO]` when `supportsMode()` is false, since HAP requires the characteristic), `LockPhysicalControls` (`cl`; not added at all, and removed from a cached accessory, when `cl` is `unsupported`), `RotationSpeed` (previous section) |
 | `AirQualitySensor`                           | always            | `AirQuality` (`iaql`, through `airQualityLevel`), `PM2_5Density` (`pm25`)                                                                                                                                                                                                                                                                                                                                                                                     |
 | `FilterMaintenance` ("Pre Filter")           | `preFilter`       | `FilterChangeIndication` (life \<= `filterChangeThreshold`, default 10%), `FilterLifeLevel` (`fltsts0`)                                                                                                                                                                                                                                                                                                                                                       |
