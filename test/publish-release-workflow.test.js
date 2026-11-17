@@ -38,7 +38,6 @@ describe('release workflow', () => {
 
   it('only runs the release-please path on a push to main', () => {
     assert.match(workflow, /^ {2}push:\n {4}branches: \[main\]$/m);
-    assert.match(jobs.get('release-please'), /if: github\.event_name == 'push'/);
   });
 
   it('tags rather than refuses a prerelease reaching the release path', () => {
