@@ -67,6 +67,16 @@ on it, both re-armed by every status line in `processUpdate`:
   regime restarts the stream silently and counts as no failure at all, because a
   switched-off purifier answering nothing is normal (issue #48) and restarting
   does not make it answer.
+- An **answered write** replaces a stream that has produced nothing, once the
+  write queue drains, when the device was demonstrably away while that stream
+  was opened: a `set` on the same subscription went unanswered
+  (`DeviceUnreachableError`), or HomeKit shows No Response and the subscription
+  is older than `RESUBSCRIBE_GRACE` (30 s). Without this a subscription opened
+  against a purifier off at the mains sat until the stall timer, up to 300 s,
+  after a power tap had already proved it was back (issue #214). It never fires
+  on a stream producing readings or a device known to be off, and it is not
+  priced as a refresh. Its debug line starts
+  `The device answered a write but not the subscription`.
 
 So on an **idle** device a PID cycling every ~65 s is the refresh working as
 designed. On a **running** device the picture measured on v1.2.1 over the night

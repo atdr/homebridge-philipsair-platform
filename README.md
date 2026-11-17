@@ -589,7 +589,10 @@ purpose. HomeKit gives up first, returns the switch to where it was and marks
 the accessory as not responding; the plugin's correction follows a few seconds
 later and settles the parts HomeKit does not manage itself, so the tile stops
 showing a change in progress. The not responding mark stays until the purifier
-next answers, which is the honest signal that it did not.
+next answers, which is the honest signal that it did not. Once a command does
+get through, for example the power switch tapped again after the purifier is
+plugged back in, the plugin asks it for a fresh status straight away rather than
+waiting for its next scheduled retry.
 
 This means the device is not reachable, not that the install is broken: a
 purifier switched off at the mains or unplugged, one that has moved to another
