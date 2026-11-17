@@ -902,6 +902,94 @@ modelConfig.neverReports = (key, generic) => {
   );
 };
 
+//The device options that only some models can use, in the order the startup
+//warnings name them
+const DEVICE_OPTIONS = Object.freeze([
+  'sleepSpeed',
+  'allergicFunc',
+  'humidifier',
+  'light',
+  'temperature',
+  'humidity',
+  'preFilter',
+  'hepaFilter',
+  'carbonFilter',
+]);
+
+//The capability table: for every mapped model, which of DEVICE_OPTIONS can do
+//nothing for it ('lacks'). An option is listed only where the model data proves
+//it dead, so an option left off a model's list is offered as before, and an
+//unmapped model lacks nothing. A model that ships two dialects lacks an option
+//only when both do, since its dialect is not known until it reports.
+//
+//What each option rests on:
+//- sleepSpeed: the model brings its own speeds (hasOwnSpeeds).
+//- allergicFunc: its modeMaps have no allergen entry (hasAllergenMode).
+//- humidifier: it lists 'func' as unsupported (hasHumidifier).
+//- light, temperature, humidity and the filters: every mapping it has is
+//  dash-less and none maps the key the option reads (neverReports). The
+//  temperature here is one the plugin cannot read yet (issue #186), not one
+//  the device has no sensor for.
+//
+//It is kept as written data rather than computed, so it can be read on its own,
+//by the config UI too (issue #69). test/accessories.models.test.js checks it
+//against the rules above, so a mapping change that moves one fails there.
+const CAPABILITIES = {
+  AC3036: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC1715: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC3829: { lacks: ['sleepSpeed'] },
+  AC0850: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC0651: { lacks: ['sleepSpeed', 'allergicFunc', 'light', 'temperature', 'humidity', 'carbonFilter'] },
+  AC0650: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC1214: { lacks: ['sleepSpeed'] },
+  AC2729: { lacks: ['sleepSpeed'] },
+  AC2889: { lacks: ['sleepSpeed'] },
+  AC2936: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC2939: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC2958: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC2959: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC3033: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC3039: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC3055: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC3059: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC3259: { lacks: ['sleepSpeed'] },
+  AC3836: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC3854: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC3858: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC4236: { lacks: ['sleepSpeed', 'allergicFunc'] },
+  AC4550: { lacks: ['sleepSpeed'] },
+  AC4558: { lacks: ['sleepSpeed'] },
+  AC5659: { lacks: ['sleepSpeed'] },
+  AC5660: { lacks: ['sleepSpeed'] },
+  AC0950: { lacks: ['sleepSpeed', 'allergicFunc', 'light', 'temperature', 'carbonFilter'] },
+  AC0951: { lacks: ['sleepSpeed', 'allergicFunc', 'light', 'temperature', 'carbonFilter'] },
+  AC2210: { lacks: ['sleepSpeed', 'allergicFunc', 'temperature', 'carbonFilter'] },
+  AC2220: { lacks: ['sleepSpeed', 'allergicFunc', 'temperature', 'carbonFilter'] },
+  AC2221: { lacks: ['sleepSpeed', 'allergicFunc', 'temperature', 'carbonFilter'] },
+  AC3210: { lacks: ['sleepSpeed', 'allergicFunc', 'temperature', 'carbonFilter'] },
+  AC3220: { lacks: ['sleepSpeed', 'allergicFunc', 'temperature', 'carbonFilter'] },
+  AC3221: { lacks: ['sleepSpeed', 'allergicFunc', 'temperature', 'carbonFilter'] },
+  AC3420: { lacks: ['sleepSpeed', 'allergicFunc', 'humidifier', 'temperature', 'carbonFilter'] },
+  AC3421: { lacks: ['sleepSpeed', 'allergicFunc', 'humidifier', 'temperature', 'carbonFilter'] },
+  AC3737: { lacks: ['sleepSpeed', 'allergicFunc', 'humidifier', 'light', 'temperature', 'carbonFilter'] },
+  AC4220: { lacks: ['sleepSpeed', 'allergicFunc', 'temperature', 'carbonFilter'] },
+  AC4221: { lacks: ['sleepSpeed', 'allergicFunc', 'temperature', 'carbonFilter'] },
+  AMF765: { lacks: ['sleepSpeed', 'allergicFunc', 'temperature', 'carbonFilter'] },
+};
+
+for (const entry of Object.values(CAPABILITIES)) {
+  Object.freeze(entry.lacks);
+  Object.freeze(entry);
+}
+
+modelConfig.deviceOptions = DEVICE_OPTIONS;
+modelConfig.capabilities = Object.freeze(CAPABILITIES);
+
+//the options that can do nothing for a resolved model key, none for an
+//unmapped model or the default mapping
+modelConfig.lackedOptions = (key) =>
+  (key && Object.prototype.hasOwnProperty.call(CAPABILITIES, key) && CAPABILITIES[key].lacks) || [];
+
 //every field a model entry uses, for the drift guard in test/docs.test.js
 modelConfig.modelFields = [
   ...new Set(

@@ -2,19 +2,17 @@
 
 const logger = require('../utils/logger');
 const Config = require('./accessories.config');
-const {
-  resolveModel,
-  hasOwnSpeeds,
-  hasAllergenMode,
-  hasHumidifier,
-  optionKeys,
-  neverReports,
-} = require('./accessories.models');
+const { resolveModel, lackedOptions } = require('./accessories.models');
 
-//what the warning says about an option whose key the model never reports, in
-//the order the warnings are logged. Only dash-less models qualify (see
-//neverReports), which is why the temperature reason can name their registers
+//what the warning says about an option the capability table says can do
+//nothing for the model, in the order the warnings are logged. Only dash-less
+//models lack a sensor, light or filter, which is why the temperature reason can
+//name their registers
 const DEAD_OPTIONS = {
+  sleepSpeed: (model) => `The sleep speed option does nothing for the ${model}, which brings its own speed table.`,
+  allergicFunc: (model) => `The allergic mode option does nothing for the ${model}, which has no plain allergen mode.`,
+  humidifier: (model) =>
+    `The humidifier option does nothing for the ${model}, which has no humidifier on/off this plugin can drive.`,
   light: (model) => `The light option does nothing for the ${model}, which has no light this plugin can switch.`,
   temperature: (model) =>
     `The temperature option does nothing for the ${model}, ` +
@@ -59,25 +57,13 @@ const announceModel = (device) => {
     );
   }
 
-  if (device.sleepSpeed && hasOwnSpeeds(key)) {
-    logger.warn(`The sleep speed option does nothing for the ${key}, which brings its own speed table.`, device.name);
-  }
-
-  if (device.allergicFunc && !hasAllergenMode(key)) {
-    logger.warn(`The allergic mode option does nothing for the ${key}, which has no plain allergen mode.`, device.name);
-  }
-
-  if (device.humidifier && !hasHumidifier(key)) {
-    logger.warn(
-      `The humidifier option does nothing for the ${key}, which has no humidifier on/off this plugin can drive.`,
-      device.name
-    );
-  }
-
-  //the service is still built, so HomeKit shows a constant reading, 0°C for a
+  //an option the model lacks is otherwise silent: a sensor, light or filter
+  //service is still built, so HomeKit shows a constant reading, 0°C for a
   //temperature, which reads as real unless the log says otherwise
+  const lacks = lackedOptions(key);
+
   for (const [option, reason] of Object.entries(DEAD_OPTIONS)) {
-    if (device[option] && neverReports(key, optionKeys[option])) {
+    if (device[option] && lacks.includes(option)) {
       logger.warn(reason(key), device.name);
     }
   }

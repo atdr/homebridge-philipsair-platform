@@ -710,3 +710,85 @@ describe('keys a model can never report', () => {
     }
   });
 });
+
+//The capability table records, for every mapped model, the device options that
+//can do nothing for it. It is written out by hand so the config UI can be driven
+//from it later (issue #69), and checked here against what the model maps prove
+describe('capability table', () => {
+  const {
+    deviceOptions,
+    lackedOptions,
+    mappedModels,
+    hasOwnSpeeds,
+    hasAllergenMode,
+    hasHumidifier,
+    optionKeys,
+    neverReports,
+  } = modelConfig;
+
+  it('names every device option that only some models can use', () => {
+    assert.deepEqual(deviceOptions, [
+      'sleepSpeed',
+      'allergicFunc',
+      'humidifier',
+      'light',
+      'temperature',
+      'humidity',
+      'preFilter',
+      'hepaFilter',
+      'carbonFilter',
+    ]);
+  });
+
+  it('has an entry for every mapped model and for nothing else', () => {
+    assert.deepEqual(Object.keys(modelConfig.capabilities).sort(), [...mappedModels].sort());
+  });
+
+  it('lists only known options, each once, in the order the options are listed', () => {
+    for (const model of mappedModels) {
+      const lacks = lackedOptions(model);
+
+      assert.deepEqual(
+        lacks,
+        deviceOptions.filter((option) => lacks.includes(option)),
+        model
+      );
+    }
+  });
+
+  //the rules the warnings used before the table existed. A mapping change that
+  //moves one of them has to move the table with it
+  it('agrees with what the model maps prove about each model', () => {
+    for (const model of mappedModels) {
+      const derived = [
+        hasOwnSpeeds(model) && 'sleepSpeed',
+        !hasAllergenMode(model) && 'allergicFunc',
+        !hasHumidifier(model) && 'humidifier',
+        ...Object.entries(optionKeys).map(([option, key]) => neverReports(model, key) && option),
+      ].filter(Boolean);
+
+      assert.deepEqual(lackedOptions(model), derived, model);
+    }
+  });
+
+  it('claims nothing about an unmapped model or the default mapping', () => {
+    for (const model of [undefined, 'AC0820', '']) {
+      assert.deepEqual(lackedOptions(model), [], String(model));
+    }
+  });
+
+  //issue #69: which options apply to the selected model
+  it('answers which options apply to a model', () => {
+    const applies = (model) => deviceOptions.filter((option) => !lackedOptions(model).includes(option));
+
+    assert.deepEqual(applies('AC0950'), ['humidifier', 'humidity', 'preFilter', 'hepaFilter']);
+    assert.deepEqual(applies('AC3829'), deviceOptions.slice(1));
+    assert.deepEqual(applies(undefined), deviceOptions);
+  });
+
+  it('cannot be changed at runtime', () => {
+    assert.ok(Object.isFrozen(modelConfig.capabilities));
+    assert.ok(Object.isFrozen(modelConfig.capabilities.AC0950));
+    assert.ok(Object.isFrozen(modelConfig.capabilities.AC0950.lacks));
+  });
+});
