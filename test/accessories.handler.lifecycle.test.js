@@ -2995,3 +2995,316 @@ describe('requestRefresh', () => {
     assert.equal(handler.refreshing, false);
   });
 });
+
+//issue #214: a subscription opened while the device was away is never
+//answered, and used to sit until the stall timer even after a write had proved
+//the device was back
+describe('re-subscribing once a write proves the device is back', () => {
+  //a handler with a stand-in stream that records being killed, and a send
+  //whose outcome each test sets
+  const withStream = () => {
+    const handler = makeHandler({});
+    const stream = { kills: 0, kill: () => (stream.kills += 1) };
+    handler.airControl = /** @type {any} */ (stream);
+    handler.subscribedAt = Date.now() - 60 * 1000;
+    handler.receivedData = false;
+
+    /** @type {'answer' | 'miss'} */
+    let outcome = 'answer';
+    handler.runCMD = async () => {
+      if (outcome === 'miss') {
+        throw handler.unreachableDeviceError();
+      }
+    };
+
+    return { handler, stream, setOutcome: (/** @type {'answer' | 'miss'} */ next) => (outcome = next) };
+  };
+
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+  it('re-subscribes when a write is answered after one went unanswered on this subscription', async () => {
+    const { handler, stream, setOutcome } = withStream();
+
+    setOutcome('miss');
+    await assert.rejects(handler.sendCMD(['set', 'pwr=1']));
+    setOutcome('answer');
+    await handler.sendCMD(['set', 'pwr=1']);
+    await settle();
+
+    assert.equal(stream.kills, 1);
+    assert.equal(handler.refreshing, true, 'the teardown would be counted as a poll failure');
+  });
+
+  it('waits for the queue to drain, so the new subscription follows the last write', async () => {
+    const { handler, stream, setOutcome } = withStream();
+
+    setOutcome('miss');
+    await assert.rejects(handler.sendCMD(['set', 'pwr=1']));
+    setOutcome('answer');
+
+    //the kills seen as each queued write goes out
+    /** @type {[string, number][]} */
+    const seen = [];
+    const run = handler.runCMD;
+    handler.runCMD = async (args) => {
+      seen.push([args.join(' '), stream.kills]);
+      return run(args);
+    };
+
+    await Promise.all([handler.sendCMD(['set', 'pwr=1']), handler.sendCMD(['set', 'om=2'])]);
+    await settle();
+
+    assert.deepEqual(
+      seen,
+      [
+        ['set pwr=1', 0],
+        ['set om=2', 0],
+      ],
+      'the stream was torn down while a write was still queued'
+    );
+    assert.equal(stream.kills, 1);
+  });
+
+  it('re-subscribes after an answered write while HomeKit shows No Response', async () => {
+    const { handler, stream } = withStream();
+    handler.unreachable = true;
+
+    await handler.sendCMD(['set', 'pwr=1']);
+    await settle();
+
+    assert.equal(stream.kills, 1);
+  });
+
+  it('leaves a subscription opened moments ago to be answered, even while No Response', async () => {
+    const { handler, stream } = withStream();
+    handler.unreachable = true;
+    handler.subscribedAt = Date.now();
+
+    await handler.sendCMD(['set', 'pwr=1']);
+    await settle();
+
+    assert.equal(stream.kills, 0);
+  });
+
+  it('never re-subscribes a stream that is producing readings', async () => {
+    const { handler, stream, setOutcome } = withStream();
+
+    setOutcome('miss');
+    await assert.rejects(handler.sendCMD(['set', 'pwr=1']));
+    handler.receivedData = true;
+    setOutcome('answer');
+    await handler.sendCMD(['set', 'pwr=1']);
+    await settle();
+
+    assert.equal(stream.kills, 0);
+  });
+
+  it('does nothing for an answered write with no sign the device was away', async () => {
+    const { handler, stream } = withStream();
+
+    await handler.sendCMD(['set', 'pwr=1']);
+    await settle();
+
+    assert.equal(stream.kills, 0);
+  });
+
+  it('does nothing for a write the device did not answer', async () => {
+    const { handler, stream, setOutcome } = withStream();
+    handler.unreachable = true;
+
+    setOutcome('miss');
+    await assert.rejects(handler.sendCMD(['set', 'pwr=1']));
+    await settle();
+
+    assert.equal(stream.kills, 0);
+  });
+
+  it('does not count a miss from before the subscription was opened', async () => {
+    const { handler, stream, setOutcome } = withStream();
+
+    setOutcome('miss');
+    await assert.rejects(handler.sendCMD(['set', 'pwr=1']));
+    //the stall timer has since opened a new subscription
+    handler.subscription += 1;
+    handler.subscribedAt = Date.now() - 60 * 1000;
+    setOutcome('answer');
+    await handler.sendCMD(['set', 'pwr=1']);
+    await settle();
+
+    assert.equal(stream.kills, 0);
+  });
+
+  //Copilot on #215: a send that started on the old subscription and timed
+  //out after a stall restart opened a new one
+  it('does not count a miss against a subscription opened while it was being sent', async () => {
+    const { handler, stream } = withStream();
+
+    handler.runCMD = async () => {
+      handler.subscription += 1;
+      throw handler.unreachableDeviceError();
+    };
+    await assert.rejects(handler.sendCMD(['set', 'pwr=1']));
+    handler.runCMD = async () => {};
+    await handler.sendCMD(['set', 'pwr=1']);
+    await settle();
+
+    assert.equal(stream.kills, 0);
+  });
+
+  //Copilot on #215: a scene's power-on is queued only once the writes before
+  //it have gone, so the queue is briefly empty in the middle of the scene
+  it('waits for the power-on that ends a scene before re-subscribing', async () => {
+    const { handler, stream, setOutcome } = withStream();
+    handler.writeCoalesceWindow = 5;
+    handler.sendTracked = (args) => handler.sendCMD(args);
+
+    setOutcome('miss');
+    await assert.rejects(handler.sendCMD(['set', 'pwr=1']));
+    setOutcome('answer');
+
+    /** @type {[string, number][]} */
+    const seen = [];
+    const run = handler.runCMD;
+    handler.runCMD = async (args) => {
+      seen.push([args.slice(args.indexOf('set') + 1).join(' '), stream.kills]);
+      //long enough for a re-subscription to have gone out between the two
+      await delay(20);
+      return run(args);
+    };
+
+    await Promise.all([
+      handler.queueWrite(['D0310C=18'], { D0310C: 18 }),
+      handler.queueWrite(['D03102=1'], { pwr: 1 }),
+    ]);
+    await settle();
+
+    assert.deepEqual(
+      seen.map(([, kills]) => kills),
+      [0, 0],
+      `re-subscribed mid-scene: ${JSON.stringify(seen)}`
+    );
+    assert.equal(stream.kills, 1);
+  });
+
+  //Copilot on #215: a slider value in its debounce has not reached the queue
+  //yet, so an empty queue does not mean every write has gone out
+  it('waits for a slider value still in its debounce before re-subscribing', async () => {
+    const { handler, stream, setOutcome } = withStream();
+    handler.purifierService = makeService();
+    handler.speedDebounceWindow = 30;
+    handler.writeCoalesceWindow = 5;
+    handler.sendTracked = (args) => handler.sendCMD(args);
+
+    setOutcome('miss');
+    await assert.rejects(handler.sendCMD(['set', 'pwr=1']));
+    setOutcome('answer');
+
+    /** @type {number[]} */
+    const killsAsSent = [];
+    const run = handler.runCMD;
+    handler.runCMD = async (args) => {
+      killsAsSent.push(stream.kills);
+      return run(args);
+    };
+
+    //the slider moves while an answered write is still out
+    const answered = handler.sendCMD(['set', 'pwr=1']);
+    await handler.setPurifierRotationSpeed(50);
+    await answered;
+    await settle();
+    assert.equal(stream.kills, 0, 're-subscribed while the slider value was still in its debounce');
+
+    while (handler.pendingSpeed || handler.writesQueued || handler.writeSequences) {
+      await delay(5);
+    }
+    await settle();
+
+    assert.ok(killsAsSent.length >= 2, 'the slider value was never sent');
+    assert.ok(
+      killsAsSent.every((kills) => kills === 0),
+      `a write went out after the re-subscription: ${killsAsSent}`
+    );
+    assert.equal(stream.kills, 1);
+  });
+
+  //Copilot on #215: the stream being replaced may itself be a refresh's
+  //replacement, still waiting to be priced
+  it('leaves the refresh cost alone when it replaces a refreshed stream', async () => {
+    const { handler, stream, setOutcome } = withStream();
+    handler.refreshKilledAt = Date.now() - 200 * 1000;
+
+    setOutcome('miss');
+    await assert.rejects(handler.sendCMD(['set', 'pwr=1']));
+    setOutcome('answer');
+    await handler.sendCMD(['set', 'pwr=1']);
+    await settle();
+
+    assert.equal(stream.kills, 1);
+    assert.equal(handler.refreshKilledAt, null, 'the outage would be priced as what a refresh costs');
+  });
+
+  //Copilot on #215: a stall restart while a write that proved the device
+  //back waits behind another one
+  it('does not carry a finding over to a subscription opened since', async () => {
+    const { handler, stream, setOutcome } = withStream();
+
+    setOutcome('miss');
+    await assert.rejects(handler.sendCMD(['set', 'pwr=1']));
+    setOutcome('answer');
+
+    //om=2 waits behind the answered write until the test lets it go
+    let release = () => {};
+    const run = handler.runCMD;
+    handler.runCMD = (args) =>
+      args.includes('om=2')
+        ? new Promise((resolve, reject) => {
+            release = () => run(args).then(resolve, reject);
+          })
+        : run(args);
+    const answered = handler.sendCMD(['set', 'pwr=1']);
+    const pending = handler.sendCMD(['set', 'om=2']);
+    await answered;
+    await settle();
+    assert.equal(handler.deviceBack, true);
+
+    //the stall timer opens a new subscription while om=2 is still out
+    handler.binary = SILENT_SHIM;
+    handler.longPoll();
+    const fresh = handler.airControl;
+
+    release();
+    await pending;
+    await settle();
+
+    assert.equal(stream.kills, 0);
+    assert.equal(handler.airControl, fresh);
+    assert.equal(handler.refreshing, false, 'the new subscription was torn down');
+  });
+
+  it('leaves a device known to be off on its own stall regime', async () => {
+    const { handler, stream, setOutcome } = withStream();
+    handler.obj = { pwr: '0' };
+
+    setOutcome('miss');
+    await assert.rejects(handler.sendCMD(['set', 'pwr=1']));
+    setOutcome('answer');
+    await handler.sendCMD(['set', 'pwr=1']);
+    await settle();
+
+    assert.equal(stream.kills, 0);
+  });
+
+  it('re-subscribes once for a burst of answered writes', async () => {
+    const { handler, stream, setOutcome } = withStream();
+
+    setOutcome('miss');
+    await assert.rejects(handler.sendCMD(['set', 'pwr=1']));
+    setOutcome('answer');
+    await Promise.all([handler.sendCMD(['set', 'pwr=1']), handler.sendCMD(['set', 'om=2'])]);
+    await settle();
+    await handler.sendCMD(['set', 'om=3']);
+    await settle();
+
+    assert.equal(stream.kills, 1);
+  });
+});
