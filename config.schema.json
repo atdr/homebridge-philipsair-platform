@@ -83,14 +83,13 @@
               "title": "Model",
               "type": "string",
               "placeholder": "AC0850",
-              "description": "The model ID printed on your device. Ignore any /11 or /31 suffix. It selects the commands the plugin sends, so a missing or wrong model is the usual reason the Home app controls do nothing. Suggested models have a mapping of their own; anything else uses a default mapping that may not fit."
+              "description": "The model ID printed on your device. Ignore any /11 or /31 suffix. It selects the commands the plugin sends, so a missing or wrong model is the usual reason the Home app controls do nothing. Suggested models have a mapping of their own; anything else uses a default mapping that may not fit. The Home app shows this value; if you leave it empty, it shows the full model the device reports (such as AC0850/31) once it does."
             },
             "serialNumber": {
               "title": "Serial Number",
               "type": "string",
               "placeholder": "000000",
-              "default": "000000",
-              "description": "Shown in the Home app. Cosmetic only."
+              "description": "Shown in the Home app. Cosmetic only. Leave it empty and the plugin shows the device's own ID once the device reports it, which tells two purifiers apart. A value you type here is kept, except 000000, which older versions filled in by themselves."
             },
             "host": {
               "title": "Host Address",

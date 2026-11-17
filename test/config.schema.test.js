@@ -97,6 +97,15 @@ describe('config.schema', () => {
     );
   });
 
+  //a pre-filled 000000 lands in every config the settings panel saves, where it
+  //cannot be told apart from a serial number the user chose
+  it('offers no default serial number', () => {
+    const { serialNumber } = schema.schema.properties.devices.items.properties;
+
+    assert.equal(serialNumber.default, undefined, 'devices[].serialNumber must not pre-fill a value');
+    assert.equal(serialNumber.placeholder, '000000');
+  });
+
   //A default of 'Air Purifier' is what taught users the field was a display
   //label: the box arrived pre-filled with a generic name, so someone who had
   //already typed 'AC0850' into Name had no reason to touch it. There must be

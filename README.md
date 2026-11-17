@@ -183,7 +183,7 @@ Each entry in the `devices` array is one purifier. Three fields are required:
 | `port`                  | Port of your device.                                                                                                                                                                   | `5683`      |
 | `refreshInterval`       | Shortest wait after a reading before asking for another. `0` disables the refresh entirely. See [The state in the Home app is out of date](#the-state-in-the-home-app-is-out-of-date). | `60`        |
 | `manufacturer`          | Shown in the Home app. Cosmetic only.                                                                                                                                                  | `"Philips"` |
-| `serialNumber`          | Shown in the Home app. Cosmetic only.                                                                                                                                                  | `"000000"`  |
+| `serialNumber`          | Shown in the Home app. Cosmetic only. Left unset, the device's own ID replaces the default once the device reports it.[^accessory-info]                                                | `"000000"`  |
 | `humidifier`            | Expose a separate humidifier accessory to HomeKit.                                                                                                                                     | `false`     |
 | `light`                 | Expose device lights as lightbulbs to HomeKit.[^model-option]                                                                                                                          | `false`     |
 | `temperature`           | Expose device temperature as a temperature sensor to HomeKit.[^model-option]                                                                                                           | `false`     |
@@ -760,6 +760,14 @@ endorsement by them.
 [^always-reported]: Faults that stop the plugin working at all, such as an
     `aioairctrl` it cannot run, are always reported, whatever
     this is set to.
+
+[^accessory-info]: The Home app also shows the device's software version as the
+    firmware revision, and its reported model (such as
+    `AC0850/31`) when `model` is empty. A `model` or
+    `serialNumber` you set is never replaced, except a
+    `serialNumber` of `000000`, which older versions of the
+    settings panel filled in by themselves. A field the device
+    does not report keeps its usual value.
 
 [^model-option]: Some models have no register for this. For those the plugin
     leaves the tile out of HomeKit and says so in the log at

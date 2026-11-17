@@ -829,10 +829,22 @@ const detectDialect = (status) => {
   return found.length === 1 ? found[0] : undefined;
 };
 
+//the device software version, which HomeKit's FirmwareRevision takes. Seen only
+//on the dash-less dialect so far. WifiVersion (AWS_Philips_AIR_Combo@86) is the
+//Wi-Fi module's build and is not in the x.y.z form HomeKit expects
+const FIRMWARE_FIELD = 'D01S12';
+const FIRMWARE_PATTERN = /^\d+\.\d+\.\d+$/;
+
+//the device's own stable ID, 32 hex characters on the dash-less dialect.
+//Unconfirmed whether the dashed dialect carries it
+const DEVICE_ID_FIELD = 'DeviceId';
+const DEVICE_ID_PATTERN = /^[0-9a-f]{32}$/i;
+
 /**
- * What a device says about itself, for diagnostics only: the model as printed
- * on it, the regional suffix after the slash, and its Wi-Fi firmware. None of
- * it decides an accessory's identity or what the config means.
+ * What a device says about itself: the model as printed on it, the regional
+ * suffix after the slash, its Wi-Fi build, and the software version and device
+ * ID when they are in a form accessoryInformation can use. None of it decides
+ * an accessory's identity or what the config means.
  *
  * @param {Record<string, unknown>} status
  */
@@ -841,11 +853,33 @@ const deviceDetails = (status) => {
   const model = field ? String(status[field]).trim() : undefined;
   const suffix = model && model.match(/\/(.+)$/);
   const wifi = (status || {}).WifiVersion;
+  const firmware = (status || {})[FIRMWARE_FIELD];
+  const deviceId = (status || {})[DEVICE_ID_FIELD];
 
   return {
     model,
     region: suffix ? suffix[1] : undefined,
     wifiVersion: typeof wifi === 'string' ? wifi : undefined,
+    firmware: typeof firmware === 'string' && FIRMWARE_PATTERN.test(firmware.trim()) ? firmware.trim() : undefined,
+    deviceId: typeof deviceId === 'string' && DEVICE_ID_PATTERN.test(deviceId.trim()) ? deviceId.trim() : undefined,
+  };
+};
+
+/**
+ * The accessory information a status can supply, for HomeKit's Model,
+ * FirmwareRevision and SerialNumber. A field the status lacks or reports in an
+ * unusable form is left out, so the caller keeps what it has.
+ *
+ * @param {Record<string, unknown>} status
+ * @returns {{ model?: string, firmwareRevision?: string, serialNumber?: string }}
+ */
+const accessoryInformation = (status) => {
+  const { model, firmware, deviceId } = deviceDetails(status);
+
+  return {
+    ...(model && { model }),
+    ...(firmware && { firmwareRevision: firmware }),
+    ...(deviceId && { serialNumber: deviceId }),
   };
 };
 
@@ -1004,5 +1038,6 @@ modelConfig.readsStatus = readsStatus;
 modelConfig.looksLikeRegisters = looksLikeRegisters;
 modelConfig.detectDialect = detectDialect;
 modelConfig.deviceDetails = deviceDetails;
+modelConfig.accessoryInformation = accessoryInformation;
 
 module.exports = modelConfig;

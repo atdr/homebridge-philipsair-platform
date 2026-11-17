@@ -7,7 +7,15 @@ const { hapNumber, airQualityLevel } = require('../utils/utils');
 const { DEFAULT_BINARY } = require('../utils/preflight');
 const modelConfig = require('./accessories.models');
 const { leaveOutLacked } = require('./accessories.setup');
-const { resolveModel, identifyModel, readsStatus, looksLikeRegisters, detectDialect, deviceDetails } = modelConfig;
+const {
+  resolveModel,
+  identifyModel,
+  readsStatus,
+  looksLikeRegisters,
+  detectDialect,
+  deviceDetails,
+  accessoryInformation,
+} = modelConfig;
 
 //status lines are small JSON objects; anything beyond this is a misbehaving
 //device or CLI streaming data without newlines
@@ -1026,8 +1034,48 @@ class Handler {
     return spoken;
   }
 
+  /**
+   * Shows the device's own model, software version and ID in the Home app.
+   *
+   * A model or serial number the user typed is never replaced, only the
+   * defaults (see `modelSet` and `serialNumberSet` in the config). Each value is
+   * written when it is new, so a status that lacks a field changes nothing and
+   * a later one that carries it is still picked up. A failure here must not
+   * cost the user the status itself.
+   *
+   * @param {Record<string, unknown>} status
+   */
+  fillAccessoryInformation(status) {
+    try {
+      const service = this.accessory.getService(this.api.hap.Service.AccessoryInformation);
+
+      if (!service) {
+        return;
+      }
+
+      const config = this.accessory.context.config;
+      const { Characteristic } = this.api.hap;
+      const info = accessoryInformation(status);
+      this.shownInformation = this.shownInformation || {};
+
+      const show = (field, characteristic, value) => {
+        if (value && this.shownInformation[field] !== value) {
+          this.shownInformation[field] = value;
+          service.updateCharacteristic(characteristic, value);
+        }
+      };
+
+      show('model', Characteristic.Model, config.modelSet ? undefined : info.model);
+      show('firmwareRevision', Characteristic.FirmwareRevision, info.firmwareRevision);
+      show('serialNumber', Characteristic.SerialNumber, config.serialNumberSet ? undefined : info.serialNumber);
+    } catch (err) {
+      logger.debug(err, this.accessory.displayName);
+    }
+  }
+
   handleResponse(json) {
     this.checkModelMapping(json);
+    this.fillAccessoryInformation(json);
 
     this.obj = json;
 

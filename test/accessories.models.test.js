@@ -453,16 +453,51 @@ describe('register dialects', () => {
       model: 'AC0850/31',
       region: '31',
       wifiVersion: 'AWS_Philips_AIR_Combo@86',
+      firmware: '0.1.3',
+      deviceId: undefined,
     });
     assert.deepEqual(modelConfig.deviceDetails(dashedStatus), {
       model: 'AC0850/11',
       region: '11',
       wifiVersion: 'AWS_Philips_AIR@62',
+      firmware: undefined,
+      deviceId: undefined,
     });
     assert.deepEqual(modelConfig.deviceDetails({ pwr: '1' }), {
       model: undefined,
       region: undefined,
       wifiVersion: undefined,
+      firmware: undefined,
+      deviceId: undefined,
+    });
+  });
+
+  describe('accessoryInformation', () => {
+    //obviously fake on purpose: a real device ID never belongs in a fixture
+    const DEVICE_ID = '0123456789abcdef0123456789abcdef';
+
+    it('takes the model, the device software version and the device ID from a status', () => {
+      assert.deepEqual(modelConfig.accessoryInformation({ ...dashlessStatus, DeviceId: DEVICE_ID }), {
+        model: 'AC0850/31',
+        firmwareRevision: '0.1.3',
+        serialNumber: DEVICE_ID,
+      });
+    });
+
+    it('does not take the Wi-Fi version, which is not in the x.y.z form HomeKit expects', () => {
+      assert.equal(modelConfig.accessoryInformation(dashlessStatus).firmwareRevision, '0.1.3');
+      assert.equal(
+        modelConfig.accessoryInformation({ WifiVersion: 'AWS_Philips_AIR_Combo@86' }).firmwareRevision,
+        undefined
+      );
+    });
+
+    it('leaves out a field that is missing or malformed instead of failing', () => {
+      assert.deepEqual(modelConfig.accessoryInformation({ pwr: '1' }), {});
+      assert.deepEqual(modelConfig.accessoryInformation(undefined), {});
+      assert.deepEqual(modelConfig.accessoryInformation({ D01S12: '0.1', DeviceId: 'abc', D01S05: '  ' }), {});
+      assert.deepEqual(modelConfig.accessoryInformation({ D01S12: 3, DeviceId: 42, D01S05: 7 }), {});
+      assert.deepEqual(modelConfig.accessoryInformation({ D01S12: '1.2.3-beta', DeviceId: `${DEVICE_ID}0` }), {});
     });
   });
 });
