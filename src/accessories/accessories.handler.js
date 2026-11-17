@@ -271,14 +271,18 @@ class Handler {
     //replacement subscription can be priced. null once that price is known
     /** @type {number | null} */
     this.refreshKilledAt = null;
-    //when the current observe subscription was opened, and when a `set` last
-    //went unanswered, so an answered one can tell whether this subscription
-    //was opened while the device was away (issue #214)
+    //when the current observe subscription was opened, so an answered `set`
+    //can tell whether it was opened while the device was away (issue #214)
     /** @type {number | null} */
     this.subscribedAt = null;
+    //which subscription is current, and the one a `set` last went unanswered on
+    this.subscription = 0;
     /** @type {number | null} */
-    this.lastMissedWriteAt = null;
+    this.missedOnSubscription = null;
     this.deviceBack = false;
+    //writes queued and not yet settled, and sequences of them still under way
+    this.writesQueued = 0;
+    this.writeSequences = 0;
     //what the refresh has learned re-subscribing to this device costs, in ms.
     //null until a refresh has been priced, when the configured interval stands
     //in: it is what the plugin waits having measured nothing. see adaptRefresh
@@ -569,14 +573,19 @@ class Handler {
    * @returns {Promise<void>}
    */
   sendCMD(args) {
-    const run = () =>
-      this.runCMD(args).then(
+    const run = () => {
+      //the subscription the send went out on, not the one current when it
+      //times out: a stall restart can open a new one meanwhile
+      const subscription = this.subscription;
+
+      return this.runCMD(args).then(
         () => this.noteWriteAnswered(),
         (err) => {
-          this.noteWriteMissed(err);
+          this.noteWriteMissed(err, subscription);
           throw err;
         }
       );
+    };
     //`then(run, run)` rather than a chained catch: one command failing must not
     //stop the next from being attempted, and must not leave a rejection sitting
     //unhandled on the tail
@@ -584,26 +593,48 @@ class Handler {
 
     this.writeQueue = queued.catch(() => {});
 
-    //once this is the last command queued, so a new subscription never goes
-    //out alongside a write (see resubscribeIfBack)
-    const tail = this.writeQueue;
-    tail.then(() => {
-      if (this.writeQueue === tail) {
-        this.resubscribeIfBack();
-      }
+    this.writesQueued += 1;
+    this.writeQueue.then(() => {
+      this.writesQueued -= 1;
+      this.resubscribeIfBack();
     });
 
     return queued;
   }
 
   /**
-   * Notes a `set` the device did not answer, for `noteWriteAnswered`.
+   * Runs a sequence of writes that has to reach the device in order with
+   * nothing in between, such as a scene's settings with its power-on last.
+   * Each write is queued only once the one before it settles, so the queue
+   * itself can be momentarily empty mid-sequence; this marks the whole span,
+   * so `resubscribeIfBack` waits for the end of it.
+   *
+   * @template T
+   * @param {() => Promise<T>} send
+   * @returns {Promise<T>}
+   */
+  async inWriteSequence(send) {
+    this.writeSequences += 1;
+
+    try {
+      return await send();
+    } finally {
+      this.writeSequences -= 1;
+      this.resubscribeIfBack();
+    }
+  }
+
+  /**
+   * Notes a `set` the device did not answer, for `noteWriteAnswered`, against
+   * the subscription it was sent on. A send that started on an earlier one and
+   * timed out after a stall restart says nothing about the new one.
    *
    * @param {unknown} err
+   * @param {number} subscription
    */
-  noteWriteMissed(err) {
+  noteWriteMissed(err, subscription) {
     if (err instanceof DeviceUnreachableError) {
-      this.lastMissedWriteAt = Date.now();
+      this.missedOnSubscription = subscription;
     }
   }
 
@@ -629,7 +660,7 @@ class Handler {
       return;
     }
 
-    const missedHere = this.lastMissedWriteAt !== null && this.lastMissedWriteAt >= this.subscribedAt;
+    const missedHere = this.missedOnSubscription === this.subscription;
     const staleWhileUnreachable = this.unreachable && Date.now() - this.subscribedAt >= RESUBSCRIBE_GRACE;
 
     if (missedHere || staleWhileUnreachable) {
@@ -639,7 +670,9 @@ class Handler {
 
   /**
    * Replaces the observe subscription once a write has proved the device is
-   * back (see `noteWriteAnswered`) and the write queue has drained: a second
+   * back (see `noteWriteAnswered`) and every write has gone out, including the
+   * rest of a sequence whose next write is not queued yet (`inWriteSequence`)
+   * and a batch still waiting out its coalescing window: a second
    * handshake arriving while the device wakes can knock it over, so the new
    * subscription goes out after the last write rather than alongside it.
    *
@@ -650,7 +683,9 @@ class Handler {
    * teardown is not counted as a poll failure.
    */
   resubscribeIfBack() {
-    if (!this.deviceBack) {
+    //not until every write, and every sequence of them, is through: kept until
+    //then rather than dropped
+    if (!this.deviceBack || this.writesQueued || this.writeSequences || this.writeBatch.length) {
       return;
     }
 
@@ -664,6 +699,9 @@ class Handler {
       'The device answered a write but not the subscription opened while it was away, re-subscribing',
       this.accessory.displayName
     );
+    //a refresh whose replacement this one supersedes is not priced either: its
+    //wait now includes the outage
+    this.refreshKilledAt = null;
     this.refreshing = true;
     this.airControl.kill();
   }
@@ -795,7 +833,14 @@ class Handler {
    * exception is an identical write, which is sent once: Auto on the switch
    * and a fan-level Auto step on the slider (`fanLevel`) in the same scene.
    */
-  async flushWriteBatch() {
+  flushWriteBatch() {
+    return this.inWriteSequence(() => this.sendWriteBatch());
+  }
+
+  /**
+   * The body of `flushWriteBatch`, run as one write sequence.
+   */
+  async sendWriteBatch() {
     const levels = [...new Set(this.writeBatch.map((entry) => entry.yielding))].sort((a, b) => a - b);
     //each claimed key, and the level of the write that claimed it
     /** @type {Map<string, number>} */
@@ -2406,7 +2451,16 @@ class Handler {
    *
    * @param {string[][]} commands
    */
-  async resendInTurn(commands) {
+  resendInTurn(commands) {
+    return this.inWriteSequence(() => this.resendEachInTurn(commands));
+  }
+
+  /**
+   * The body of `resendInTurn`, run as one write sequence.
+   *
+   * @param {string[][]} commands
+   */
+  async resendEachInTurn(commands) {
     const resendable = commands.map((args) => this.withoutRedundantPowerOn(args)).filter((args) => args !== null);
     const batch = this.orderPowerLast(resendable);
 
@@ -2696,6 +2750,10 @@ class Handler {
     this.spawnFailed = false;
     this.refreshing = false;
     this.subscribedAt = Date.now();
+    this.subscription += 1;
+    //a write that proved the device back was judged against the subscription
+    //this one replaces
+    this.deviceBack = false;
 
     const child = spawn(this.binary, [...this.args, 'status-observe', '-J']);
     this.airControl = child;
