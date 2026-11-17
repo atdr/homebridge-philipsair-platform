@@ -790,6 +790,12 @@ nothing.
 | `HumiditySensor`                             | `humidity`        | `CurrentRelativeHumidity` (`rh`)                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `Lightbulb`                                  | `light`           | `On` (`pwr === '1' && aqil > 0`; forced off when the device is off), `Brightness` (`aqil`, minStep 25)                                                                                                                                                                                                                                                                                                                                                        |
 
+Each `FilterMaintenance` service is linked (`addLinkedService`) to the service
+it belongs to: the wick filter to the humidifier, the rest to the purifier
+(`Accessory.linkService`, #210). The Home app shows filter life and the replace
+prompt only for a linked filter; before 2.2.0 none were linked, so only
+third-party apps such as Eve showed them.
+
 Two behaviours worth memorising:
 
 - `onGet` handlers return the **last polled** state from `this.obj` — the plugin
