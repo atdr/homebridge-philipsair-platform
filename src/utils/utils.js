@@ -2,6 +2,8 @@
 
 const logger = require('./logger');
 
+const DEFAULT_FILTER_CHANGE_THRESHOLD = 10;
+
 exports.generateConfig = (config) => {
   return {
     name: config.name || 'PhilipsAirPlatform',
@@ -106,6 +108,27 @@ exports.validRefreshInterval = (interval) => {
   }
 
   return Math.max(Math.round(number), 15);
+};
+
+//FilterLifeLevel percent at or below which a filter is reported as due for a
+//change. Unset means the default; anything else that is not a number from 0 to
+//100 (a null included, which the config UI never writes) warns and falls back
+exports.validFilterChangeThreshold = (threshold) => {
+  if (threshold === undefined) {
+    return DEFAULT_FILTER_CHANGE_THRESHOLD;
+  }
+
+  const isNumeric = typeof threshold === 'number' || (typeof threshold === 'string' && threshold.trim() !== '');
+  const number = isNumeric ? Number(threshold) : NaN;
+
+  if (!Number.isInteger(number) || number < 0 || number > 100) {
+    logger.warn(
+      `Invalid filter change threshold '${threshold}' configured, using default ${DEFAULT_FILTER_CHANGE_THRESHOLD}% instead.`
+    );
+    return DEFAULT_FILTER_CHANGE_THRESHOLD;
+  }
+
+  return number;
 };
 
 //coerce a raw device field into the finite, in-range number HAP expects;

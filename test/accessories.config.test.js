@@ -18,6 +18,7 @@ describe('accessories.config', () => {
       host: '192.168.1.142',
       port: 5683,
       refreshInterval: 60,
+      filterChangeThreshold: 10,
       light: false,
       temperature: false,
       humidity: false,
@@ -55,6 +56,13 @@ describe('accessories.config', () => {
   it('floors a refresh interval below the minimum, and keeps zero as disabled', () => {
     assert.equal(Config({ name: 'Purifier', host: '10.0.0.2', refreshInterval: 5 }).refreshInterval, 15);
     assert.equal(Config({ name: 'Purifier', host: '10.0.0.2', refreshInterval: 0 }).refreshInterval, 0);
+  });
+
+  it('keeps a filter change threshold and replaces an invalid one with the default', () => {
+    assert.equal(Config({ name: 'Purifier', host: '10.0.0.2', filterChangeThreshold: 25 }).filterChangeThreshold, 25);
+    assert.equal(Config({ name: 'Purifier', host: '10.0.0.2', filterChangeThreshold: 0 }).filterChangeThreshold, 0);
+    assert.equal(Config({ name: 'Purifier', host: '10.0.0.2', filterChangeThreshold: 150 }).filterChangeThreshold, 10);
+    assert.equal(Config({ name: 'Purifier', host: '10.0.0.2', filterChangeThreshold: null }).filterChangeThreshold, 10);
   });
 
   it('keeps explicit values', () => {

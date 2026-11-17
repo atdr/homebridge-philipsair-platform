@@ -71,7 +71,7 @@ describe('config.schema', () => {
   //both carry a minimum AND a maximum, which makes the schema form render a
   //slider with no readout — you cannot see or type a port. Naming the widget
   //explicitly is what keeps them as number inputs.
-  for (const key of ['devices[].port', 'devices[].refreshInterval']) {
+  for (const key of ['devices[].port', 'devices[].refreshInterval', 'devices[].filterChangeThreshold']) {
     it(`renders ${key} as a number input rather than a slider`, () => {
       const item = findLayoutItem(schema.layout, key);
 

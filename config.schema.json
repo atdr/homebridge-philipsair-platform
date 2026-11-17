@@ -167,6 +167,14 @@
               "title": "HEPA Filter",
               "type": "boolean",
               "description": "Expose HEPA/NanoProtect filter status to HomeKit."
+            },
+            "filterChangeThreshold": {
+              "title": "Filter Change Threshold",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "placeholder": 10,
+              "description": "Remaining filter life, in percent, at or below which the Home app asks for a filter change. Raise it if you need time to order a replacement; set it to 0 to ask only once a filter is used up."
             }
           },
           "required": ["name", "model", "host"]
@@ -293,7 +301,11 @@
                 "devices[].allergicFunc",
                 "devices[].preFilter",
                 "devices[].carbonFilter",
-                "devices[].hepaFilter"
+                "devices[].hepaFilter",
+                {
+                  "key": "devices[].filterChangeThreshold",
+                  "type": "number"
+                }
               ]
             }
           ]

@@ -34,7 +34,8 @@
           "sleepSpeed": false,
           "preFilter": false,
           "carbonFilter": false,
-          "hepaFilter": true
+          "hepaFilter": true,
+          "filterChangeThreshold": 10
         }
       ]
     }
