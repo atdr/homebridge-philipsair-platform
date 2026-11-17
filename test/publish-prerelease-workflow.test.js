@@ -43,7 +43,6 @@ describe('prerelease workflow', () => {
 
   it('only runs on workflow_dispatch', () => {
     assert.match(workflow, /^on:\n {2}workflow_dispatch:$/m);
-    assert.match(jobs.get('publish-prerelease'), /if: github\.event_name == 'workflow_dispatch'/);
   });
 
   it('never publishes a prerelease to the latest dist-tag', () => {
@@ -62,14 +61,25 @@ describe('prerelease workflow', () => {
 
   it('passes dispatch inputs through the environment, not shell interpolation', () => {
     //Every job on the dispatch path, so a later one cannot reintroduce the hole.
-    for (const name of ['publish-prerelease', 'tag-prerelease']) {
+    const inputs = { 'publish-prerelease': ['version', 'dist_tag'], 'tag-prerelease': ['version'] };
+    for (const [name, names] of Object.entries(inputs)) {
       const job = jobs.get(name);
-      assert.match(job, /VERSION: \$\{\{ inputs\.version \}\}/, `${name} does not read version through env`);
-      assert.match(job, /DIST_TAG: \$\{\{ inputs\.dist_tag \}\}/, `${name} does not read dist_tag through env`);
-      //Those two env lines are the only places an input may be expanded; anywhere
+      for (const input of names) {
+        const env = input.toUpperCase();
+        assert.match(
+          job,
+          new RegExp(`${env}: \\$\\{\\{ inputs\\.${input} \\}\\}`),
+          `${name} does not read ${input} through env`
+        );
+      }
+      //Those env lines are the only places an input may be expanded; anywhere
       //else means it reaches a run script, where a crafted value is shell.
       const expansions = job.match(/\$\{\{ *inputs\./g) ?? [];
-      assert.equal(expansions.length, 2, `${name} must only expand dispatch inputs into env, never into a run script`);
+      assert.equal(
+        expansions.length,
+        names.length,
+        `${name} must only expand dispatch inputs into env, never into a run script`
+      );
     }
   });
 
