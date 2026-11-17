@@ -42,6 +42,12 @@ const OFF_STALL_TIMEOUT = 30 * 60 * 1000;
 //its own faster than this never triggers it
 const REFRESH_INTERVAL = 60 * 1000;
 
+//how long a subscription opened while HomeKit shows No Response is given to be
+//answered before an answered write may replace it (issue #214). A device back
+//from a power cut answered fresh subscriptions in 17 s and 39 s, and one at
+//startup in 38 s, so a younger one may simply not have been answered yet
+const RESUBSCRIBE_GRACE = 30 * 1000;
+
 //how fast the estimate of what re-subscribing costs follows the last refresh,
 //as the weight given to a new reading. deliberately asymmetric: a refresh that
 //cost more than expected is evidence, while one answered cheaply may be luck,
@@ -219,6 +225,10 @@ const describeDevice = ({ model, region, wifiVersion }, dialect) =>
     .filter(Boolean)
     .join(', ');
 
+//a `set` cut off because the device never answered its handshake, told apart
+//from a command the CLI refused or could not run (issue #214)
+class DeviceUnreachableError extends Error {}
+
 class Handler {
   constructor(api, accessory) {
     this.api = api;
@@ -261,6 +271,14 @@ class Handler {
     //replacement subscription can be priced. null once that price is known
     /** @type {number | null} */
     this.refreshKilledAt = null;
+    //when the current observe subscription was opened, and when a `set` last
+    //went unanswered, so an answered one can tell whether this subscription
+    //was opened while the device was away (issue #214)
+    /** @type {number | null} */
+    this.subscribedAt = null;
+    /** @type {number | null} */
+    this.lastMissedWriteAt = null;
+    this.deviceBack = false;
     //what the refresh has learned re-subscribing to this device costs, in ms.
     //null until a refresh has been priced, when the configured interval stands
     //in: it is what the plugin waits having measured nothing. see adaptRefresh
@@ -472,7 +490,7 @@ class Handler {
   unreachableDeviceError() {
     const { host, port } = this.accessory.context.config;
 
-    return new Error(
+    return new DeviceUnreachableError(
       `${this.binary} got no answer from ${host}:${port} within ${this.sendTimeout / 1000}s and was stopped. ` +
         `The device may be powered off at the mains, on another network, or at a different address (see README Troubleshooting).`
     );
@@ -551,7 +569,14 @@ class Handler {
    * @returns {Promise<void>}
    */
   sendCMD(args) {
-    const run = () => this.runCMD(args);
+    const run = () =>
+      this.runCMD(args).then(
+        () => this.noteWriteAnswered(),
+        (err) => {
+          this.noteWriteMissed(err);
+          throw err;
+        }
+      );
     //`then(run, run)` rather than a chained catch: one command failing must not
     //stop the next from being attempted, and must not leave a rejection sitting
     //unhandled on the tail
@@ -559,7 +584,88 @@ class Handler {
 
     this.writeQueue = queued.catch(() => {});
 
+    //once this is the last command queued, so a new subscription never goes
+    //out alongside a write (see resubscribeIfBack)
+    const tail = this.writeQueue;
+    tail.then(() => {
+      if (this.writeQueue === tail) {
+        this.resubscribeIfBack();
+      }
+    });
+
     return queued;
+  }
+
+  /**
+   * Notes a `set` the device did not answer, for `noteWriteAnswered`.
+   *
+   * @param {unknown} err
+   */
+  noteWriteMissed(err) {
+    if (err instanceof DeviceUnreachableError) {
+      this.lastMissedWriteAt = Date.now();
+    }
+  }
+
+  /**
+   * Notes a `set` the device answered while the stream has produced nothing,
+   * when there is reason to think the stream was opened while the device was
+   * away (issue #214). Status arrives only on the observe subscription, and one
+   * opened against a device that was off at the mains is never answered: it
+   * used to sit until the stall timer, up to `STALL_TIMEOUT` later, however
+   * long ago a write had proved the device was back.
+   *
+   * Two signs count: a write on this same subscription that the device did not
+   * answer, or HomeKit already showing No Response with a subscription old
+   * enough that it should have been answered (`RESUBSCRIBE_GRACE`).
+   *
+   * Never on a stream that is producing readings: on the AC0850 re-subscribing
+   * is the expensive operation, 140 s at the median to answer a replacement
+   * subscription against ~9 s on one left alone (#71). Nor on a device known to
+   * be off, which answers only now and then and has its own stall regime.
+   */
+  noteWriteAnswered() {
+    if (this.receivedData || this.deviceKnownOff() || this.subscribedAt === null) {
+      return;
+    }
+
+    const missedHere = this.lastMissedWriteAt !== null && this.lastMissedWriteAt >= this.subscribedAt;
+    const staleWhileUnreachable = this.unreachable && Date.now() - this.subscribedAt >= RESUBSCRIBE_GRACE;
+
+    if (missedHere || staleWhileUnreachable) {
+      this.deviceBack = true;
+    }
+  }
+
+  /**
+   * Replaces the observe subscription once a write has proved the device is
+   * back (see `noteWriteAnswered`) and the write queue has drained: a second
+   * handshake arriving while the device wakes can knock it over, so the new
+   * subscription goes out after the last write rather than alongside it.
+   *
+   * Not a refresh. `requestRefresh` prices what a replacement subscription
+   * costs, and one replacing a stream that could never be answered says
+   * nothing about that, so it would teach the refresh to be more eager than
+   * this device can afford. It shares the `refreshing` flag only so the
+   * teardown is not counted as a poll failure.
+   */
+  resubscribeIfBack() {
+    if (!this.deviceBack) {
+      return;
+    }
+
+    this.deviceBack = false;
+
+    if (this.receivedData || this.shutdown || this.refreshing || this.restartTimeout || !this.airControl) {
+      return;
+    }
+
+    logger.debug(
+      'The device answered a write but not the subscription opened while it was away, re-subscribing',
+      this.accessory.displayName
+    );
+    this.refreshing = true;
+    this.airControl.kill();
   }
 
   /**
@@ -2589,6 +2695,7 @@ class Handler {
     this.stalledWhileOff = false;
     this.spawnFailed = false;
     this.refreshing = false;
+    this.subscribedAt = Date.now();
 
     const child = spawn(this.binary, [...this.args, 'status-observe', '-J']);
     this.airControl = child;
