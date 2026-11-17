@@ -505,14 +505,27 @@ describe('accessories.service optional services', () => {
         );
       });
 
-      //links are cached with the accessory, so a restart must not add another
-      it(`links the ${serviceName} service only once across a restart`, () => {
+      //links are cached with the accessory, and hap-nodejs announces a
+      //configuration change on every addLinkedService call, even for a link it
+      //already has, so a restart must leave the restored link alone
+      it(`keeps the restored ${serviceName} link without linking it again`, () => {
         const { accessory } = wireAccessory({ [flag]: true }, `${flag}-relinked`);
-        wireAccessory({}, `${flag}-relinked`, accessory);
+        const cached = restore(accessory);
 
-        const purifier = accessory.getService(hap.Service.AirPurifier);
-        const filter = accessory.getService(serviceName);
-        assert.equal(purifier.linkedServices.filter((service) => service === filter).length, 1);
+        const calls = [];
+        for (const service of cached.services) {
+          const link = service.addLinkedService.bind(service);
+          service.addLinkedService = (linked) => {
+            calls.push(linked.subtype);
+            return link(linked);
+          };
+        }
+
+        wireAccessory({}, `${flag}-relinked`, cached);
+
+        const purifier = cached.getService(hap.Service.AirPurifier);
+        assert.ok(purifier.linkedServices.includes(cached.getService(serviceName)), 'the restored link was lost');
+        assert.deepEqual(calls, [], 'a restored link was linked again, announcing a needless configuration change');
       });
 
       it(`unlinks the ${serviceName} service when ${flag} is turned off`, () => {
