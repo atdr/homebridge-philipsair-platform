@@ -783,7 +783,9 @@ endorsement by them.
     `serialNumber` you set is never replaced, except a
     `serialNumber` of `000000`, which older versions of the
     settings panel filled in by themselves. A field the device
-    does not report keeps its usual value.
+    does not report keeps its usual value. The values the device
+    reported are kept across restarts, so they still show after
+    one while the device is offline.
 
 [^model-option]: Some models have no register for this. For those the plugin
     leaves the tile out of HomeKit and says so in the log at
