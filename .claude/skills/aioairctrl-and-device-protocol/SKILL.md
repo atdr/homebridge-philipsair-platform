@@ -762,7 +762,12 @@ The other end of the translation: which HomeKit services the plugin exposes and
 which generic key feeds each characteristic. Services are wired in
 `src/accessories/accessories.service.js` (conditional ones are added when the
 device config enables the option and removed otherwise); values are pushed from
-`processUpdate` and the `set*` methods in `accessories.handler.js`.
+`processUpdate` and the `set*` methods in `accessories.handler.js`. Before that,
+`src/accessories/accessories.setup.js` switches off every option the model's
+entry in the capability table (`CAPABILITIES` in `accessories.models.js`) lists
+as lacking, with a startup warning, so a service the model cannot feed is never
+built and is removed from a cached accessory (#174). An unmapped model lacks
+nothing.
 
 | Service                                      | Condition         | Key characteristics (source key → HAP)                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | -------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

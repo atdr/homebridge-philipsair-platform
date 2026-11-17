@@ -761,11 +761,12 @@ endorsement by them.
     `aioairctrl` it cannot run, are always reported, whatever
     this is set to.
 
-[^model-option]: Some models have no register for this, and the plugin warns at
-    startup when the option cannot do anything for the configured
-    model.
+[^model-option]: Some models have no register for this. For those the plugin
+    leaves the tile out of HomeKit and says so in the log at
+    startup, and an accessory that already has the tile loses it,
+    along with any automation or scene that used it.
     [Other controls](https://github.com/atdr/homebridge-philipsair-platform/blob/main/docs/controls.md#other-controls)
-    names them.
+    names the models.
 
 [^sleep-speed]: Ignored for models that have their own speed mapping. Those use
     the right speeds automatically, and the plugin warns when the

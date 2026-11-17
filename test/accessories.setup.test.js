@@ -305,8 +305,8 @@ describe('accessories.setup', () => {
     assert.ok(warn[1].includes('Study: The humidifier option does nothing for the AC3737'));
   });
 
-  //a sensor, light or filter whose key the model can never report shows a
-  //constant reading in HomeKit, 0°C for a temperature, so it has to be said
+  //a sensor, light or filter whose key the model can never report is left out
+  //of HomeKit, and the log has to say why the tile is missing
   const everyOption = {
     light: true,
     temperature: true,
@@ -331,12 +331,16 @@ describe('accessories.setup', () => {
     restore();
 
     assert.deepEqual(warn, [
-      'Bedroom: The light option does nothing for the AC0950, which has no light this plugin can switch.',
+      'Bedroom: The light option does nothing for the AC0950, which has no light this plugin can switch. ' +
+        'The plugin leaves the light out of HomeKit.',
       'Bedroom: The temperature option does nothing for the AC0950, ' +
-        'whose dash-less registers carry no temperature this plugin can read yet (issue #186).',
+        'whose dash-less registers carry no temperature this plugin can read yet (issue #186). ' +
+        'The plugin leaves the temperature sensor out of HomeKit.',
       'Bedroom: The carbon filter option does nothing for the AC0950, ' +
-        'which reports no carbon filter status this plugin can read.',
-      'Study: The humidity option does nothing for the AC0651, which reports no humidity this plugin can read.',
+        'which reports no carbon filter status this plugin can read. ' +
+        'The plugin leaves the carbon filter out of HomeKit.',
+      'Study: The humidity option does nothing for the AC0651, which reports no humidity this plugin can read. ' +
+        'The plugin leaves the humidity sensor out of HomeKit.',
     ]);
   });
 
@@ -386,8 +390,58 @@ describe('accessories.setup', () => {
       'Bedroom: The allergic mode option does nothing for the AC3737, which has no plain allergen mode.',
       'Bedroom: The humidifier option does nothing for the AC3737, which has no humidifier on/off this plugin can drive.',
       'Bedroom: The temperature option does nothing for the AC3737, ' +
-        'whose dash-less registers carry no temperature this plugin can read yet (issue #186).',
+        'whose dash-less registers carry no temperature this plugin can read yet (issue #186). ' +
+        'The plugin leaves the temperature sensor out of HomeKit.',
     ]);
+  });
+
+  //the service is built from the option alone, so switching the option off is
+  //what keeps a dead service out of HomeKit, and takes a cached one away
+  it('switches off every option the capability table says the model lacks', () => {
+    const allOn = Object.fromEntries(deviceOptions.map((option) => [option, true]));
+
+    Setup(
+      deviceMap,
+      [
+        { active: true, name: 'Bedroom', model: 'AC0950', host: '10.0.1.16', ...allOn },
+        { active: true, name: 'Hall', model: 'AC2210', host: '10.0.1.17', ...allOn },
+      ],
+      uuid.generate
+    );
+
+    const [bedroom, hall] = deviceMap.values();
+    const on = (device) => deviceOptions.filter((option) => device[option]);
+
+    assert.deepEqual(on(bedroom), ['humidifier', 'humidity', 'preFilter', 'hepaFilter']);
+    assert.deepEqual(on(hall), ['humidifier', 'light', 'humidity', 'preFilter', 'hepaFilter']);
+  });
+
+  //nothing is known about what an unmapped model, the default mapping, or a
+  //model with a dialect that is not dash-less leaves out, so it keeps them all
+  it('keeps every option on a model the table claims nothing about', () => {
+    const allOn = Object.fromEntries(deviceOptions.map((option) => [option, true]));
+
+    Setup(
+      deviceMap,
+      [
+        { active: true, name: 'Bedroom', host: '10.0.1.16', ...allOn },
+        { active: true, name: 'Study', model: 'AC0820', host: '10.0.1.17', ...allOn },
+        { active: true, name: 'Hall', model: 'AC0850', host: '10.0.1.18', light: true, temperature: true },
+      ],
+      uuid.generate
+    );
+
+    const [bedroom, study, hall] = deviceMap.values();
+
+    for (const device of [bedroom, study]) {
+      assert.deepEqual(
+        deviceOptions.filter((option) => device[option]),
+        deviceOptions,
+        device.name
+      );
+    }
+    assert.equal(hall.light, true);
+    assert.equal(hall.temperature, true);
   });
 
   //the warnings read the capability table, so every option it lists for a

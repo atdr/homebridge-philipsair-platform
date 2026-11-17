@@ -27,6 +27,52 @@ const DEAD_OPTIONS = {
     `The carbon filter option does nothing for the ${model}, which reports no carbon filter status this plugin can read.`,
 };
 
+//the HomeKit service an option builds, for the options whose service is left
+//out when the model lacks them. The humidifier is left out by the service
+//wiring already, and the speed and allergen options build none
+const LEFT_OUT = {
+  light: 'light',
+  temperature: 'temperature sensor',
+  humidity: 'humidity sensor',
+  preFilter: 'pre-filter',
+  hepaFilter: 'HEPA filter',
+  carbonFilter: 'carbon filter',
+};
+
+/**
+ * Switches off the options the capability table says a model lacks, and says
+ * so in the log.
+ *
+ * The services are built from these flags alone (accessories.service.js),
+ * which also takes a cached service off when its flag is off. So switching an
+ * option off keeps a service that could only show a constant reading out of
+ * HomeKit, and removes one an earlier release built. A sensor, light or filter
+ * tile the user asked for is then missing, or disappears from an accessory
+ * that had it, and only the log can say why. An unmapped model lacks nothing.
+ *
+ * It runs wherever a model is settled: in Setup for the configured one, and in
+ * the handler for one the device named on an earlier run, which Setup cannot
+ * see.
+ *
+ * @param {Record<string, any>} device the shaped device config, changed in place
+ * @param {string | undefined} key the mapped model, or undefined for the default mapping
+ */
+const leaveOutLacked = (device, key) => {
+  const lacks = lackedOptions(key);
+
+  for (const [option, reason] of Object.entries(DEAD_OPTIONS)) {
+    if (device[option] && lacks.includes(option)) {
+      const service = LEFT_OUT[option];
+
+      logger.warn(
+        service ? `${reason(key)} The plugin leaves the ${service} out of HomeKit.` : reason(key),
+        device.name
+      );
+      device[option] = false;
+    }
+  }
+};
+
 /**
  * Resolves which command set a device runs on, and says so in the log.
  *
@@ -57,16 +103,7 @@ const announceModel = (device) => {
     );
   }
 
-  //an option the model lacks is otherwise silent: a sensor, light or filter
-  //service is still built, so HomeKit shows a constant reading, 0°C for a
-  //temperature, which reads as real unless the log says otherwise
-  const lacks = lackedOptions(key);
-
-  for (const [option, reason] of Object.entries(DEAD_OPTIONS)) {
-    if (device[option] && lacks.includes(option)) {
-      logger.warn(reason(key), device.name);
-    }
-  }
+  leaveOutLacked(device, key);
 
   if (key) {
     logger.info(`Using the ${key} command set.`, device.name);
@@ -183,11 +220,14 @@ const Setup = (deviceMap, devices, generateUUID) => {
       } else {
         logger.info('Initializing device...', device.name);
         device.modelKey = announceModel(device);
+
         deviceMap.set(uuid, device);
         hosts.set(hostKey(device), device.name);
       }
     }
   }
 };
+
+Setup.leaveOutLacked = leaveOutLacked;
 
 module.exports = Setup;
