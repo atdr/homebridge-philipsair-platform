@@ -671,8 +671,9 @@ class Handler {
   /**
    * Replaces the observe subscription once a write has proved the device is
    * back (see `noteWriteAnswered`) and every write has gone out, including the
-   * rest of a sequence whose next write is not queued yet (`inWriteSequence`)
-   * and a batch still waiting out its coalescing window: a second
+   * rest of a sequence whose next write is not queued yet (`inWriteSequence`),
+   * a batch still waiting out its coalescing window, and a slider value still
+   * in its debounce (`pendingSpeed`): a second
    * handshake arriving while the device wakes can knock it over, so the new
    * subscription goes out after the last write rather than alongside it.
    *
@@ -685,7 +686,7 @@ class Handler {
   resubscribeIfBack() {
     //not until every write, and every sequence of them, is through: kept until
     //then rather than dropped
-    if (!this.deviceBack || this.writesQueued || this.writeSequences || this.writeBatch.length) {
+    if (!this.deviceBack || this.writesQueued || this.writeSequences || this.writeBatch.length || this.pendingSpeed) {
       return;
     }
 
@@ -1686,6 +1687,8 @@ class Handler {
         `Purifier Rotation Speed: ${value} asks for what was already sent, not sending it again`,
         this.accessory.displayName
       );
+      //a value this replaced may have been all a re-subscription waited for
+      this.resubscribeIfBack();
       return;
     }
 
@@ -1704,6 +1707,9 @@ class Handler {
         }
       });
       this.releaseWriteBatch();
+      //for a value that queued nothing, which leaves no write to settle and
+      //recheck it (see resubscribeIfBack)
+      this.resubscribeIfBack();
     };
     const pending = { value, target, fire, timer: setTimeout(fire, this.speedDebounceWindow) };
 

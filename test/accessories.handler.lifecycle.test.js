@@ -3186,6 +3186,47 @@ describe('re-subscribing once a write proves the device is back', () => {
     assert.equal(stream.kills, 1);
   });
 
+  //Copilot on #215: a slider value in its debounce has not reached the queue
+  //yet, so an empty queue does not mean every write has gone out
+  it('waits for a slider value still in its debounce before re-subscribing', async () => {
+    const { handler, stream, setOutcome } = withStream();
+    handler.purifierService = makeService();
+    handler.speedDebounceWindow = 30;
+    handler.writeCoalesceWindow = 5;
+    handler.sendTracked = (args) => handler.sendCMD(args);
+
+    setOutcome('miss');
+    await assert.rejects(handler.sendCMD(['set', 'pwr=1']));
+    setOutcome('answer');
+
+    /** @type {number[]} */
+    const killsAsSent = [];
+    const run = handler.runCMD;
+    handler.runCMD = async (args) => {
+      killsAsSent.push(stream.kills);
+      return run(args);
+    };
+
+    //the slider moves while an answered write is still out
+    const answered = handler.sendCMD(['set', 'pwr=1']);
+    await handler.setPurifierRotationSpeed(50);
+    await answered;
+    await settle();
+    assert.equal(stream.kills, 0, 're-subscribed while the slider value was still in its debounce');
+
+    while (handler.pendingSpeed || handler.writesQueued || handler.writeSequences) {
+      await delay(5);
+    }
+    await settle();
+
+    assert.ok(killsAsSent.length >= 2, 'the slider value was never sent');
+    assert.ok(
+      killsAsSent.every((kills) => kills === 0),
+      `a write went out after the re-subscription: ${killsAsSent}`
+    );
+    assert.equal(stream.kills, 1);
+  });
+
   //Copilot on #215: the stream being replaced may itself be a refresh's
   //replacement, still waiting to be priced
   it('leaves the refresh cost alone when it replaces a refreshed stream', async () => {
