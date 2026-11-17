@@ -179,6 +179,22 @@ const YIELD = Object.freeze({
  *   recordedAt: number, knownOff: boolean, window: number, blindResent: boolean, token: number }} PendingWrite
  */
 
+//the services accessories.service.js hands over, by the field each is kept in
+const SERVICE_FIELDS = /** @type {const} */ ([
+  'purifierService',
+  'airQualityService',
+  'preFilterService',
+  'carbonFilterService',
+  'hepaFilterService',
+  'humidifierService',
+  'wickFilterService',
+  'temperatureService',
+  'humidityService',
+  'lightService',
+]);
+
+/** @typedef {typeof SERVICE_FIELDS[number]} ServiceField */
+
 //the dialect names used in log messages
 const DIALECT_NAMES = { dashed: 'dashed', dashless: 'dash-less' };
 
@@ -267,6 +283,19 @@ class Handler {
     //failure escalates and cleared by the next parsed status. see markUnreachable
     this.unreachable = false;
     this.obj = {};
+
+    //the HomeKit services this handler updates, handed over by
+    //accessories.service.js. see useServices
+    this.purifierService = null;
+    this.airQualityService = null;
+    this.preFilterService = null;
+    this.carbonFilterService = null;
+    this.hepaFilterService = null;
+    this.humidifierService = null;
+    this.wickFilterService = null;
+    this.temperatureService = null;
+    this.humidityService = null;
+    this.lightService = null;
 
     //instance fields rather than bare constants so tests can shorten the waits
     this.stallTimeout = STALL_TIMEOUT;
@@ -2500,20 +2529,23 @@ class Handler {
     this.airControl.kill();
   }
 
+  /**
+   * Takes the services `accessories.service.js` wired, once, before the first
+   * poll. They used to be looked up by display name at the top of every
+   * `longPoll`, which a renamed service, or an accessory named like one of its
+   * own services, could send to the wrong one (issue #183). Null for a service
+   * whose option is off.
+   *
+   * @param {Partial<Record<ServiceField, any>>} services
+   */
+  useServices(services) {
+    for (const field of SERVICE_FIELDS) {
+      this[field] = services[field] || null;
+    }
+  }
+
   //Longpoll Process
   longPoll() {
-    this.purifierService = this.accessory.getService(this.api.hap.Service.AirPurifier);
-    this.humidifierService = this.accessory.getService('Humidifier');
-    this.temperatureService = this.accessory.getService('Temperature Sensor');
-    this.humidityService = this.accessory.getService('Humidity Sensor');
-    this.lightService = this.accessory.getService('Light');
-
-    this.airQualityService = this.accessory.getService('Air Quality');
-    this.preFilterService = this.accessory.getService('Pre Filter');
-    this.carbonFilterService = this.accessory.getService('Active carbon filter');
-    this.hepaFilterService = this.accessory.getService('HEPA filter');
-    this.wickFilterService = this.accessory.getService('Wick filter');
-
     clearTimeout(this.processTimeout);
     clearTimeout(this.refreshTimeout);
     this.refreshTimeout = null;

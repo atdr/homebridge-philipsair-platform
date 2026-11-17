@@ -631,7 +631,7 @@ describe('polling lifecycle', () => {
   it('reassembles chunked stdout and stops cleanly on kill', async () => {
     const handler = makeHandler({ aioairctrlPath: SHIM });
     const purifier = makeService();
-    handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+    handler.useServices({ purifierService: purifier });
 
     handler.longPoll();
     await answered(handler);
@@ -655,7 +655,7 @@ describe('polling lifecycle', () => {
   it('leaves a stream that keeps notifying alone past the stall timeout', async () => {
     const handler = makeHandler({ aioairctrlPath: STREAM_SHIM });
     const purifier = makeService();
-    handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+    handler.useServices({ purifierService: purifier });
 
     //the shim notifies every 20ms, so a stall timer reset by incoming data
     //never fires; a fixed process lifetime would kill the stream at 500ms,
@@ -681,7 +681,6 @@ describe('polling lifecycle', () => {
 
   it('restarts a stream that accepts the subscription and then goes silent', async () => {
     const handler = makeHandler({ aioairctrlPath: SILENT_SHIM });
-    handler.accessory.getService = () => null;
 
     handler.stallTimeout = 100;
     handler.restartDelay = 10;
@@ -701,7 +700,7 @@ describe('polling lifecycle', () => {
     //what an idle purifier does between value changes
     const handler = makeHandler({ aioairctrlPath: SHIM });
     const purifier = makeService();
-    handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+    handler.useServices({ purifierService: purifier });
     //far past the wait below, so a replaced stream can only be the refresh
     handler.stallTimeout = 30000;
     handler.restartDelay = 10;
@@ -720,7 +719,7 @@ describe('polling lifecycle', () => {
   it('leaves a stream that keeps notifying alone past the refresh interval', async () => {
     const handler = makeHandler({ aioairctrlPath: STREAM_SHIM });
     const purifier = makeService();
-    handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+    handler.useServices({ purifierService: purifier });
 
     //the shim notifies every 20ms, so a refresh timer re-armed by every reading
     //never fires: the interval measures silence, not process age
@@ -769,7 +768,6 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     const logs = captureLogs();
 
     const handler = makeHandler({ aioairctrlPath: BROKEN_SHIM });
-    handler.accessory.getService = () => null;
     handler.restartDelay = 10;
 
     handler.longPoll();
@@ -796,7 +794,6 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     //run to stderr, so the buffer used to be full of progress records that then
     //surfaced as errors. this drives the real stream rather than the buffer
     const handler = makeHandler({ aioairctrlPath: DEBUG_LOG_SHIM, cliDebug: true });
-    handler.accessory.getService = () => null;
     handler.restartDelay = 5000;
 
     handler.longPoll();
@@ -829,7 +826,6 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     const logs = captureLogs();
 
     const handler = makeHandler({ aioairctrlPath: BROKEN_SHIM });
-    handler.accessory.getService = () => null;
     //long enough that only the first attempt runs inside the window
     handler.restartDelay = 5000;
 
@@ -845,7 +841,6 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     const logs = captureLogs();
 
     const handler = makeHandler({ aioairctrlPath: SILENT_SHIM });
-    handler.accessory.getService = () => null;
     handler.stallTimeout = 60;
     handler.restartDelay = 5000;
 
@@ -876,7 +871,6 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     //answers once, then never again: the refresh restarts the stream on a
     //cadence far shorter than the stall timeout, and the fault must still surface
     const handler = makeHandler({ aioairctrlPath: ONCE_SHIM });
-    handler.accessory.getService = () => null;
     handler.stallTimeout = 150;
     handler.restartDelay = 10;
     handler.refreshInterval = 60;
@@ -913,7 +907,7 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     //restart the stream on the short timeout nor be reported as a fault
     const handler = makeHandler({ aioairctrlPath: ONCE_SHIM });
     const purifier = makeService();
-    handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+    handler.useServices({ purifierService: purifier });
     //long enough that the shim's own startup cannot outrun the first arming,
     //which happens before any status and so cannot know the device is off
     handler.stallTimeout = 5000;
@@ -955,7 +949,6 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     //the contrast to the test above, and the regression the off-state timeout
     //could introduce: a running device has no reason to go quiet
     const handler = makeHandler({ aioairctrlPath: ONCE_SHIM });
-    handler.accessory.getService = () => null;
     handler.stallTimeout = 5000;
     handler.offStallTimeout = 5000;
     handler.restartDelay = 10;
@@ -1063,7 +1056,6 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     const logs = captureLogs();
 
     const handler = makeHandler({ aioairctrlPath: SILENT_SHIM });
-    handler.accessory.getService = () => null;
     handler.restartDelay = 5000;
 
     handler.longPoll();
@@ -1253,7 +1245,7 @@ describe('poll failure reporting', { concurrency: 1 }, () => {
     it('reports a device that never answers end to end', async () => {
       const handler = makeHandler({ aioairctrlPath: SILENT_SHIM });
       const purifier = makeService();
-      handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+      handler.useServices({ purifierService: purifier });
       handler.stallTimeout = 60;
       handler.restartDelay = 5000;
 
@@ -1753,7 +1745,7 @@ describe('write verification', { concurrency: 1 }, () => {
 
     const handler = makeHandler({ aioairctrlPath: STREAM_SHIM });
     const purifier = makeService();
-    handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+    handler.useServices({ purifierService: purifier });
     handler.stallTimeout = 5000;
     handler.restartDelay = 10;
     //the refresh under test here is the explicit one, not the timer
@@ -1789,7 +1781,7 @@ describe('write verification', { concurrency: 1 }, () => {
 
     const handler = makeHandler({ aioairctrlPath: STATEFUL_SHIM });
     const purifier = makeService();
-    handler.accessory.getService = (service) => (service === 'AirPurifier' ? purifier : null);
+    handler.useServices({ purifierService: purifier });
     handler.stallTimeout = 5000;
     handler.restartDelay = 10;
     //the resend under test is driven by the device contradicting the write,
@@ -2882,7 +2874,6 @@ describe('repeated spawn/stop failures', () => {
     const logs = captureLogs();
 
     const handler = makeHandler({ aioairctrlPath: SILENT_SHIM });
-    handler.accessory.getService = () => null;
     handler.restartDelay = 5000;
 
     handler.longPoll();

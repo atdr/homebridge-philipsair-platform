@@ -13,6 +13,11 @@ class Accessory {
     this.temperatureService = null;
     this.humidityService = null;
     this.lightService = null;
+    this.airQualityService = null;
+    this.preFilterService = null;
+    this.carbonFilterService = null;
+    this.hepaFilterService = null;
+    this.wickFilterService = null;
 
     this.getService();
   }
@@ -25,15 +30,7 @@ class Accessory {
     logger.info(`Initializing ${this.accessory.displayName}`);
 
     //Service.AirPurifier
-    this.purifierService = this.accessory.getService(this.api.hap.Service.AirPurifier);
-
-    if (!this.purifierService) {
-      this.purifierService = this.accessory.addService(
-        this.api.hap.Service.AirPurifier,
-        this.accessory.displayName,
-        'purifier'
-      );
-    }
+    this.purifierService = this.ensureService(this.api.hap.Service.AirPurifier, this.accessory.displayName, 'purifier');
 
     //a model with no child lock register gets no child lock control: the
     //characteristic is optional, so it can be left off (and taken off a cached
@@ -100,97 +97,40 @@ class Accessory {
       });
 
     //Service.AirQuality
-    this.airQualityService = this.accessory.getService(this.api.hap.Service.AirQualitySensor);
-
-    if (!this.airQualityService) {
-      this.airQualityService = this.accessory.addService(
-        this.api.hap.Service.AirQualitySensor,
-        'Air Quality',
-        'Air Quality'
-      );
-    }
+    this.airQualityService = this.ensureService(this.api.hap.Service.AirQualitySensor, 'Air Quality', 'Air Quality');
 
     if (!this.airQualityService.testCharacteristic(this.api.hap.Characteristic.PM2_5Density)) {
       this.airQualityService.addCharacteristic(this.api.hap.Characteristic.PM2_5Density);
     }
 
-    //Service.FilterMaintenance [Pre-Filter]
-    if (this.accessory.context.config.preFilter) {
-      let preFilterService = this.accessory.getService('Pre Filter');
-      if (!preFilterService) {
-        preFilterService = this.accessory.addService(
-          this.api.hap.Service.FilterMaintenance,
-          'Pre Filter',
-          'Pre Filter'
-        );
-      }
-      if (!preFilterService.testCharacteristic(this.api.hap.Characteristic.FilterLifeLevel)) {
-        preFilterService.addCharacteristic(this.api.hap.Characteristic.FilterLifeLevel);
-      }
-    } else {
-      const service = this.accessory.getService('Pre Filter');
-      if (service) {
-        this.accessory.removeService(service);
-      }
-    }
-
-    //Service.FilterMaintenance [Active carbon filter]
-    if (this.accessory.context.config.carbonFilter) {
-      let carbonFilterService = this.accessory.getService('Active carbon filter');
-      if (!carbonFilterService) {
-        carbonFilterService = this.accessory.addService(
-          this.api.hap.Service.FilterMaintenance,
-          'Active carbon filter',
-          'Active carbon filter'
-        );
-      }
-      if (!carbonFilterService.testCharacteristic(this.api.hap.Characteristic.FilterLifeLevel)) {
-        carbonFilterService.addCharacteristic(this.api.hap.Characteristic.FilterLifeLevel);
-      }
-    } else {
-      const service = this.accessory.getService('Active carbon filter');
-      if (service) {
-        this.accessory.removeService(service);
-      }
-    }
-
-    //Service.FilterMaintenance [HEPA filter]
-    if (this.accessory.context.config.hepaFilter) {
-      let hepaFilterService = this.accessory.getService('HEPA filter');
-      if (!hepaFilterService) {
-        hepaFilterService = this.accessory.addService(
-          this.api.hap.Service.FilterMaintenance,
-          'HEPA filter',
-          'HEPA filter'
-        );
-      }
-      if (!hepaFilterService.testCharacteristic(this.api.hap.Characteristic.FilterLifeLevel)) {
-        hepaFilterService.addCharacteristic(this.api.hap.Characteristic.FilterLifeLevel);
-      }
-    } else {
-      const service = this.accessory.getService('HEPA filter');
-      if (service) {
-        this.accessory.removeService(service);
+    //Service.FilterMaintenance [Pre Filter], [Active carbon filter], [HEPA filter]
+    for (const [option, field, name] of [
+      ['preFilter', 'preFilterService', 'Pre Filter'],
+      ['carbonFilter', 'carbonFilterService', 'Active carbon filter'],
+      ['hepaFilter', 'hepaFilterService', 'HEPA filter'],
+    ]) {
+      if (this.accessory.context.config[option]) {
+        const service = this.ensureService(this.api.hap.Service.FilterMaintenance, name, name);
+        if (!service.testCharacteristic(this.api.hap.Characteristic.FilterLifeLevel)) {
+          service.addCharacteristic(this.api.hap.Characteristic.FilterLifeLevel);
+        }
+        this[field] = service;
+      } else {
+        this.dropService(this.api.hap.Service.FilterMaintenance, name);
       }
     }
 
     //Service.HumidifierDehumidifier, only on a model with a humidifier on/off
     //(func) to drive: accessories.setup.js warns when the option is ignored
     if (this.accessory.context.config.humidifier && this.handler.supports('func')) {
-      this.humidifierService = this.accessory.getService(this.api.hap.Service.HumidifierDehumidifier);
-
-      if (!this.humidifierService) {
-        this.humidifierService = this.accessory.addService(
-          this.api.hap.Service.HumidifierDehumidifier,
-          'Humidifier',
-          'Humidifier'
-        );
-      }
+      this.humidifierService = this.ensureService(
+        this.api.hap.Service.HumidifierDehumidifier,
+        'Humidifier',
+        'Humidifier'
+      );
 
       //Service.FilterMaintenance [Wick filter]
-      if (!this.accessory.getService('Wick filter')) {
-        this.accessory.addService(this.api.hap.Service.FilterMaintenance, 'Wick filter', 'Wick filter');
-      }
+      this.wickFilterService = this.ensureService(this.api.hap.Service.FilterMaintenance, 'Wick filter', 'Wick filter');
 
       if (!this.humidifierService.testCharacteristic(this.api.hap.Characteristic.RelativeHumidityHumidifierThreshold)) {
         this.humidifierService.addCharacteristic(this.api.hap.Characteristic.RelativeHumidityHumidifierThreshold);
@@ -233,69 +173,45 @@ class Accessory {
           minStep: 25,
         });
     } else {
-      const service = this.accessory.getService(this.api.hap.Service.HumidifierDehumidifier);
-      if (service) {
-        this.accessory.removeService(service);
-      }
+      this.dropService(this.api.hap.Service.HumidifierDehumidifier, 'Humidifier');
 
       //the wick filter is added with the humidifier, so it goes with it
-      const wickFilterService = this.accessory.getService('Wick filter');
-      if (wickFilterService) {
-        this.accessory.removeService(wickFilterService);
-      }
+      this.dropService(this.api.hap.Service.FilterMaintenance, 'Wick filter');
     }
 
     //Service.TemperatureSensor
     if (this.accessory.context.config.temperature) {
-      this.temperatureService = this.accessory.getService(this.api.hap.Service.TemperatureSensor);
-
-      if (!this.temperatureService) {
-        this.temperatureService = this.accessory.addService(
-          this.api.hap.Service.TemperatureSensor,
-          'Temperature Sensor',
-          'Temperature Sensor'
-        );
-      }
+      this.temperatureService = this.ensureService(
+        this.api.hap.Service.TemperatureSensor,
+        'Temperature Sensor',
+        'Temperature Sensor'
+      );
 
       this.temperatureService
         .getCharacteristic(this.api.hap.Characteristic.CurrentTemperature)
         .onGet(() => this.handler.read(() => this.handler.obj.temp || 0));
     } else {
-      const service = this.accessory.getService(this.api.hap.Service.TemperatureSensor);
-      if (service) {
-        this.accessory.removeService(service);
-      }
+      this.dropService(this.api.hap.Service.TemperatureSensor, 'Temperature Sensor');
     }
 
     //Service.HumiditySensor
     if (this.accessory.context.config.humidity) {
-      this.humidityService = this.accessory.getService(this.api.hap.Service.HumiditySensor);
-
-      if (!this.humidityService) {
-        this.humidityService = this.accessory.addService(
-          this.api.hap.Service.HumiditySensor,
-          'Humidity Sensor',
-          'Humidity Sensor'
-        );
-      }
+      this.humidityService = this.ensureService(
+        this.api.hap.Service.HumiditySensor,
+        'Humidity Sensor',
+        'Humidity Sensor'
+      );
 
       this.humidityService
         .getCharacteristic(this.api.hap.Characteristic.CurrentRelativeHumidity)
         .onGet(() => this.handler.read(() => this.handler.obj.rh || 0));
     } else {
-      const service = this.accessory.getService(this.api.hap.Service.HumiditySensor);
-      if (service) {
-        this.accessory.removeService(service);
-      }
+      this.dropService(this.api.hap.Service.HumiditySensor, 'Humidity Sensor');
     }
 
     //Service.Lightbulb
     if (this.accessory.context.config.light) {
-      this.lightService = this.accessory.getService(this.api.hap.Service.Lightbulb);
-
-      if (!this.lightService) {
-        this.lightService = this.accessory.addService(this.api.hap.Service.Lightbulb, 'Light', 'Light');
-      }
+      this.lightService = this.ensureService(this.api.hap.Service.Lightbulb, 'Light', 'Light');
 
       if (!this.lightService.testCharacteristic(this.api.hap.Characteristic.Brightness)) {
         this.lightService.addCharacteristic(this.api.hap.Characteristic.Brightness);
@@ -316,13 +232,75 @@ class Accessory {
           minStep: 25,
         });
     } else {
-      const service = this.accessory.getService(this.api.hap.Service.Lightbulb);
-      if (service) {
-        this.accessory.removeService(service);
-      }
+      this.dropService(this.api.hap.Service.Lightbulb, 'Light');
     }
 
+    //handed over once, so a restart of the polling process does not look them up again
+    this.handler.useServices({
+      purifierService: this.purifierService,
+      airQualityService: this.airQualityService,
+      preFilterService: this.preFilterService,
+      carbonFilterService: this.carbonFilterService,
+      hepaFilterService: this.hepaFilterService,
+      humidifierService: this.humidifierService,
+      wickFilterService: this.wickFilterService,
+      temperatureService: this.temperatureService,
+      humidityService: this.humidityService,
+      lightService: this.lightService,
+    });
+
     this.handler.longPoll();
+  }
+
+  /**
+   * Finds a service this plugin created by its type and the subtype it was
+   * created with (issue #183). The subtype is the stable identifier: every
+   * release has cached these services under the same subtypes, while a display
+   * name can change, and a lookup by name could also match the purifier
+   * itself, which carries the accessory's own name.
+   *
+   * A type the accessory only ever has one of is also found under any other
+   * subtype, so a service cached that way is adopted rather than duplicated or
+   * left behind. The filters share a type, so they are only ever found by
+   * subtype.
+   *
+   * @param {any} type a HAP Service class
+   * @param {string} subtype
+   */
+  findService(type, subtype) {
+    const service = this.accessory.getServiceById(type, subtype);
+
+    if (service || type === this.api.hap.Service.FilterMaintenance) {
+      return service;
+    }
+
+    return this.accessory.getService(type);
+  }
+
+  /**
+   * The service of this type and subtype, added under `name` if the accessory
+   * does not have it yet.
+   *
+   * @param {any} type a HAP Service class
+   * @param {string} name
+   * @param {string} subtype
+   */
+  ensureService(type, name, subtype) {
+    return this.findService(type, subtype) || this.accessory.addService(type, name, subtype);
+  }
+
+  /**
+   * Removes the service of this type and subtype, if the accessory has it.
+   *
+   * @param {any} type a HAP Service class
+   * @param {string} subtype
+   */
+  dropService(type, subtype) {
+    const service = this.findService(type, subtype);
+
+    if (service) {
+      this.accessory.removeService(service);
+    }
   }
 }
 

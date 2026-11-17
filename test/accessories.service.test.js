@@ -148,15 +148,6 @@ describe('accessories.service while the device is unreachable', () => {
   const { SERVICE_COMMUNICATION_FAILURE } = hap.HAPStatus;
   const everything = { temperature: true, humidity: true, light: true, preFilter: true };
 
-  //what longPoll would have looked up, which the stubbed one here does not
-  const lookUp = (accessory, handler) => {
-    handler.purifierService = accessory.getService(hap.Service.AirPurifier);
-    handler.airQualityService = accessory.getService(hap.Service.AirQualitySensor);
-    handler.temperatureService = accessory.getService(hap.Service.TemperatureSensor);
-    handler.humidityService = accessory.getService(hap.Service.HumiditySensor);
-    handler.lightService = accessory.getService(hap.Service.Lightbulb);
-  };
-
   const escalate = (handler) => {
     handler.stalled = true;
     handler.reportPollFailure(null);
@@ -164,7 +155,6 @@ describe('accessories.service while the device is unreachable', () => {
 
   it('answers every read handler with a communication failure', async () => {
     const { accessory, handler } = wireAccessory(everything, 'unreachable-reads');
-    lookUp(accessory, handler);
     handler.obj = { pwr: '1', om: '2', mode: 'P', cl: false, temp: 21, rh: 40, aqil: 50 };
 
     const readable = accessory.services
@@ -190,7 +180,6 @@ describe('accessories.service while the device is unreachable', () => {
 
   it('fails a read with no handler of its own until the device answers again', async () => {
     const { accessory, handler } = wireAccessory(everything, 'unreachable-pushed');
-    lookUp(accessory, handler);
     const airQuality = accessory
       .getService(hap.Service.AirQualitySensor)
       .getCharacteristic(hap.Characteristic.AirQuality);
@@ -209,6 +198,179 @@ describe('accessories.service while the device is unreachable', () => {
         .handleGetRequest(),
       1
     );
+  });
+});
+
+//issue #183: services are found by type and subtype, the identifier they were
+//created with, never by display name, and handed to the handler once
+describe('accessories.service lookup by subtype', () => {
+  const allOptions = {
+    preFilter: true,
+    carbonFilter: true,
+    hepaFilter: true,
+    humidifier: true,
+    temperature: true,
+    humidity: true,
+    light: true,
+  };
+
+  //every service the plugin creates: the handler field it is handed to, its
+  //type, its subtype, and the option that adds it
+  const SERVICES = [
+    ['purifierService', 'AirPurifier', 'purifier', null],
+    ['airQualityService', 'AirQualitySensor', 'Air Quality', null],
+    ['preFilterService', 'FilterMaintenance', 'Pre Filter', 'preFilter'],
+    ['carbonFilterService', 'FilterMaintenance', 'Active carbon filter', 'carbonFilter'],
+    ['hepaFilterService', 'FilterMaintenance', 'HEPA filter', 'hepaFilter'],
+    ['humidifierService', 'HumidifierDehumidifier', 'Humidifier', 'humidifier'],
+    ['wickFilterService', 'FilterMaintenance', 'Wick filter', 'humidifier'],
+    ['temperatureService', 'TemperatureSensor', 'Temperature Sensor', 'temperature'],
+    ['humidityService', 'HumiditySensor', 'Humidity Sensor', 'humidity'],
+    ['lightService', 'Lightbulb', 'Light', 'light'],
+  ];
+
+  //a model with a humidifier on/off register, so the humidifier option applies
+  const MODEL = 'AC3829';
+
+  const newAccessory = (name, key, config) =>
+    Object.assign(new hap.Accessory(name, hap.uuid.generate(`service-test-${key}`)), {
+      context: { config: { host: '192.168.1.142', port: 5683, model: MODEL, ...config } },
+    });
+
+  //the shape every release so far has cached: each service added with its
+  //display name and a subtype equal to the literal, the purifier under its own
+  //subtype and named after the accessory
+  const oldShape = (accessory, rename = (name) => name) => {
+    for (const [, type, subtype] of SERVICES) {
+      const name = subtype === 'purifier' ? accessory.displayName : subtype;
+      accessory.addService(hap.Service[type], rename(name), subtype);
+    }
+    return accessory;
+  };
+
+  //what Homebridge does across a restart: the accessory is written to its
+  //cache and read back as new objects
+  const restore = (accessory) => {
+    const restored = hap.Accessory.deserialize(JSON.parse(JSON.stringify(hap.Accessory.serialize(accessory))));
+    return Object.assign(restored, { context: accessory.context });
+  };
+
+  const identities = (accessory) => accessory.services.map((service) => `${service.UUID}/${service.subtype}`).sort();
+
+  it('checks the setup this suite relies on', () => {
+    assert.ok(new Handler(fakeApi, newAccessory('Probe', 'probe', {})).supports('func'), `${MODEL} has no func`);
+  });
+
+  it('hands the handler every service it wired, and null for each one switched off', () => {
+    const { accessory, handler } = wireAccessory({ ...allOptions, model: MODEL }, 'handed');
+
+    for (const [field, type, subtype] of SERVICES) {
+      const service = accessory.getServiceById(hap.Service[type], subtype);
+      assert.ok(service, `${subtype} was not added`);
+      assert.equal(handler[field], service, `${field} is not the ${subtype} service`);
+    }
+
+    const { handler: bare } = wireAccessory({ model: MODEL }, 'handed-bare');
+
+    for (const [field, , subtype, option] of SERVICES) {
+      if (option) {
+        assert.equal(bare[field], null, `${field} was handed over with ${option} off (${subtype})`);
+      }
+    }
+  });
+
+  it('does not look the services up again when the polling process restarts', async () => {
+    const { accessory, handler } = wireAccessory({ ...allOptions, model: MODEL }, 'no-relookup');
+    const handed = SERVICES.map(([field]) => handler[field]);
+
+    accessory.getService = () => assert.fail('a service was looked up by name');
+    accessory.getServiceById = () => assert.fail('a service was looked up again');
+    //a command that cannot be started, so nothing is left running. kill() waits
+    //for the spawn to fail: before then the child's handle has no pid, and
+    //killing it would signal this whole process group
+    handler.binary = '/nonexistent/aioairctrl';
+    Handler.prototype.longPoll.call(handler);
+    await new Promise((resolve) => handler.airControl.once('error', resolve));
+    handler.kill(true);
+
+    assert.deepEqual(
+      SERVICES.map(([field]) => handler[field]),
+      handed
+    );
+  });
+
+  it('keeps every service of an accessory restored from cache, with nothing added or lost', () => {
+    const cached = restore(oldShape(newAccessory('Cached Purifier', 'restored', allOptions)));
+    const before = identities(cached);
+    const instances = [...cached.services];
+
+    const { handler } = wireAccessory({}, 'restored', cached);
+
+    assert.deepEqual(identities(cached), before, 'a cached service was added, removed or replaced');
+    for (const [field, , subtype] of SERVICES) {
+      assert.ok(instances.includes(handler[field]), `${field} is not the restored ${subtype} service`);
+    }
+  });
+
+  //a rename of a literal in a later release, or a name the user gives a tile,
+  //changes the display name; the subtype is what stays
+  it('finds cached services whose display names no longer match', () => {
+    const cached = restore(
+      oldShape(newAccessory('Cached Purifier', 'renamed', allOptions), (name) => `Renamed ${name}`)
+    );
+    const before = identities(cached);
+
+    const { handler } = wireAccessory({}, 'renamed', cached);
+
+    assert.deepEqual(identities(cached), before, 'a renamed service was duplicated or lost');
+    for (const [field, type, subtype] of SERVICES) {
+      assert.equal(handler[field], cached.getServiceById(hap.Service[type], subtype), `${field} was not found`);
+    }
+  });
+
+  it('removes cached services whose display names no longer match when their option is off', () => {
+    const cached = restore(oldShape(newAccessory('Cached Purifier', 'renamed-off', {}), (name) => `Renamed ${name}`));
+
+    wireAccessory({}, 'renamed-off', cached);
+
+    assert.deepEqual(
+      cached.services.map((service) => service.subtype).filter(Boolean),
+      ['purifier', 'Air Quality'],
+      'a switched off service was left behind'
+    );
+  });
+
+  //an accessory named like one of its services used to be mistaken for it: the
+  //lookup by name found the purifier, named after the accessory, first
+  for (const name of ['Humidifier', 'Light', 'HEPA filter', 'Air Quality']) {
+    it(`never mistakes the purifier of an accessory named '${name}' for another service`, () => {
+      const accessory = newAccessory(name, `named-${name}`, { ...allOptions, hepaFilter: name !== 'HEPA filter' });
+      const { handler } = wireAccessory({}, `named-${name}`, accessory);
+
+      assert.equal(accessory.services.filter((service) => service.UUID === hap.Service.AirPurifier.UUID).length, 1);
+      for (const [field, type, subtype, option] of SERVICES) {
+        if (handler[field]) {
+          assert.equal(handler[field].UUID, hap.Service[type].UUID, `${field} is the wrong service`);
+          assert.equal(handler[field].subtype, subtype);
+        } else {
+          assert.equal(option, 'hepaFilter', `${field} is missing`);
+        }
+      }
+    });
+  }
+
+  //a service of a kind the accessory has only one of, cached under a subtype
+  //other than today's, is adopted rather than duplicated
+  it('adopts a cached single service whose subtype differs', () => {
+    const cached = newAccessory('Cached Purifier', 'other-subtype', { light: true });
+    cached.addService(hap.Service.AirPurifier, 'Cached Purifier');
+    cached.addService(hap.Service.Lightbulb, 'Light', 'Lamp');
+
+    const { handler } = wireAccessory({}, 'other-subtype', cached);
+
+    assert.equal(cached.services.filter((service) => service.UUID === hap.Service.AirPurifier.UUID).length, 1);
+    assert.equal(cached.services.filter((service) => service.UUID === hap.Service.Lightbulb.UUID).length, 1);
+    assert.equal(handler.lightService.subtype, 'Lamp');
   });
 });
 

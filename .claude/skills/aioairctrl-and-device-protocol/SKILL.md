@@ -805,9 +805,12 @@ Two behaviours worth memorising:
   the exception: its `onSet` has resolved before the debounced write goes out
   (#150), so a failure is logged and the slider snaps back to the last reading
   (`abandonWrite`, plus `restoreSpeedAfterFailedOff` for 0%).
-- The `FilterMaintenance` subtypes are addressed by the quoted display names
-  above (`accessory.getService('Pre Filter')` etc.); renaming them orphans the
-  existing service instance on users' accessories.
+- Every service is found by its type and subtype
+  (`AccessoriesService.findService`, which uses `getServiceById`), never by
+  display name, and handed to the handler once through `Handler.useServices`
+  (issue #183). The subtypes are the quoted names above and have not changed
+  since the first release; changing one orphans the existing service instance on
+  users' accessories. A display name can change freely.
 
 ## Provenance and maintenance
 
