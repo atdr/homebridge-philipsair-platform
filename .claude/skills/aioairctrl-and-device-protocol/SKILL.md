@@ -811,6 +811,11 @@ Two behaviours worth memorising:
   (issue #183). The subtypes are the quoted names above and have not changed
   since the first release; changing one orphans the existing service instance on
   users' accessories. A display name can change freely.
+- Every service also carries a `ConfiguredName`
+  (`AccessoriesService.nameService`, issue #179), the label the Home app shows
+  on its tile. It is set once, to the name the service was created with, and
+  never written again, since a rename in the Home app is stored there. A write
+  from the Home app saves the accessory cache at once.
 
 ## Provenance and maintenance
 
