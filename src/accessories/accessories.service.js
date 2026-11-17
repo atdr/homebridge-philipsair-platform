@@ -114,6 +114,7 @@ class Accessory {
         if (!service.testCharacteristic(this.api.hap.Characteristic.FilterLifeLevel)) {
           service.addCharacteristic(this.api.hap.Characteristic.FilterLifeLevel);
         }
+        this.linkService(this.purifierService, service);
         this[field] = service;
       } else {
         this.dropService(this.api.hap.Service.FilterMaintenance, name);
@@ -131,6 +132,7 @@ class Accessory {
 
       //Service.FilterMaintenance [Wick filter]
       this.wickFilterService = this.ensureService(this.api.hap.Service.FilterMaintenance, 'Wick filter', 'Wick filter');
+      this.linkService(this.humidifierService, this.wickFilterService);
 
       if (!this.humidifierService.testCharacteristic(this.api.hap.Characteristic.RelativeHumidityHumidifierThreshold)) {
         this.humidifierService.addCharacteristic(this.api.hap.Characteristic.RelativeHumidityHumidifierThreshold);
@@ -291,6 +293,23 @@ class Accessory {
     this.nameService(service);
 
     return service;
+  }
+
+  /**
+   * Links a filter to the service it belongs to (issue #210). The Home app
+   * shows a purifier's filter life and replace prompt only for a filter service
+   * linked to it; an unlinked one is visible only in third-party apps such as
+   * Eve. Links are cached with the accessory, and hap-nodejs announces a
+   * configuration change on every call even when the link already exists, so
+   * an existing link is left alone. Removing a service drops its links.
+   *
+   * @param {any} owner the purifier or humidifier service
+   * @param {any} filter a FilterMaintenance service
+   */
+  linkService(owner, filter) {
+    if (!owner.linkedServices.includes(filter)) {
+      owner.addLinkedService(filter);
+    }
   }
 
   /**
