@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.2.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v2.1.0...v2.2.0) (2026-11-17)
+
+
+### Features
+
+* **config:** make the filter change threshold configurable ([#197](https://github.com/atdr/homebridge-philipsair-platform/issues/197)) ([44d2511](https://github.com/atdr/homebridge-philipsair-platform/commit/44d2511de9e8dc51dd764cf17c4a631b828174ae))
+* **handler:** re-subscribe as soon as a write proves a silent device is back ([#215](https://github.com/atdr/homebridge-philipsair-platform/issues/215)) ([088cd14](https://github.com/atdr/homebridge-philipsair-platform/commit/088cd14ace53a65433dae5e27f2004b6e3480d9b))
+* **handler:** show an unreachable device as No Response ([#202](https://github.com/atdr/homebridge-philipsair-platform/issues/202)) ([4f33b89](https://github.com/atdr/homebridge-philipsair-platform/commit/4f33b89a6c4ec608b4da7c155385b691702278aa))
+* **handler:** show the device's own model, firmware and serial ([#198](https://github.com/atdr/homebridge-philipsair-platform/issues/198)) ([f1644bf](https://github.com/atdr/homebridge-philipsair-platform/commit/f1644bfd101e4d2f3a8065faef045e88b9711d48))
+* **service:** add ConfiguredName so Home app tiles keep their labels ([#204](https://github.com/atdr/homebridge-philipsair-platform/issues/204)) ([35382bd](https://github.com/atdr/homebridge-philipsair-platform/commit/35382bd45e6c1afc90df2d21caaa8bfc205fe766))
+
+
+### Bug Fixes
+
+* **handler:** keep the device's serial across a restart while it is offline ([#212](https://github.com/atdr/homebridge-philipsair-platform/issues/212)) ([97b3d78](https://github.com/atdr/homebridge-philipsair-platform/commit/97b3d7859d2574215524ddef8f1298f251eee937))
+* **service:** link the filter services to the purifier ([#211](https://github.com/atdr/homebridge-philipsair-platform/issues/211)) ([6dbee5f](https://github.com/atdr/homebridge-philipsair-platform/commit/6dbee5fe1f1d22d7a8c918ff6da858edfe852752))
+* **service:** look services up by subtype, not display name ([#203](https://github.com/atdr/homebridge-philipsair-platform/issues/203)) ([42bbf0b](https://github.com/atdr/homebridge-philipsair-platform/commit/42bbf0baa2003b007f3e5afb7964851cf86a63b3))
+* **setup:** leave out the services a model cannot feed ([#200](https://github.com/atdr/homebridge-philipsair-platform/issues/200)) ([2df77e0](https://github.com/atdr/homebridge-philipsair-platform/commit/2df77e00b9edd5f2d7e101a79251806778b9a2ab))
+
 ## [2.1.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v2.0.2...v2.1.0) (2026-11-16)
 
 
