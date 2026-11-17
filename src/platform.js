@@ -115,12 +115,25 @@ class PhilipsAirPlatform {
   setupAccessory(accessory, device) {
     accessory.on('identify', () => logger.info('Identify requested.', accessory.displayName));
 
+    //what the device reported on an earlier run stands in for the defaults
+    //until it answers (issue #209). The Home app may load the accessory before
+    //then, and does not hear about these values changing afterwards. A model
+    //or serial number the user typed still wins
+    const remembered = accessory.context.deviceInformation || {};
+    const usable = (value) => (typeof value === 'string' && value ? value : undefined);
+
     accessory
       .getService(this.api.hap.Service.AccessoryInformation)
       .setCharacteristic(this.api.hap.Characteristic.Manufacturer, device.manufacturer)
-      .setCharacteristic(this.api.hap.Characteristic.Model, device.model)
-      .setCharacteristic(this.api.hap.Characteristic.SerialNumber, device.serialNumber)
-      .setCharacteristic(this.api.hap.Characteristic.FirmwareRevision, version);
+      .setCharacteristic(
+        this.api.hap.Characteristic.Model,
+        (!device.modelSet && usable(remembered.model)) || device.model
+      )
+      .setCharacteristic(
+        this.api.hap.Characteristic.SerialNumber,
+        (!device.serialNumberSet && usable(remembered.serialNumber)) || device.serialNumber
+      )
+      .setCharacteristic(this.api.hap.Characteristic.FirmwareRevision, usable(remembered.firmwareRevision) || version);
 
     accessory.context.config = device;
     accessory.context.config.debug = this.config.debug;

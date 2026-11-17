@@ -116,6 +116,48 @@ describe('accessory information from the device', () => {
     assert.equal(updates.length, 3);
   });
 
+  //issue #209: the Home app reads these only when it loads the accessory list,
+  //so a restart while the device is offline must still have them to serve
+  it('remembers what the device reported in the cached accessory', () => {
+    const { handler } = withInfo({ modelSet: true, serialNumberSet: true });
+    persisted.length = 0;
+
+    handler.handleResponse(status());
+
+    assert.deepEqual(handler.accessory.context.deviceInformation, {
+      model: 'AC0850/31',
+      firmwareRevision: '0.1.3',
+      serialNumber: DEVICE_ID,
+    });
+    assert.deepEqual(persisted, [handler.accessory], 'the values were not written to the cache');
+  });
+
+  it('writes the cache again only when the device reports something new', () => {
+    const { handler } = withInfo({});
+    persisted.length = 0;
+
+    handler.handleResponse(status());
+    handler.handleResponse(status());
+    assert.equal(persisted.length, 1);
+
+    handler.handleResponse({ ...status(), D01S12: '0.2.0' });
+    assert.equal(persisted.length, 2);
+    assert.equal(handler.accessory.context.deviceInformation.firmwareRevision, '0.2.0');
+  });
+
+  it('does not write the cache for values remembered on an earlier run', () => {
+    const handler = makeHandler(
+      { model: 'AC0850' },
+      { deviceInformation: { model: 'AC0850/31', firmwareRevision: '0.1.3', serialNumber: DEVICE_ID } }
+    );
+    handler.accessory.getService = () => ({ updateCharacteristic: () => {} });
+    persisted.length = 0;
+
+    handler.handleResponse(status());
+
+    assert.deepEqual(persisted, []);
+  });
+
   it('does nothing when the accessory has no information service', () => {
     const handler = makeHandler({});
     handler.accessory.getService = () => null;
