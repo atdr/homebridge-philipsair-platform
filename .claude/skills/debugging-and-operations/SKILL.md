@@ -102,7 +102,9 @@ A poll that returns **no data at all** is reported rather than retried in
 silence: after three consecutive failed spawns, or immediately on a stall that
 never delivered anything, the plugin warns and logs the CLI's captured stderr,
 then logs `Device is responding again` when status resumes. Both are
-deduplicated to once per outage.
+deduplicated to once per outage. The same escalation shows the accessory as No
+Response in HomeKit (`Handler.markUnreachable`, issue #178) until the next
+parsed status, except on a device that last reported itself off.
 
 > ⚠️ **In debug mode, stderr carries progress as well as faults** (issue #49,
 > seen on 1.2.0-beta.4). `cliDebug: true` passes `-D`, which makes aioairctrl

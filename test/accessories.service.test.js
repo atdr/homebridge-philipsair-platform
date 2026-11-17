@@ -142,6 +142,76 @@ describe('accessories.service', () => {
   });
 });
 
+//issue #178: an unreachable device reads as No Response, through HAP's own read
+//path, rather than as its last reading however old that is
+describe('accessories.service while the device is unreachable', () => {
+  const { SERVICE_COMMUNICATION_FAILURE } = hap.HAPStatus;
+  const everything = { temperature: true, humidity: true, light: true, preFilter: true };
+
+  //what longPoll would have looked up, which the stubbed one here does not
+  const lookUp = (accessory, handler) => {
+    handler.purifierService = accessory.getService(hap.Service.AirPurifier);
+    handler.airQualityService = accessory.getService(hap.Service.AirQualitySensor);
+    handler.temperatureService = accessory.getService(hap.Service.TemperatureSensor);
+    handler.humidityService = accessory.getService(hap.Service.HumiditySensor);
+    handler.lightService = accessory.getService(hap.Service.Lightbulb);
+  };
+
+  const escalate = (handler) => {
+    handler.stalled = true;
+    handler.reportPollFailure(null);
+  };
+
+  it('answers every read handler with a communication failure', async () => {
+    const { accessory, handler } = wireAccessory(everything, 'unreachable-reads');
+    lookUp(accessory, handler);
+    handler.obj = { pwr: '1', om: '2', mode: 'P', cl: false, temp: 21, rh: 40, aqil: 50 };
+
+    const readable = accessory.services
+      .flatMap((service) => service.characteristics)
+      .filter((characteristic) => characteristic.getHandler);
+    assert.ok(readable.length >= 8, `only ${readable.length} characteristics have read handlers`);
+
+    for (const characteristic of readable) {
+      await characteristic.handleGetRequest();
+    }
+
+    handler.obj = {};
+    escalate(handler);
+
+    for (const characteristic of readable) {
+      await assert.rejects(
+        characteristic.handleGetRequest(),
+        (status) => status === SERVICE_COMMUNICATION_FAILURE,
+        `${characteristic.displayName} still answered from the last reading`
+      );
+    }
+  });
+
+  it('fails a read with no handler of its own until the device answers again', async () => {
+    const { accessory, handler } = wireAccessory(everything, 'unreachable-pushed');
+    lookUp(accessory, handler);
+    const airQuality = accessory
+      .getService(hap.Service.AirQualitySensor)
+      .getCharacteristic(hap.Characteristic.AirQuality);
+
+    escalate(handler);
+
+    await assert.rejects(airQuality.handleGetRequest(), (status) => status === SERVICE_COMMUNICATION_FAILURE);
+
+    await handler.processUpdate(JSON.stringify({ pwr: '1', om: '2', mode: 'P', cl: false, iaql: 1 }));
+
+    assert.equal(await airQuality.handleGetRequest(), hap.Characteristic.AirQuality.EXCELLENT);
+    assert.equal(
+      await accessory
+        .getService(hap.Service.AirPurifier)
+        .getCharacteristic(hap.Characteristic.Active)
+        .handleGetRequest(),
+      1
+    );
+  });
+});
+
 describe('accessories.service optional services', () => {
   describe('filter maintenance services', () => {
     for (const [flag, serviceName] of [
