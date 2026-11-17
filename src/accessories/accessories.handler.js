@@ -6,6 +6,7 @@ const logger = require('../utils/logger');
 const { hapNumber, airQualityLevel } = require('../utils/utils');
 const { DEFAULT_BINARY } = require('../utils/preflight');
 const modelConfig = require('./accessories.models');
+const { leaveOutLacked } = require('./accessories.setup');
 const { resolveModel, identifyModel, readsStatus, looksLikeRegisters, detectDialect, deviceDetails } = modelConfig;
 
 //status lines are small JSON objects; anything beyond this is a misbehaving
@@ -292,6 +293,10 @@ class Handler {
           "detected from this device's own status on an earlier run.",
         this.accessory.displayName
       );
+      //accessories.setup.js gated the options on the model it resolved, which
+      //was none, so the model adopted here has to be gated before the services
+      //are built from the flags
+      leaveOutLacked(config, this.modelKey);
     }
 
     //the register dialect this device spoke on an earlier run, for a model that

@@ -40,6 +40,40 @@ const LEFT_OUT = {
 };
 
 /**
+ * Switches off the options the capability table says a model lacks, and says
+ * so in the log.
+ *
+ * The services are built from these flags alone (accessories.service.js),
+ * which also takes a cached service off when its flag is off. So switching an
+ * option off keeps a service that could only show a constant reading out of
+ * HomeKit, and removes one an earlier release built. A sensor, light or filter
+ * tile the user asked for is then missing, or disappears from an accessory
+ * that had it, and only the log can say why. An unmapped model lacks nothing.
+ *
+ * It runs wherever a model is settled: in Setup for the configured one, and in
+ * the handler for one the device named on an earlier run, which Setup cannot
+ * see.
+ *
+ * @param {Record<string, any>} device the shaped device config, changed in place
+ * @param {string | undefined} key the mapped model, or undefined for the default mapping
+ */
+const leaveOutLacked = (device, key) => {
+  const lacks = lackedOptions(key);
+
+  for (const [option, reason] of Object.entries(DEAD_OPTIONS)) {
+    if (device[option] && lacks.includes(option)) {
+      const service = LEFT_OUT[option];
+
+      logger.warn(
+        service ? `${reason(key)} The plugin leaves the ${service} out of HomeKit.` : reason(key),
+        device.name
+      );
+      device[option] = false;
+    }
+  }
+};
+
+/**
  * Resolves which command set a device runs on, and says so in the log.
  *
  * The model field selects the speed and register maps, so a device quietly
@@ -69,21 +103,7 @@ const announceModel = (device) => {
     );
   }
 
-  //an option the model lacks is switched off below, so a sensor, light or
-  //filter tile the user asked for is missing from HomeKit, or disappears from
-  //an accessory that had it, and only the log can say why
-  const lacks = lackedOptions(key);
-
-  for (const [option, reason] of Object.entries(DEAD_OPTIONS)) {
-    if (device[option] && lacks.includes(option)) {
-      const service = LEFT_OUT[option];
-
-      logger.warn(
-        service ? `${reason(key)} The plugin leaves the ${service} out of HomeKit.` : reason(key),
-        device.name
-      );
-    }
-  }
+  leaveOutLacked(device, key);
 
   if (key) {
     logger.info(`Using the ${key} command set.`, device.name);
@@ -201,20 +221,13 @@ const Setup = (deviceMap, devices, generateUUID) => {
         logger.info('Initializing device...', device.name);
         device.modelKey = announceModel(device);
 
-        //the services are built from these flags alone (accessories.service.js),
-        //which also takes a cached service off when its flag is off. So
-        //switching off what the capability table says the model lacks keeps a
-        //service that could only show a constant reading out of HomeKit, and
-        //removes one an earlier release built. An unmapped model lacks nothing
-        for (const option of lackedOptions(device.modelKey)) {
-          device[option] = false;
-        }
-
         deviceMap.set(uuid, device);
         hosts.set(hostKey(device), device.name);
       }
     }
   }
 };
+
+Setup.leaveOutLacked = leaveOutLacked;
 
 module.exports = Setup;

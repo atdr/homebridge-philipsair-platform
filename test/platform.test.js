@@ -378,6 +378,55 @@ describe('PhilipsAirPlatform', () => {
       assert.deepEqual(services(study), everything);
     });
 
+    //a device with no usable model in the config runs on the default mapping
+    //until it names itself, and the handler adopts that model on the next
+    //start. That is after Setup resolved nothing for it, so the gating has to
+    //be applied again there, or the restart builds the dead services
+    it('takes the services a model lacks off an accessory whose model was detected on an earlier run', async () => {
+      const device = {
+        active: true,
+        name: 'Loft',
+        host: '10.0.3.4',
+        light: true,
+        temperature: true,
+        humidity: true,
+        carbonFilter: true,
+      };
+      const api = makeFakeApi();
+      const platform = new PhilipsAirPlatform(silentLog, { aioairctrlPath: HAPPY_SHIM, devices: [device] }, api);
+      const accessory = new FakePlatformAccessory('Loft', hap.uuid.generate('Loft'));
+
+      accessory.context.config = { ...device };
+      accessory.context.detectedModel = 'AC0950';
+      accessory.addService(hap.Service.AirPurifier, 'Loft', 'purifier');
+      accessory.addService(hap.Service.Lightbulb, 'Light', 'Light');
+      accessory.addService(hap.Service.TemperatureSensor, 'Temperature Sensor', 'Temperature Sensor');
+      accessory.addService(hap.Service.HumiditySensor, 'Humidity Sensor', 'Humidity Sensor');
+      accessory.addService(hap.Service.FilterMaintenance, 'Active carbon filter', 'Active carbon filter');
+      platform.configureAccessory(accessory);
+
+      const warnings = [];
+      logger.configure({ info: noop, warn: (m) => warnings.push(m), error: noop }, {});
+      await platform.didFinishLaunching();
+      logger.configure(silentLog, {});
+
+      assert.deepEqual(
+        accessory.services
+          .filter((service) => service.UUID !== hap.Service.AccessoryInformation.UUID)
+          .map((service) => service.subtype || service.displayName)
+          .sort(),
+        ['Air Quality', 'Humidity Sensor', 'purifier']
+      );
+      //the tile is gone, and only the log can say why
+      for (const tile of ['light', 'temperature sensor', 'carbon filter']) {
+        assert.equal(
+          warnings.filter((m) => m.includes(`leaves the ${tile} out of HomeKit`)).length,
+          1,
+          `no single warning for the ${tile}`
+        );
+      }
+    });
+
     //the reported failure: a stray entry or an object where the list belongs
     //rejected inside Setup, out of reach of the try/catch, and took the bridge
     //down with an unhandled rejection
