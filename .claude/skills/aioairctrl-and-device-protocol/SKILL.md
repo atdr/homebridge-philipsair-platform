@@ -780,7 +780,11 @@ device config enables the option and removed otherwise); values are pushed from
 entry in the capability table (`CAPABILITIES` in `accessories.models.js`) lists
 as lacking, with a startup warning, so a service the model cannot feed is never
 built and is removed from a cached accessory (#174). An unmapped model lacks
-nothing.
+nothing. `config.schema.json` carries a copy of the same table, one list per
+option in that option's `condition.functionBody`, so the config UI hides a
+lacked option unless it is already on (#69). The form reads only the `model`
+field, not the name fallback `resolveModel` uses, so it can show an option that
+does nothing but never hides one that works.
 
 | Service                                      | Condition         | Key characteristics (source key → HAP)                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | -------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

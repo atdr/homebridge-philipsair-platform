@@ -129,7 +129,8 @@ HomeKit and says so in the log at startup. An accessory set up by an earlier
 version, with the option on, loses that tile on the first restart, and any
 automation or scene that used it loses it too. Those tiles never showed a real
 reading. A model this section does not name keeps every light, sensor and filter
-tile.
+tile. The Homebridge UI does not offer these options for the models named here,
+unless one is already on.
 
 - **Child lock** is offered on every model except the AC0651, the AC0850 and the
   dash-less AC1715. ha-philips-airpurifier offers no child lock on the AC0650,

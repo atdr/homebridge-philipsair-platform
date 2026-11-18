@@ -965,9 +965,11 @@ const DEVICE_OPTIONS = Object.freeze([
 //  temperature here is one the plugin cannot read yet (issue #186), not one
 //  the device has no sensor for.
 //
-//It is kept as written data rather than computed, so it can be read on its own,
-//by the config UI too (issue #69). test/accessories.models.test.js checks it
-//against the rules above, so a mapping change that moves one fails there.
+//It is kept as written data rather than computed, so it can be read on its own.
+//test/accessories.models.test.js checks it against the rules above, so a
+//mapping change that moves one fails there. config.schema.json carries a copy,
+//one list per option, so the config UI hides a lacked option (issue #69), and
+//test/config.schema.test.js fails when that copy falls behind.
 const CAPABILITIES = {
   AC3036: { lacks: ['sleepSpeed', 'allergicFunc'] },
   AC1715: { lacks: ['sleepSpeed', 'allergicFunc'] },
