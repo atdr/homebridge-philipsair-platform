@@ -13,7 +13,18 @@ const { describe, it } = require('node:test');
 
 const { DEFAULT_BINARY, PROBE_ARGS } = require('../src/utils/preflight');
 
-const { mappedModels } = require('../src/accessories/accessories.models');
+const { mappedModels, deviceOptions, lackedOptions, resolveModel } = require('../src/accessories/accessories.models');
+
+//The condition config.schema.json carries on a device option: shown when it is
+//already switched on, or when the model field does not name a model that lacks
+//it. The model is read the way normaliseModel reads it (case, spaces and the
+//regional /suffix ignored). An error shows the option, as does an unmapped model.
+const optionCondition = (option, lacking) =>
+  'try { var device = model.devices[arrayIndices[0]]; ' +
+  `if (device.${option}) { return true; } ` +
+  "var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); " +
+  `return ${JSON.stringify(lacking)}.indexOf(key) === -1; ` +
+  '} catch (e) { return true; }';
 
 const schema = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.schema.json'), 'utf8'));
 
@@ -268,5 +279,95 @@ describe('config.schema', () => {
 
     assert.deepEqual(schema.schema.required, ['devices']);
     assert.deepEqual(schema.schema.properties.devices.items.required, ['name', 'model', 'host']);
+  });
+});
+
+//Issue #69: each device option is offered only where it can do something. The
+//schema cannot load the plugin, so each option's condition carries its own copy
+//of the models that lack it, taken from the capability table. These tests run
+//that condition the way the Homebridge UI does and compare the answer with the
+//runtime's, so a mapping change that is not copied into the schema fails here.
+describe('config.schema hides device options a model cannot use', () => {
+  const deviceProperties = schema.schema.properties.devices.items.properties;
+
+  //what the Homebridge UI evaluates: a function of the whole form model and
+  //the indices of the array items the field sits in
+  const visible = (option, device) => {
+    const condition = deviceProperties[option].condition;
+    assert.ok(condition && condition.functionBody, `${option} has no condition`);
+    const run = new Function('model', 'arrayIndices', condition.functionBody);
+    return run({ devices: [{ active: true }, device] }, [1]);
+  };
+
+  //the models whose entry lists the option, which is what its condition hides it for
+  const lackingModels = (option) => mappedModels.filter((key) => lackedOptions(key).includes(option));
+
+  it('copies, for every option, exactly the models the capability table says lack it', () => {
+    for (const option of deviceOptions) {
+      assert.equal(
+        deviceProperties[option].condition && deviceProperties[option].condition.functionBody,
+        optionCondition(option, lackingModels(option)),
+        `config.schema.json: ${option}'s condition no longer matches the capability table; replace it with the expected functionBody`
+      );
+    }
+  });
+
+  it('hides an option for every mapped model that lacks it, and shows it for the rest', () => {
+    for (const option of deviceOptions) {
+      for (const key of mappedModels) {
+        assert.equal(visible(option, { model: key }), !lackedOptions(key).includes(option), `${option} on ${key}`);
+      }
+    }
+  });
+
+  it('reads the model field the way the runtime does', () => {
+    for (const typed of ['AC0850/31', 'ac0850', ' AC 0850 ', 'Ac0850/11']) {
+      assert.equal(resolveModel({ model: typed }).key, 'AC0850', typed);
+      assert.equal(visible('sleepSpeed', { model: typed }), false, typed);
+      assert.equal(visible('allergicFunc', { model: typed }), false, typed);
+      assert.equal(visible('preFilter', { model: typed }), true, typed);
+    }
+  });
+
+  it('keeps every option for a model the plugin does not map, or none typed', () => {
+    for (const device of [{ model: 'AC9999' }, { model: '' }, {}, { model: null }]) {
+      for (const option of deviceOptions) {
+        assert.equal(visible(option, device), true, `${option} on ${JSON.stringify(device)}`);
+      }
+    }
+  });
+
+  //The runtime falls back to a model ID in the device name. The form does not,
+  //which can only leave an option on show that does nothing, never hide one
+  //that works: whatever it hides, the runtime leaves out too.
+  it('never hides an option the runtime would honour', () => {
+    const devices = [
+      ...mappedModels.map((key) => ({ model: key })),
+      { name: 'AC0850 bedroom' },
+      { model: 'AC9999', name: 'AC0651' },
+      { model: 'AC0850', name: 'AC3829' },
+    ];
+    for (const device of devices) {
+      for (const option of deviceOptions) {
+        if (!visible(option, device)) {
+          assert.ok(lackedOptions(resolveModel(device).key).includes(option), `${option} on ${JSON.stringify(device)}`);
+        }
+      }
+    }
+  });
+
+  //hiding a field leaves its value in config.json, and the runtime warns at
+  //every start about an option it leaves out, so an option already switched on
+  //stays in sight for the user to switch off
+  it('keeps an option that is already switched on in sight', () => {
+    for (const option of deviceOptions) {
+      assert.equal(visible(option, { model: 'AC0651', [option]: true }), true, option);
+    }
+  });
+
+  it('shows the option rather than failing when the form model is not there yet', () => {
+    const run = new Function('model', 'arrayIndices', deviceProperties.sleepSpeed.condition.functionBody);
+    assert.equal(run(undefined, [0]), true);
+    assert.equal(run({ devices: [] }, [0]), true);
   });
 });
