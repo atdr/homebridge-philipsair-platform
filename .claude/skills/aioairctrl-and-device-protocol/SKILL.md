@@ -787,9 +787,9 @@ to sit on the layout item: once a schema has a `layout`, the Homebridge UI
 ignores a `condition` on the schema property, which is how 2.3.0-beta.1 hid
 nothing. The UI also rewrites a condition's property reads to optional chaining
 before running it, and older UI versions did that by splitting on every `.`, so
-a condition must not put a dot inside a regular expression or a string. The form reads only the `model` field, not the name fallback
-`resolveModel` uses, so it can show an option that does nothing but never hides
-one that works.
+a condition must not put a dot inside a regular expression or a string. The form
+reads only the `model` field, not the name fallback `resolveModel` uses, so it
+can show an option that does nothing but never hides one that works.
 
 | Service                                      | Condition         | Key characteristics (source key → HAP)                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | -------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
