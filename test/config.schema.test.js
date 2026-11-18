@@ -22,7 +22,7 @@ const { mappedModels, deviceOptions, lackedOptions, resolveModel } = require('..
 const optionCondition = (option, lacking) =>
   'try { var device = model.devices[arrayIndices[0]]; ' +
   `if (device.${option}) { return true; } ` +
-  "var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); " +
+  "var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').split('/')[0]; " +
   `return ${JSON.stringify(lacking)}.indexOf(key) === -1; ` +
   '} catch (e) { return true; }';
 
@@ -150,6 +150,39 @@ describe('config.schema', () => {
   //restate the schema. What is worth guarding is that the instructions stay
   //true of how the plugin actually behaves, and stay in step with the README:
   //copy in two places, describing code in a third, is what drifts.
+  //With a layout present the Homebridge UI ignores a condition on a schema
+  //property and takes it from the layout item instead, so one written on the
+  //property silently never applies. 2.3.0-beta.1 shipped #69 that way.
+  it('puts every condition on a layout item, where the UI reads it', () => {
+    const misplaced = [];
+    const walk = (node, trail) => {
+      if (node && typeof node === 'object') {
+        if (Object.prototype.hasOwnProperty.call(node, 'condition')) {
+          misplaced.push(trail);
+        }
+        for (const [key, value] of Object.entries(node)) {
+          walk(value, `${trail}.${key}`);
+        }
+      }
+    };
+    walk(schema.schema, 'schema');
+    assert.deepEqual(misplaced, [], 'move these conditions onto their layout items');
+  });
+
+  //These five carried conditions on their schema properties that never
+  //applied. Applying them would hide a setting that still takes effect:
+  //cliDebug and extendedError keep shaping the log with debug or error off,
+  //and host is required even on an inactive device. So they stay unconditional.
+  it('keeps the log switches and the connection fields on show', () => {
+    for (const key of ['cliDebug', 'extendedError', 'devices[].host', 'devices[].port', 'devices[].refreshInterval']) {
+      //a plain string entry is a field with no options, so no condition
+      const asString = JSON.stringify(schema.layout).includes(`"${key}"`);
+      const item = findLayoutItem(schema.layout, key);
+      assert.ok(item || asString, `${key} is missing from the layout`);
+      assert.equal(item && item.condition, undefined, `${key} must not be conditional`);
+    }
+  });
+
   describe('config UI header instructions', () => {
     const header = schema.headerDisplay;
 
@@ -288,14 +321,19 @@ describe('config.schema', () => {
 //that condition the way the Homebridge UI does and compare the answer with the
 //runtime's, so a mapping change that is not copied into the schema fails here.
 describe('config.schema hides device options a model cannot use', () => {
-  const deviceProperties = schema.schema.properties.devices.items.properties;
+  //the Homebridge UI reads a condition from the layout item, not the schema
+  //property, once the schema has a layout (2.3.0-beta.1 hid nothing for that)
+  const conditionOf = (option) => {
+    const item = findLayoutItem(schema.layout, `devices[].${option}`);
+    return item && item.condition;
+  };
 
   //what the Homebridge UI evaluates: a function of the whole form model and
   //the indices of the array items the field sits in
-  const visible = (option, device) => {
-    const condition = deviceProperties[option].condition;
+  const visible = (option, device, rewrite = (body) => body) => {
+    const condition = conditionOf(option);
     assert.ok(condition && condition.functionBody, `${option} has no condition`);
-    const run = new Function('model', 'arrayIndices', condition.functionBody);
+    const run = new Function('model', 'arrayIndices', rewrite(condition.functionBody));
     return run({ devices: [{ active: true }, device] }, [1]);
   };
 
@@ -305,7 +343,7 @@ describe('config.schema hides device options a model cannot use', () => {
   it('copies, for every option, exactly the models the capability table says lack it', () => {
     for (const option of deviceOptions) {
       assert.equal(
-        deviceProperties[option].condition && deviceProperties[option].condition.functionBody,
+        conditionOf(option) && conditionOf(option).functionBody,
         optionCondition(option, lackingModels(option)),
         `config.schema.json: ${option}'s condition no longer matches the capability table; replace it with the expected functionBody`
       );
@@ -326,6 +364,35 @@ describe('config.schema hides device options a model cannot use', () => {
       assert.equal(visible('sleepSpeed', { model: typed }), false, typed);
       assert.equal(visible('allergicFunc', { model: typed }), false, typed);
       assert.equal(visible('preFilter', { model: typed }), true, typed);
+    }
+  });
+
+  //Before it runs a condition the Homebridge UI rewrites its property reads
+  //to optional chaining. Older UI versions did it by splitting on every dot,
+  //which breaks a regular expression containing one. Both rewrites, as the
+  //UI's @ng-formworks/core patch has them, must leave the answer unchanged.
+  it('gives the same answer after either of the UI rewrites', () => {
+    const rewrites = {
+      current: (body) =>
+        body.replace(/([a-zA-Z_$])(\[)/g, '$1?.[').replace(/([a-zA-Z_$\]])(\.)(?=[a-zA-Z_$[])/g, '$1?.'),
+      legacy: (body) =>
+        body
+          .replace(/\[/g, '.[')
+          .split('.')
+          .join('?.')
+          .replace(/\?\?\./g, '?')
+          .replace(/(\?)(\.\[)/g, '['),
+    };
+    for (const [name, rewrite] of Object.entries(rewrites)) {
+      for (const option of deviceOptions) {
+        for (const model of [...mappedModels, 'AC0850/31', 'ac0850', 'AC9999', '']) {
+          assert.equal(
+            visible(option, { model }, rewrite),
+            visible(option, { model }),
+            `${option} on ${JSON.stringify(model)} after the ${name} rewrite`
+          );
+        }
+      }
     }
   });
 
@@ -366,7 +433,7 @@ describe('config.schema hides device options a model cannot use', () => {
   });
 
   it('shows the option rather than failing when the form model is not there yet', () => {
-    const run = new Function('model', 'arrayIndices', deviceProperties.sleepSpeed.condition.functionBody);
+    const run = new Function('model', 'arrayIndices', conditionOf('sleepSpeed').functionBody);
     assert.equal(run(undefined, [0]), true);
     assert.equal(run({ devices: [] }, [0]), true);
   });
