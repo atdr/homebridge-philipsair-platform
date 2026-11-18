@@ -22,7 +22,7 @@ const { mappedModels, deviceOptions, lackedOptions, resolveModel } = require('..
 const optionCondition = (option, lacking) =>
   'try { var device = model.devices[arrayIndices[0]]; ' +
   `if (device.${option}) { return true; } ` +
-  "var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); " +
+  "var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').split('/')[0]; " +
   `return ${JSON.stringify(lacking)}.indexOf(key) === -1; ` +
   '} catch (e) { return true; }';
 
@@ -169,18 +169,17 @@ describe('config.schema', () => {
     assert.deepEqual(misplaced, [], 'move these conditions onto their layout items');
   });
 
-  it('keeps the conditions the schema used to carry on its properties', () => {
-    const expectations = {
-      cliDebug: 'model.debug',
-      extendedError: 'model.error',
-      'devices[].host': 'model.devices[arrayIndices[0]].active',
-      'devices[].port': 'model.devices[arrayIndices[0]].active',
-      'devices[].refreshInterval': 'model.devices[arrayIndices[0]].active',
-    };
-    for (const [key, reads] of Object.entries(expectations)) {
+  //These five carried conditions on their schema properties that never
+  //applied. Applying them would hide a setting that still takes effect:
+  //cliDebug and extendedError keep shaping the log with debug or error off,
+  //and host is required even on an inactive device. So they stay unconditional.
+  it('keeps the log switches and the connection fields on show', () => {
+    for (const key of ['cliDebug', 'extendedError', 'devices[].host', 'devices[].port', 'devices[].refreshInterval']) {
+      //a plain string entry is a field with no options, so no condition
+      const asString = JSON.stringify(schema.layout).includes(`"${key}"`);
       const item = findLayoutItem(schema.layout, key);
-      assert.ok(item && item.condition, `${key} has no condition in the layout`);
-      assert.ok(item.condition.functionBody.includes(reads), `${key} should read ${reads}`);
+      assert.ok(item || asString, `${key} is missing from the layout`);
+      assert.equal(item && item.condition, undefined, `${key} must not be conditional`);
     }
   });
 
@@ -331,10 +330,10 @@ describe('config.schema hides device options a model cannot use', () => {
 
   //what the Homebridge UI evaluates: a function of the whole form model and
   //the indices of the array items the field sits in
-  const visible = (option, device) => {
+  const visible = (option, device, rewrite = (body) => body) => {
     const condition = conditionOf(option);
     assert.ok(condition && condition.functionBody, `${option} has no condition`);
-    const run = new Function('model', 'arrayIndices', condition.functionBody);
+    const run = new Function('model', 'arrayIndices', rewrite(condition.functionBody));
     return run({ devices: [{ active: true }, device] }, [1]);
   };
 
@@ -365,6 +364,35 @@ describe('config.schema hides device options a model cannot use', () => {
       assert.equal(visible('sleepSpeed', { model: typed }), false, typed);
       assert.equal(visible('allergicFunc', { model: typed }), false, typed);
       assert.equal(visible('preFilter', { model: typed }), true, typed);
+    }
+  });
+
+  //Before it runs a condition the Homebridge UI rewrites its property reads
+  //to optional chaining. Older UI versions did it by splitting on every dot,
+  //which breaks a regular expression containing one. Both rewrites, as the
+  //UI's @ng-formworks/core patch has them, must leave the answer unchanged.
+  it('gives the same answer after either of the UI rewrites', () => {
+    const rewrites = {
+      current: (body) =>
+        body.replace(/([a-zA-Z_$])(\[)/g, '$1?.[').replace(/([a-zA-Z_$\]])(\.)(?=[a-zA-Z_$[])/g, '$1?.'),
+      legacy: (body) =>
+        body
+          .replace(/\[/g, '.[')
+          .split('.')
+          .join('?.')
+          .replace(/\?\?\./g, '?')
+          .replace(/(\?)(\.\[)/g, '['),
+    };
+    for (const [name, rewrite] of Object.entries(rewrites)) {
+      for (const option of deviceOptions) {
+        for (const model of [...mappedModels, 'AC0850/31', 'ac0850', 'AC9999', '']) {
+          assert.equal(
+            visible(option, { model }, rewrite),
+            visible(option, { model }),
+            `${option} on ${JSON.stringify(model)} after the ${name} rewrite`
+          );
+        }
+      }
     }
   });
 
