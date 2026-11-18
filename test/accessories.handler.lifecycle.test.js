@@ -324,6 +324,80 @@ describe('processUpdate', () => {
     handler.kill(true);
   });
 
+  //#175: the Auto write cannot clear an empty tank (it leaves func at PH), so
+  //sending it on every reading repeats it for as long as the tank stays dry
+  describe('the Auto write on an empty tank', () => {
+    const tankHandler = () => {
+      const handler = makeHandler({});
+      handler.purifierService = makeService();
+      handler.humidifierService = makeService();
+      handler.writeSettle = 0;
+      /** @type {string[][]} */
+      const sent = [];
+      handler.sendCMD = async (args) => {
+        sent.push(args.slice(args.indexOf('set') + 1));
+      };
+      return { handler, sent };
+    };
+
+    const reading = (extra) =>
+      JSON.stringify({ pwr: '1', mode: 'M', cl: false, om: '1', func: 'PH', rh: 45, wl: 0, ...extra });
+
+    it('is sent once while the tank stays empty, not on every reading', async (t) => {
+      t.after(silenceLogger);
+      captureLogs();
+      const { handler, sent } = tankHandler();
+      t.after(() => handler.kill(true));
+
+      await handler.processUpdate(reading());
+      //the device takes the write: Auto, with func still at PH and the tank dry
+      await handler.processUpdate(reading({ mode: 'P' }));
+      await handler.processUpdate(reading({ mode: 'P' }));
+
+      assert.deepEqual(sent, [['mode=P']]);
+    });
+
+    it('is not sent when the device is already in Auto', async (t) => {
+      t.after(silenceLogger);
+      captureLogs();
+      const { handler, sent } = tankHandler();
+      t.after(() => handler.kill(true));
+
+      await handler.processUpdate(reading({ mode: 'P' }));
+
+      assert.deepEqual(sent, []);
+    });
+
+    it('leaves a manual mode chosen while the tank is empty alone', async (t) => {
+      t.after(silenceLogger);
+      captureLogs();
+      const { handler, sent } = tankHandler();
+      t.after(() => handler.kill(true));
+
+      await handler.processUpdate(reading({ mode: 'P' }));
+      //the user picks manual from the Home app, and the device reports it
+      await handler.processUpdate(reading({ mode: 'M' }));
+      await handler.processUpdate(reading({ mode: 'M' }));
+
+      assert.deepEqual(sent, []);
+    });
+
+    it('is sent again when the tank runs dry a second time', async (t) => {
+      t.after(silenceLogger);
+      captureLogs();
+      const { handler, sent } = tankHandler();
+      t.after(() => handler.kill(true));
+
+      await handler.processUpdate(reading());
+      await handler.processUpdate(reading({ mode: 'P' }));
+      //refilled, then the user goes back to manual
+      await handler.processUpdate(reading({ wl: 100, mode: 'M' }));
+      await handler.processUpdate(reading({ wl: 0, mode: 'M' }));
+
+      assert.deepEqual(sent, [['mode=P'], ['mode=P']]);
+    });
+  });
+
   it('reports pre-filter, carbon-filter and HEPA-filter life and change indication', async () => {
     const handler = makeHandler({});
     handler.purifierService = makeService();

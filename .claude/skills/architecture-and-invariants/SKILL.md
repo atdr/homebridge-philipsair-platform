@@ -113,9 +113,14 @@ The docs-sync invariants and how to add new mechanical guards are covered in
   fire (inferred purpose: HomeKit sends On and Brightness together; commit
   records no rationale). Treat the mutual exclusion as intentional until proven
   otherwise.
-- When the humidifier water tank is empty (`wl == 0`), `processUpdate` actively
-  sends a mode command to the device (`setPurifierTargetState(true)`) — a read
-  path that writes. Inherited behaviour; commit records no rationale.
+- When the humidifier water tank runs dry (`func == 'PH'` and `wl == 0`),
+  `processUpdate` puts the purifier in Auto (`setPurifierTargetState(true)`), a
+  read path that writes. The switch itself is inherited with no recorded
+  rationale. Since #175 it goes out once per dry spell (on the first reading
+  showing the tank empty, tracked by `tankWasEmpty`) and only out of manual: the
+  write leaves `func` at `PH`, so the tank still reads empty afterwards and
+  sending it per reading repeated it forever and undid any manual mode chosen
+  meanwhile. Not checked on humidifier hardware.
 
 ## Provenance and maintenance
 
