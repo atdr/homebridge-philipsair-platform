@@ -283,8 +283,9 @@ class Handler {
     //writes queued and not yet settled, and sequences of them still under way
     this.writesQueued = 0;
     this.writeSequences = 0;
-    //whether the empty tank in the latest reading was already there in the one
-    //before, so the Auto write it triggers goes out once per dry spell (#175)
+    //whether a dry spell is under way: set by a reading with the tank empty and
+    //cleared only by one reporting water, so the Auto write it triggers goes
+    //out once per dry spell (#175)
     this.tankWasEmpty = false;
     //what the refresh has learned re-subscribing to this device costs, in ms.
     //null until a refresh has been priced, when the configured interval stands
@@ -3372,9 +3373,15 @@ class Handler {
         //the tank running dry puts the purifier in Auto. Only on the reading
         //that first shows it empty, and only out of manual: the write leaves
         //func at PH, so the tank still reads empty afterwards, and repeating it
-        //sent a `set` per reading and undid any manual mode picked meanwhile
+        //sent a `set` per reading and undid any manual mode picked meanwhile.
+        //Only a reported water level ends the dry spell: a reading without
+        //one, or with the humidifier off, says nothing about the tank
         const tankRanDry = water_level == 0 && !this.tankWasEmpty;
-        this.tankWasEmpty = water_level == 0;
+        if (water_level == 0) {
+          this.tankWasEmpty = true;
+        } else if (this.obj.wl !== undefined && this.obj.wl != 0) {
+          this.tankWasEmpty = false;
+        }
 
         if (water_level == 0) {
           if (tankRanDry && !this.inAutoMode()) {

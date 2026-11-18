@@ -116,11 +116,13 @@ The docs-sync invariants and how to add new mechanical guards are covered in
 - When the humidifier water tank runs dry (`func == 'PH'` and `wl == 0`),
   `processUpdate` puts the purifier in Auto (`setPurifierTargetState(true)`), a
   read path that writes. The switch itself is inherited with no recorded
-  rationale. Since #175 it goes out once per dry spell (on the first reading
-  showing the tank empty, tracked by `tankWasEmpty`) and only out of manual: the
-  write leaves `func` at `PH`, so the tank still reads empty afterwards and
+  rationale. Since #175 it goes out once per dry spell and only out of manual:
+  the write leaves `func` at `PH`, so the tank still reads empty afterwards and
   sending it per reading repeated it forever and undid any manual mode chosen
-  meanwhile. Not checked on humidifier hardware.
+  meanwhile. `tankWasEmpty` marks the spell. Only a reading that reports `wl`
+  above 0 ends it, since each reading replaces `this.obj` and one without `wl`,
+  or with the humidifier off, says nothing about the tank. Not checked on
+  humidifier hardware.
 
 ## Provenance and maintenance
 

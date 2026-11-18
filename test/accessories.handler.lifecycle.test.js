@@ -396,6 +396,30 @@ describe('processUpdate', () => {
 
       assert.deepEqual(sent, [['mode=P'], ['mode=P']]);
     });
+
+    //only a reported water level ends the dry spell. A reading without one, or
+    //with the humidifier off, says nothing about the tank
+    /** @type {[string, Record<string, unknown>][]} */
+    const gaps = [
+      ['a reading that leaves the water level out', { wl: undefined }],
+      ['the humidifier switched off and on again', { func: 'P' }],
+    ];
+    for (const [name, gap] of gaps) {
+      it(`is not sent again after ${name}`, async (t) => {
+        t.after(silenceLogger);
+        captureLogs();
+        const { handler, sent } = tankHandler();
+        t.after(() => handler.kill(true));
+
+        await handler.processUpdate(reading());
+        await handler.processUpdate(reading({ mode: 'P' }));
+        //the user picks manual, then the gap, then the tank still dry
+        await handler.processUpdate(reading({ mode: 'M', ...gap }));
+        await handler.processUpdate(reading({ mode: 'M' }));
+
+        assert.deepEqual(sent, [['mode=P']]);
+      });
+    }
   });
 
   it('reports pre-filter, carbon-filter and HEPA-filter life and change indication', async () => {
