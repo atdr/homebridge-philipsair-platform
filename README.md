@@ -177,6 +177,11 @@ Each entry in the `devices` array is one purifier. Three fields are required:
 <details>
 <summary>Optional device options</summary>
 
+The Homebridge UI offers an option only where it can do something for the model
+you entered, so the AC0850, for example, shows no `sleepSpeed` or `allergicFunc`
+toggle. An option you already switched on stays on show, so you can switch it
+off. A model without a mapping of its own keeps every option.
+
 | Option                  | Description                                                                                                                                                                            | Default     |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
 | `active`                | Set `false` to skip this device without deleting its configuration.                                                                                                                    | `true`      |
