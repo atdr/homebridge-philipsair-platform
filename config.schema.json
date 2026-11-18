@@ -27,10 +27,7 @@
       "cliDebug": {
         "title": "aioairctrl Debug Log",
         "description": "Adds aioairctrl's own debug log to the plugin's. Only useful when diagnosing the command itself rather than a device, and it is roughly four times the volume, so an overnight run may be truncated before you can read it.",
-        "type": "boolean",
-        "condition": {
-          "functionBody": "try { return model.debug } catch(e){ return false }"
-        }
+        "type": "boolean"
       },
       "warn": {
         "title": "Warn Log",
@@ -48,10 +45,7 @@
         "title": "Extended Error Log",
         "type": "boolean",
         "description": "Includes the full stack trace with each error. Useful when reporting an issue.",
-        "default": true,
-        "condition": {
-          "functionBody": "try { return model.error } catch(e){ return false }"
-        }
+        "default": true
       },
       "devices": {
         "type": "array",
@@ -95,10 +89,7 @@
               "title": "Host Address",
               "type": "string",
               "placeholder": "10.0.1.16",
-              "description": "IP address or hostname of your device. Give it a fixed address first, usually a DHCP reservation on your router: if the address changes, the plugin can no longer reach the device.",
-              "condition": {
-                "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
-              }
+              "description": "IP address or hostname of your device. Give it a fixed address first, usually a DHCP reservation on your router: if the address changes, the plugin can no longer reach the device."
             },
             "port": {
               "title": "Port",
@@ -106,10 +97,7 @@
               "minimum": 1,
               "maximum": 65535,
               "placeholder": 5683,
-              "description": "Port of your device.",
-              "condition": {
-                "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
-              }
+              "description": "Port of your device."
             },
             "refreshInterval": {
               "title": "Refresh Interval",
@@ -117,82 +105,52 @@
               "minimum": 0,
               "maximum": 3600,
               "placeholder": 60,
-              "description": "Shortest time the plugin waits after a reading before asking the device for another one, by re-subscribing. It waits longer than this on a device where re-subscribing turns out to cost more than waiting does, which it learns as it goes. Raise it if your device reports on its own often enough; set it to 0 to switch the refresh off and rely entirely on the device. Values below 15 are treated as 15.",
-              "condition": {
-                "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
-              }
+              "description": "Shortest time the plugin waits after a reading before asking the device for another one, by re-subscribing. It waits longer than this on a device where re-subscribing turns out to cost more than waiting does, which it learns as it goes. Raise it if your device reports on its own often enough; set it to 0 to switch the refresh off and rely entirely on the device. Values below 15 are treated as 15."
             },
             "humidifier": {
               "title": "Humidifier",
               "type": "boolean",
-              "description": "Expose a separate humidifier accessory to HomeKit.",
-              "condition": {
-                "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.humidifier) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [\"AC3420\",\"AC3421\",\"AC3737\"].indexOf(key) === -1; } catch (e) { return true; }"
-              }
+              "description": "Expose a separate humidifier accessory to HomeKit."
             },
             "light": {
               "title": "Light",
               "type": "boolean",
-              "description": "Expose device lights as lightbulbs to HomeKit.",
-              "condition": {
-                "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.light) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [\"AC0651\",\"AC0950\",\"AC0951\",\"AC3737\"].indexOf(key) === -1; } catch (e) { return true; }"
-              }
+              "description": "Expose device lights as lightbulbs to HomeKit."
             },
             "temperature": {
               "title": "Temperature sensor",
               "type": "boolean",
-              "description": "Expose device temperature as temperature sensor to HomeKit.",
-              "condition": {
-                "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.temperature) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [\"AC0651\",\"AC0950\",\"AC0951\",\"AC2210\",\"AC2220\",\"AC2221\",\"AC3210\",\"AC3220\",\"AC3221\",\"AC3420\",\"AC3421\",\"AC3737\",\"AC4220\",\"AC4221\",\"AMF765\"].indexOf(key) === -1; } catch (e) { return true; }"
-              }
+              "description": "Expose device temperature as temperature sensor to HomeKit."
             },
             "humidity": {
               "title": "Humidity sensor",
               "type": "boolean",
-              "description": "Expose device humidity as humidity sensor to HomeKit.",
-              "condition": {
-                "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.humidity) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [\"AC0651\"].indexOf(key) === -1; } catch (e) { return true; }"
-              }
+              "description": "Expose device humidity as humidity sensor to HomeKit."
             },
             "sleepSpeed": {
               "title": "Sleep Speed",
               "type": "boolean",
-              "description": "Adds a 'sleep' step below the lowest fan speed. Ignored for models with their own speed mapping (pick your model above and the plugin uses the right speeds automatically).",
-              "condition": {
-                "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.sleepSpeed) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [\"AC3036\",\"AC1715\",\"AC3829\",\"AC0850\",\"AC0651\",\"AC0650\",\"AC1214\",\"AC2729\",\"AC2889\",\"AC2936\",\"AC2939\",\"AC2958\",\"AC2959\",\"AC3033\",\"AC3039\",\"AC3055\",\"AC3059\",\"AC3259\",\"AC3836\",\"AC3854\",\"AC3858\",\"AC4236\",\"AC4550\",\"AC4558\",\"AC5659\",\"AC5660\",\"AC0950\",\"AC0951\",\"AC2210\",\"AC2220\",\"AC2221\",\"AC3210\",\"AC3220\",\"AC3221\",\"AC3420\",\"AC3421\",\"AC3737\",\"AC4220\",\"AC4221\",\"AMF765\"].indexOf(key) === -1; } catch (e) { return true; }"
-              }
+              "description": "Adds a 'sleep' step below the lowest fan speed. Ignored for models with their own speed mapping (pick your model above and the plugin uses the right speeds automatically)."
             },
             "allergicFunc": {
               "title": "Allergic mode function",
               "type": "boolean",
-              "description": "Makes Auto in the Home app start the allergen mode instead of the general Auto mode. Ignored for models with no plain allergen mode: the Fan speed and Auto table in docs/controls.md shows which models have one.",
-              "condition": {
-                "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.allergicFunc) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [\"AC3036\",\"AC1715\",\"AC0850\",\"AC0651\",\"AC0650\",\"AC2936\",\"AC2939\",\"AC2958\",\"AC2959\",\"AC3033\",\"AC3039\",\"AC3055\",\"AC3059\",\"AC3836\",\"AC3854\",\"AC3858\",\"AC4236\",\"AC0950\",\"AC0951\",\"AC2210\",\"AC2220\",\"AC2221\",\"AC3210\",\"AC3220\",\"AC3221\",\"AC3420\",\"AC3421\",\"AC3737\",\"AC4220\",\"AC4221\",\"AMF765\"].indexOf(key) === -1; } catch (e) { return true; }"
-              }
+              "description": "Makes Auto in the Home app start the allergen mode instead of the general Auto mode. Ignored for models with no plain allergen mode: the Fan speed and Auto table in docs/controls.md shows which models have one."
             },
             "preFilter": {
               "title": "Pre Filter",
               "type": "boolean",
-              "description": "Expose pre-filter status to HomeKit.",
-              "condition": {
-                "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.preFilter) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [].indexOf(key) === -1; } catch (e) { return true; }"
-              }
+              "description": "Expose pre-filter status to HomeKit."
             },
             "carbonFilter": {
               "title": "Active Carbon Filter",
               "type": "boolean",
-              "description": "Expose active carbon filter status to HomeKit.",
-              "condition": {
-                "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.carbonFilter) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [\"AC0651\",\"AC0950\",\"AC0951\",\"AC2210\",\"AC2220\",\"AC2221\",\"AC3210\",\"AC3220\",\"AC3221\",\"AC3420\",\"AC3421\",\"AC3737\",\"AC4220\",\"AC4221\",\"AMF765\"].indexOf(key) === -1; } catch (e) { return true; }"
-              }
+              "description": "Expose active carbon filter status to HomeKit."
             },
             "hepaFilter": {
               "title": "HEPA Filter",
               "type": "boolean",
-              "description": "Expose HEPA/NanoProtect filter status to HomeKit.",
-              "condition": {
-                "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.hepaFilter) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [].indexOf(key) === -1; } catch (e) { return true; }"
-              }
+              "description": "Expose HEPA/NanoProtect filter status to HomeKit."
             },
             "filterChangeThreshold": {
               "title": "Filter Change Threshold",
@@ -218,7 +176,23 @@
       "expandable": true,
       "expanded": false,
       "type": "section",
-      "items": ["debug", "cliDebug", "warn", "error", "extendedError"]
+      "items": [
+        "debug",
+        {
+          "key": "cliDebug",
+          "condition": {
+            "functionBody": "try { return model.debug } catch(e){ return false }"
+          }
+        },
+        "warn",
+        "error",
+        {
+          "key": "extendedError",
+          "condition": {
+            "functionBody": "try { return model.error } catch(e){ return false }"
+          }
+        }
+      ]
     },
     {
       "title": "Devices",
@@ -282,14 +256,25 @@
               }
             },
             "devices[].name",
-            "devices[].host",
+            {
+              "key": "devices[].host",
+              "condition": {
+                "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
+              }
+            },
             {
               "key": "devices[].port",
-              "type": "number"
+              "type": "number",
+              "condition": {
+                "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
+              }
             },
             {
               "key": "devices[].refreshInterval",
-              "type": "number"
+              "type": "number",
+              "condition": {
+                "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
+              }
             },
             {
               "key": "devices[]",
@@ -311,7 +296,32 @@
               "condition": {
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               },
-              "items": ["devices[].humidifier", "devices[].light", "devices[].temperature", "devices[].humidity"]
+              "items": [
+                {
+                  "key": "devices[].humidifier",
+                  "condition": {
+                    "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.humidifier) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [\"AC3420\",\"AC3421\",\"AC3737\"].indexOf(key) === -1; } catch (e) { return true; }"
+                  }
+                },
+                {
+                  "key": "devices[].light",
+                  "condition": {
+                    "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.light) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [\"AC0651\",\"AC0950\",\"AC0951\",\"AC3737\"].indexOf(key) === -1; } catch (e) { return true; }"
+                  }
+                },
+                {
+                  "key": "devices[].temperature",
+                  "condition": {
+                    "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.temperature) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [\"AC0651\",\"AC0950\",\"AC0951\",\"AC2210\",\"AC2220\",\"AC2221\",\"AC3210\",\"AC3220\",\"AC3221\",\"AC3420\",\"AC3421\",\"AC3737\",\"AC4220\",\"AC4221\",\"AMF765\"].indexOf(key) === -1; } catch (e) { return true; }"
+                  }
+                },
+                {
+                  "key": "devices[].humidity",
+                  "condition": {
+                    "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.humidity) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [\"AC0651\"].indexOf(key) === -1; } catch (e) { return true; }"
+                  }
+                }
+              ]
             },
             {
               "key": "devices[]",
@@ -323,11 +333,36 @@
                 "functionBody": "try { return model.devices[arrayIndices[0]].active } catch(e){ return false }"
               },
               "items": [
-                "devices[].sleepSpeed",
-                "devices[].allergicFunc",
-                "devices[].preFilter",
-                "devices[].carbonFilter",
-                "devices[].hepaFilter",
+                {
+                  "key": "devices[].sleepSpeed",
+                  "condition": {
+                    "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.sleepSpeed) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [\"AC3036\",\"AC1715\",\"AC3829\",\"AC0850\",\"AC0651\",\"AC0650\",\"AC1214\",\"AC2729\",\"AC2889\",\"AC2936\",\"AC2939\",\"AC2958\",\"AC2959\",\"AC3033\",\"AC3039\",\"AC3055\",\"AC3059\",\"AC3259\",\"AC3836\",\"AC3854\",\"AC3858\",\"AC4236\",\"AC4550\",\"AC4558\",\"AC5659\",\"AC5660\",\"AC0950\",\"AC0951\",\"AC2210\",\"AC2220\",\"AC2221\",\"AC3210\",\"AC3220\",\"AC3221\",\"AC3420\",\"AC3421\",\"AC3737\",\"AC4220\",\"AC4221\",\"AMF765\"].indexOf(key) === -1; } catch (e) { return true; }"
+                  }
+                },
+                {
+                  "key": "devices[].allergicFunc",
+                  "condition": {
+                    "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.allergicFunc) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [\"AC3036\",\"AC1715\",\"AC0850\",\"AC0651\",\"AC0650\",\"AC2936\",\"AC2939\",\"AC2958\",\"AC2959\",\"AC3033\",\"AC3039\",\"AC3055\",\"AC3059\",\"AC3836\",\"AC3854\",\"AC3858\",\"AC4236\",\"AC0950\",\"AC0951\",\"AC2210\",\"AC2220\",\"AC2221\",\"AC3210\",\"AC3220\",\"AC3221\",\"AC3420\",\"AC3421\",\"AC3737\",\"AC4220\",\"AC4221\",\"AMF765\"].indexOf(key) === -1; } catch (e) { return true; }"
+                  }
+                },
+                {
+                  "key": "devices[].preFilter",
+                  "condition": {
+                    "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.preFilter) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [].indexOf(key) === -1; } catch (e) { return true; }"
+                  }
+                },
+                {
+                  "key": "devices[].carbonFilter",
+                  "condition": {
+                    "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.carbonFilter) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [\"AC0651\",\"AC0950\",\"AC0951\",\"AC2210\",\"AC2220\",\"AC2221\",\"AC3210\",\"AC3220\",\"AC3221\",\"AC3420\",\"AC3421\",\"AC3737\",\"AC4220\",\"AC4221\",\"AMF765\"].indexOf(key) === -1; } catch (e) { return true; }"
+                  }
+                },
+                {
+                  "key": "devices[].hepaFilter",
+                  "condition": {
+                    "functionBody": "try { var device = model.devices[arrayIndices[0]]; if (device.hepaFilter) { return true; } var key = String(device.model || '').trim().toUpperCase().replace(/\\s+/g, '').replace(/\\/.*$/, ''); return [].indexOf(key) === -1; } catch (e) { return true; }"
+                  }
+                },
                 {
                   "key": "devices[].filterChangeThreshold",
                   "type": "number"

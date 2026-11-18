@@ -150,6 +150,40 @@ describe('config.schema', () => {
   //restate the schema. What is worth guarding is that the instructions stay
   //true of how the plugin actually behaves, and stay in step with the README:
   //copy in two places, describing code in a third, is what drifts.
+  //With a layout present the Homebridge UI ignores a condition on a schema
+  //property and takes it from the layout item instead, so one written on the
+  //property silently never applies. 2.3.0-beta.1 shipped #69 that way.
+  it('puts every condition on a layout item, where the UI reads it', () => {
+    const misplaced = [];
+    const walk = (node, trail) => {
+      if (node && typeof node === 'object') {
+        if (Object.prototype.hasOwnProperty.call(node, 'condition')) {
+          misplaced.push(trail);
+        }
+        for (const [key, value] of Object.entries(node)) {
+          walk(value, `${trail}.${key}`);
+        }
+      }
+    };
+    walk(schema.schema, 'schema');
+    assert.deepEqual(misplaced, [], 'move these conditions onto their layout items');
+  });
+
+  it('keeps the conditions the schema used to carry on its properties', () => {
+    const expectations = {
+      cliDebug: 'model.debug',
+      extendedError: 'model.error',
+      'devices[].host': 'model.devices[arrayIndices[0]].active',
+      'devices[].port': 'model.devices[arrayIndices[0]].active',
+      'devices[].refreshInterval': 'model.devices[arrayIndices[0]].active',
+    };
+    for (const [key, reads] of Object.entries(expectations)) {
+      const item = findLayoutItem(schema.layout, key);
+      assert.ok(item && item.condition, `${key} has no condition in the layout`);
+      assert.ok(item.condition.functionBody.includes(reads), `${key} should read ${reads}`);
+    }
+  });
+
   describe('config UI header instructions', () => {
     const header = schema.headerDisplay;
 
@@ -288,12 +322,17 @@ describe('config.schema', () => {
 //that condition the way the Homebridge UI does and compare the answer with the
 //runtime's, so a mapping change that is not copied into the schema fails here.
 describe('config.schema hides device options a model cannot use', () => {
-  const deviceProperties = schema.schema.properties.devices.items.properties;
+  //the Homebridge UI reads a condition from the layout item, not the schema
+  //property, once the schema has a layout (2.3.0-beta.1 hid nothing for that)
+  const conditionOf = (option) => {
+    const item = findLayoutItem(schema.layout, `devices[].${option}`);
+    return item && item.condition;
+  };
 
   //what the Homebridge UI evaluates: a function of the whole form model and
   //the indices of the array items the field sits in
   const visible = (option, device) => {
-    const condition = deviceProperties[option].condition;
+    const condition = conditionOf(option);
     assert.ok(condition && condition.functionBody, `${option} has no condition`);
     const run = new Function('model', 'arrayIndices', condition.functionBody);
     return run({ devices: [{ active: true }, device] }, [1]);
@@ -305,7 +344,7 @@ describe('config.schema hides device options a model cannot use', () => {
   it('copies, for every option, exactly the models the capability table says lack it', () => {
     for (const option of deviceOptions) {
       assert.equal(
-        deviceProperties[option].condition && deviceProperties[option].condition.functionBody,
+        conditionOf(option) && conditionOf(option).functionBody,
         optionCondition(option, lackingModels(option)),
         `config.schema.json: ${option}'s condition no longer matches the capability table; replace it with the expected functionBody`
       );
@@ -366,7 +405,7 @@ describe('config.schema hides device options a model cannot use', () => {
   });
 
   it('shows the option rather than failing when the form model is not there yet', () => {
-    const run = new Function('model', 'arrayIndices', deviceProperties.sleepSpeed.condition.functionBody);
+    const run = new Function('model', 'arrayIndices', conditionOf('sleepSpeed').functionBody);
     assert.equal(run(undefined, [0]), true);
     assert.equal(run({ devices: [] }, [0]), true);
   });
