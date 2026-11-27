@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.3.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v2.2.0...v2.3.0) (2026-11-27)
+
+
+### Features
+
+* **config:** offer only the device options the model can use ([#218](https://github.com/atdr/homebridge-philipsair-platform/issues/218)) ([24b5d69](https://github.com/atdr/homebridge-philipsair-platform/commit/24b5d698cb29a0dc294312d673b83a454303ebfd))
+
+
+### Bug Fixes
+
+* **handler:** send the empty tank Auto write once, not per reading ([#217](https://github.com/atdr/homebridge-philipsair-platform/issues/217)) ([57ca3dc](https://github.com/atdr/homebridge-philipsair-platform/commit/57ca3dc715e8a1f6f863fe0dab78d4502c520745))
+
 ## [2.2.0](https://github.com/atdr/homebridge-philipsair-platform/compare/v2.1.0...v2.2.0) (2026-11-17)
 
 
